@@ -8,7 +8,7 @@
 
 ## Phase 0 Repository and Documentation Initialization
 
-状态：待 Git baseline 后关闭
+状态：已完成
 
 - [x] 完整阅读 v0.2 Word 设计输入。
 - [x] 建立 README.md、AGENTS.md 和 CHANGELOG.md。
@@ -19,14 +19,14 @@
 - [x] 将 Phase 1 拆分为可验证里程碑并设置技术决策门槛。
 - [x] 核对文档间的阶段、架构、协议、任务与文件时序和能力状态。
 - [x] 用户确认 Phase 0 最终文档。
-- [ ] 形成明确的 Git baseline commit。
+- [x] 形成明确的 Git baseline commit。
 - [x] 用户已授权在形成 Git baseline 后进入 Phase 1。
 
-baseline commit: pending
+baseline commit: bc8d747dfc41a375c31698073005857c238ede51
 
 ## Phase 1 Probe and Server TCP Control Link
 
-状态：未开始
+状态：进行中
 
 Phase 1 保持一个总阶段，按 Phase 1A 至 Phase 1E 顺序推进。每个里程碑必须形成可构建、可运行、可测试的小闭环；不得一次性铺开整个 Phase 1。
 
@@ -41,20 +41,22 @@ Phase 1 保持一个总阶段，按 Phase 1A 至 Phase 1E 顺序推进。每个�
 - [x] 交叉编译策略：后续使用 CMake toolchain files 适配 mipsel、ARM、ARM64；具体工具链版本按真实设备补充。
 - [x] REGISTER、REGISTER_ACK、HEARTBEAT 和 HEARTBEAT_ACK 的完整字段契约与注册失败响应已写入 PROTOCOL.md。
 
-Management Server 使用 Go 的 Accepted 决策保持不变。当前唯一的进入 Phase 1A 代码门槛是：在真实 Git 仓库中先形成 Phase 0 baseline commit。
+Management Server 使用 Go 的 Accepted 决策保持不变。Phase 0 Git baseline 与 Phase 1A 均已完成。
 
 ### Phase 1A TCP Session
 
-状态：未开始
+状态：已完成
 
-- [ ] TCP framing。
-- [ ] Header encode 和 decode。
-- [ ] REGISTER。
-- [ ] REGISTER_ACK。
-- [ ] HEARTBEAT。
-- [ ] HEARTBEAT_ACK。
-- [ ] 基础断线重连。
-- [ ] 形成 Phase 1A 可构建、可运行、可测试闭环。
+- [x] TCP framing，包括半包 Header、半包 Payload 和一次读取多帧。
+- [x] 20-byte Header encode / decode 与 Big Endian 整数处理。
+- [x] REGISTER 与字段校验。
+- [x] REGISTER_ACK success=true / false。
+- [x] HEARTBEAT。
+- [x] HEARTBEAT_ACK 与 reply_to 校验。
+- [x] heartbeat_interval 与 3 倍失联判断。
+- [x] 1/2/5/10/30 秒基础断线重连。
+- [x] 重连后重新 REGISTER 并生成新 session_id。
+- [x] Linux x86_64 Server + Probe 可构建、可运行、可测试闭环。
 
 ### Phase 1B Task and Exec
 
@@ -76,7 +78,6 @@ Management Server 使用 Go 的 Accepted 决策保持不变。当前唯一的进
 - [ ] 乱序结果。
 - [ ] task_id 幂等。
 - [ ] TCP 重连后的任务关联。
-- [ ] session_id 更新。
 - [ ] Probe 进程生命周期内的任务去重。
 - [ ] 形成 Phase 1C 可构建、可运行、可测试闭环。
 
@@ -108,7 +109,7 @@ Management Server 使用 Go 的 Accepted 决策保持不变。当前唯一的进
 - [ ] 文件中断。
 - [ ] Phase 1 完整验收。
 
-Phase 1 必须满足 [PROTOCOL.md](PROTOCOL.md) 的规则和验收基线。Phase 0 已获用户确认，Phase 1A 前置设计决策已完成。在真实仓库形成 Phase 0 Git baseline commit 后即可开始 Phase 1A。
+Phase 1 必须满足 [PROTOCOL.md](PROTOCOL.md) 的规则和验收基线。Phase 0 与 Phase 1A 已完成；未获得明确授权前停止，不进入 Phase 1B。
 
 ## Phase 2 Device Management
 
