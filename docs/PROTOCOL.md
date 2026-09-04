@@ -3,7 +3,7 @@
 协议版本：Protocol v1  
 基线来源：v0.2 Word 设计输入  
 日期：2026-09-05  
-状态：已确认的互操作设计；Phase 1A 与 Phase 1B 子集已实现
+状态：已确认的互操作设计；Phase 1A、Phase 1B 与 Phase 1C 子集已实现
 
 本文是 [路由器探针_TCP长连接控制协议设计_v0.2.docx](../路由器探针_TCP长连接控制协议设计_v0.2.docx) 中 TCP 协议部分的仓库内维护版本，并包含 Phase 0 最终确认的 Protocol v1 互操作细化。这些规则不改变 TCP 长连接、20-byte Header、JSON Control 和 Binary FILE_CHUNK 的核心设计。
 
@@ -462,7 +462,7 @@ TASK received
 - 建议设置最大并发数，例如默认 4；文件传输和 Tunnel 创建可以单独设置并发额度。
 - 在同一个 Probe 进程生命周期内，即使 TCP 断开并重新连接，同一个已经接受的 task_id 也不得再次执行副作用操作。
 - 对 RUNNING task_id，Probe 返回当前状态；对已完成且仍在本地幂等缓存范围内的 task_id，Probe 返回已有结果，不重新执行。
-- 幂等缓存容量和淘汰策略属于实现配置，后续确定。
+- 幂等缓存容量属于实现配置；Phase 1C 保留全部已接受身份与结果，容量不足时拒绝新任务，具体边界见本文末尾。
 - Probe 自身重启后的 task_id 缓存、任务恢复和未上报结果持久化仍为 TBD。
 - message_id 只解决一条 TCP 会话中的传输追踪；task_id 才是业务幂等键。
 
@@ -780,34 +780,37 @@ Phase 0 最终细化已经解决 message_id、reply_to 与 RESPONSE、BINARY 与
 | Server 重启后的任务恢复 | 任务、Session 和传输状态的恢复策略尚未决定 |
 | 等待中的文件任务 | 一个连接只允许一个 active file transfer；其他文件任务排队还是拒绝尚未决定 |
 | BINARY/type 不一致等协议错误的严重程度 | 返回 ERROR 还是直接关闭连接的逐错误矩阵尚未决定 |
-| 幂等缓存配置 | 同一 Probe 进程生命周期内必须去重；缓存容量和淘汰策略尚未决定 |
+| Probe 进程重启后的缓存 | Phase 1C 进程内有界且不淘汰；跨进程持久化仍未决定 |
 
 Tunnel 数据面、Relay 架构、数据库存储、OpenAPI 正式资源模型和 WebSocket 事件协议不在本协议中设计，分别继续由 ARCHITECTURE 和 API 文档标记为 TBD。
 
-### Phase 1C 接管审查：待确认的互操作补充（2026-09-05）
+### Phase 1C 重复任务与跨连接结果契约（2026-09-05）
 
-状态：**待讨论，以下建议尚非规范，不得直接据此实现。** 审查见 [PHASE1AB_REVIEW.md](PHASE1AB_REVIEW.md)。现有进程生命周期去重、exec 断线继续执行与补报、TASK_ACK 最终拒绝规则保持不变。
+状态：**已由用户明确确认，规范性契约；决策见 ADR-015。** 启动检查曾发现以下缺口，用户随后确认建议方案。历史原因与影响见 [PHASE1AB_REVIEW.md](PHASE1AB_REVIEW.md)。
 
-| 缺口与影响 | 建议方案（待明确确认） |
+| 收到的 TASK | Probe 响应 |
 | --- | --- |
-| 重复 TASK 的完整响应契约缺失：当前只有 queued/rejected ACK 示例，RUNNING 的“返回当前状态”未完整规定 wire 字段，已完成任务是否还要 ACK 未明；独立实现可能因 ACK.state 或帧顺序不一致而断开连接 | 重复 QUEUED 返回 accepted=true/state=queued；重复 RUNNING 返回 accepted=true/state=running；缓存完成任务返回 accepted=true/state=success/failed/timeout 的 ACK，再发送原 TASK_RESULT。每个 ACK 的 reply_to 都引用本次 TASK 帧，RESULT 始终不设 RESPONSE。需确认该枚举及顺序后冻结契约 |
-| 同一 task_id 携带不同任务内容时，原任务状态与拒绝语义不明确；直接 accepted=false 会被解释为把原业务任务最终拒绝 | 比较 type、timeout、params 的业务字段，created_at 不参与执行身份；冲突通过现有 ERROR/INVALID_PAYLOAD 响应本次 TASK，保留原任务，绝不重执行。字段比较与冲突响应仍待确认 |
-| 跨连接补报的 ACK 丢失和重复 RESULT 情形未完整定义；当前 Server 必须先收到 ACK 且拒绝重复 RESULT，连接恢复仍可能丢失最终结果 | 允许同 device_id 的已派发 task_id 在缺少 ACK 时接收补报 RESULT；相同终态重复 RESULT 幂等处理，冲突终态不覆盖首个结果；已 rejected 的业务任务不得被 RESULT 改写。Probe 在新会话补报缓存结果，Server 保留发送结果不确定的任务记录。具体重放范围与冲突处理需确认 |
+| 首次接受 | 登记 task_id 后发送 accepted=true/state=queued 的 TASK_ACK，异步执行；ACK 写失败也保留已接受任务 |
+| 重复 QUEUED | accepted=true/state=queued 的 TASK_ACK，不再次入队 |
+| 重复 RUNNING | accepted=true/state=running 的 TASK_ACK，不再次执行 |
+| 重复已完成任务 | 先发送 accepted=true/state=success/failed/timeout 的 TASK_ACK，再发送原缓存 TASK_RESULT |
+| 同 task_id 的执行内容冲突 | ERROR/INVALID_PAYLOAD 响应本次 TASK；保留原任务，绝不重执行，不能用 accepted=false 拒绝原业务任务 |
+| 新任务无效、不支持或容量不足 | accepted=false/state=rejected 的 TASK_ACK；不再发送该任务的 RESULT |
 
-补充约束：重发 TASK 的传输关联必须记录 session_id/message_id/task_id，不得把旧连接的裸 message_id 用作新连接 ACK 的依据。缓存容量属于实现配置；无论采用何种容量与淘汰策略，都必须保持同一 Probe 进程生命周期内不重执行已接受 task_id。上报 running_tasks 可以复用既有 HEARTBEAT，不据此新增 REGISTER 字段或其他消息类型。
+每个 ACK 的 reply_to 都引用本次 TASK 帧，设置 RESPONSE；RESULT 始终不设 RESPONSE。新任务一经接受，ACK 的网络发送是否成功都不改变接受事实。
 
-这些问题属于规范性设计尚未完整定义的 1C 互操作细节；R1-R4 属于实现缺陷，已在用户后续授权下修复，证据见审查报告文末。修复不代表本表建议已获确认。若最终确认方案需要改变 Accepted ADR，必须另建 superseding ADR，不能静默修改 ADR-009/010。
+执行身份比较采用已解析的 type、timeout、params.command、params.cwd、params.env。env 键顺序无关，省略 cwd/env 与空字符串/空对象等价；created_at 与未知扩展字段不参与比较。Protocol v1 不引入 canonical JSON。
 
-### Phase 1C 启动检查（2026-09-05）
+每次新会话 REGISTER_ACK 成功后，Probe 补报全部缓存完成结果，包括旧连接上写成功但没有业务接收确认的结果；排队与运行中 exec 不因 TCP 断开终止，完成后通过可用连接发送。补报不伪造旧 TASK_ACK，不增加 RESULT_ACK 消息。running_tasks 使用既有 HEARTBEAT，不新增 REGISTER 字段。
 
-用户本次授权仅限 ROADMAP Phase 1C，并明确要求发现互操作设计缺口时先记录汇报。检查结论：上表三项仍未获得明确确认，暂停实现，未改变协议规范或 Accepted ADR。
+Server 按 device_id/task_id 接受已派发任务的迟到结果，包括缺少 ACK 或派发结果不确定的任务。未知 task_id、错误 device_id、未派发或已 rejected 的任务不能被 RESULT 改写。重复 RESULT 要求已定义结果字段全部相同（包括 result 对象），不能仅比较 status；对象键顺序无关。相同结果幂等成功，冲突返回 ERROR/INVALID_PAYLOAD，保留首个终态。迟到或重复 ACK 不得把 running 回退为 queued，也不得回退已有终态；完成态 ACK 本身不替代 RESULT。
 
-核对事实：Git HEAD 为 `f0ed826`；工作区另有未提交的 R1-R4 修复。`internal/task/service.go` 在 HEAD 和工作区均只记录单个 MessageID，accepted ACK 仅允许 queued，拒绝重复 ACK/RESULT，RESULT 必须已有 accepted ACK；`probe/src/client.cpp` 的 TaskWorker 仍属于单次 RunSession，断线析构停止 worker，无跨连接任务登记和结果缓存。上述差距属于未实现的 Phase 1C，不能靠当前 A/B 测试通过消除。
+每次重发 TASK 必须保持原执行内容，并分别记录 session_id/message_id/task_id。ACK 必须匹配这组三元组，不能跨连接比较裸 message_id。Server 不自动生成替代 task_id，也不根据 boot_id 推断同一 Probe 进程（boot_id 可能属于整机启动）。
 
-供确认的补充细节（仍为建议，不是规范）：
+缓存采用有界容量并保留全部已接受身份与结果，容量不足时拒绝新任务，不通过淘汰允许重执行。容量和并发数是实现配置。
 
-- 任务内容比较采用已解析的执行字段 type、timeout、command、cwd、env；env 键顺序无关，省略 cwd/env 与空字符串/空对象等价，忽略 created_at 和未知扩展字段。内容冲突按上表返回 ERROR/INVALID_PAYLOAD，原任务保持不变。
-- 每次新会话 REGISTER_ACK 成功后，Probe 补报所有仍缓存的已完成 TASK_RESULT，包括旧连接上写成功但没有业务接收确认的结果；运行中任务完成后在可用连接上上报。补报不伪造旧 TASK_ACK，不增加 RESULT_ACK 消息。
-- “重复结果”建议指已定义业务结果字段全部相同，而非仅 status 相同；重复结果幂等成功，冲突结果返回 ERROR/INVALID_PAYLOAD 并保留首个终态，rejected 不可被覆盖。已派发但缺 ACK 的同 device_id/task_id 可接收结果；ACK 仍须匹配本次 session_id/message_id/task_id 派发记录。
+### Phase 1C 当前实现配置与长度限制
 
-缓存大小与并发数仍是实现配置。Phase 1C 可采用有界缓存且不淘汰已接受任务身份/结果，容量耗尽时拒绝新任务，以同时保持轻量与进程生命周期去重；不引入进程重启恢复或持久化。具体值在协议确认后的实现中确定。
+当前默认 4 workers、最多 128 个已接受任务、8 MiB 身份/结果计费预算。接受时为结果预留当前协商 max_control_payload，并按两倍输入字节计费身份；完成后释放未使用的结果预留。该预算不包含线程栈、容器节点及运行时临时输出，不是进程 RSS 上限。
+
+缓存 RESULT 按任务接受时的协商上限编码一次。后续会话若把 max_control_payload 降至该缓存帧以下，Probe 保留原结果并延后补报，不改写或发送超限帧；收到该任务的重复 TASK 时在完成态 ACK 后返回 ERROR/PAYLOAD_TOO_LARGE。恢复足够大的协商上限后继续补报。这个长度限制不能被解释为可以重新执行任务。Probe / Server 进程重启后的恢复与持久化仍为 TBD。

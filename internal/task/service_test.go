@@ -13,10 +13,10 @@ func TestServiceAcceptedTaskLifecycle(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := service.MarkDispatched(spec.ID, 2); err != nil {
+	if err := service.MarkDispatched(spec.ID, "session-1", 2); err != nil {
 		t.Fatal(err)
 	}
-	if err := service.HandleAck("device-1", Ack{ReplyTo: 2, TaskID: spec.ID, Accepted: true, State: "queued"}); err != nil {
+	if err := service.HandleAck("device-1", "session-1", Ack{ReplyTo: 2, TaskID: spec.ID, Accepted: true, State: "queued"}); err != nil {
 		t.Fatal(err)
 	}
 	result := Result{
@@ -50,13 +50,13 @@ func TestServiceRejectsMismatchedAckAndCompletesRejection(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := service.MarkDispatched(spec.ID, 7); err != nil {
+	if err := service.MarkDispatched(spec.ID, "session-1", 7); err != nil {
 		t.Fatal(err)
 	}
-	if err := service.HandleAck("device-1", Ack{ReplyTo: 8, TaskID: spec.ID, Accepted: true, State: "queued"}); err == nil {
+	if err := service.HandleAck("device-1", "session-1", Ack{ReplyTo: 8, TaskID: spec.ID, Accepted: true, State: "queued"}); err == nil {
 		t.Fatal("mismatched reply_to was accepted")
 	}
-	if err := service.HandleAck("device-1", Ack{ReplyTo: 7, TaskID: spec.ID, Accepted: false, State: "rejected"}); err != nil {
+	if err := service.HandleAck("device-1", "session-1", Ack{ReplyTo: 7, TaskID: spec.ID, Accepted: false, State: "rejected"}); err != nil {
 		t.Fatal(err)
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second)

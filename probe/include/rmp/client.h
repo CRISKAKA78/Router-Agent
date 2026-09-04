@@ -2,11 +2,15 @@
 #define RMP_CLIENT_H
 
 #include <cstdint>
+#include <cstddef>
 #include <string>
 
 namespace rmp {
 
 struct ClientConfig {
+    unsigned task_workers = 4;
+    std::size_t task_capacity = 128;
+    std::size_t task_cache_bytes = 8U * 1024U * 1024U;
     std::string server_host;
     std::string server_port;
     std::string device_id;

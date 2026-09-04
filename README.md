@@ -2,7 +2,7 @@
 
 本项目用于建设一套由 Management Server 和路由器端 Probe 组成的远程运维平台。Management Server 统一承载设备、任务、文件与工具、Tunnel 和对外 API 等核心能力；Probe 主动连接 Server，并向上提供轻量、通用的设备控制原语。
 
-Phase 0 设计已经完成最终复核并形成 Git baseline。Phase 1A TCP Session 与 Phase 1B Task and Exec 已实现并通过 Linux x86_64 构建与测试；项目当前停止在 Phase 1B，等待后续阶段的明确授权。
+Phase 0 设计已经完成最终复核并形成 Git baseline。Phase 1A TCP Session、Phase 1B Task and Exec 与 Phase 1C 并发/幂等/重连任务关联已实现并通过 Linux x86_64 构建与测试；当前完成 Phase 1C 后停止等待验收，未进入 Phase 1D。
 
 ## 系统关系
 
@@ -29,7 +29,9 @@ Server 与 Probe 之间使用 Probe 主动发起的 TCP 长连接。该连接负
 - 当前可构建并运行 Go Management Server 与 C++11 Probe。
 - Probe 可主动连接、REGISTER、进入 ONLINE、收发 HEARTBEAT，并在断线后按 1/2/5/10/30 秒退避重连和取得新 session_id。
 - Management Server 可通过内部 Task Service 向在线 device_id 下发 exec TASK，等待 TASK_ACK 与 TASK_RESULT，并按 task_id 关联结果。
-- Probe 在线态可路由 HEARTBEAT_ACK 与 TASK；exec 由单 worker 在 Reader 之外通过 `/bin/sh -c` 执行，支持 cwd、env、timeout、独立 stdout/stderr 和有界输出。
+- Probe 在线态可路由 HEARTBEAT_ACK 与 TASK；exec 由默认 4 workers 在 Reader 之外通过 `/bin/sh -c` 执行，支持 cwd、env、timeout、独立 stdout/stderr 和有界输出。
+- 同一 Probe 进程内的已接受 task_id 不重复执行；TCP 断线不停止 exec，新会话补报缓存结果，Server 按 task_id 关联并幂等处理重复结果。
+- 内部 ResendTask 重发原任务，按 session_id/message_id/task_id 记录各次派发；没有新增外部任务入口。默认缓存最多 128 个已接受任务，8 MiB 身份/结果计费预算，满后拒绝新任务。
 - baseline commit: `bc8d747dfc41a375c31698073005857c238ede51`。
 - Phase 1A commit: `cd722b6f3fd6cfe5e8ccded256c5295828e4372f`。
 - Probe 技术栈为 C++11 + CMake；Phase 1A 已在 Linux x86_64 完成首轮验证。
@@ -37,7 +39,7 @@ Server 与 Probe 之间使用 Probe 主动发起的 TCP 长连接。该连接负
 
 ## 当前不能做什么
 
-仓库目前不支持多任务并发执行、task_id 幂等、断线任务恢复、文件传输、Process Manager 或 Tunnel，也不提供 HTTP API、WebSocket、数据库、任何 UI、CLI、MCP 或 AI Agent。exec 当前仅通过 Go 内部接口和测试调用，没有外部 CLI 或 API 入口。
+仓库目前不支持 Probe/Server 进程重启后的任务恢复、文件传输、Process Manager 或 Tunnel，也不提供 HTTP API、WebSocket、数据库、任何 UI、CLI、MCP 或 AI Agent。exec 当前仅通过 Go 内部接口和测试调用，没有外部 CLI 或 API 入口。
 
 ## 文档导航
 

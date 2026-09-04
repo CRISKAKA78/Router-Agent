@@ -86,7 +86,7 @@ Protocol v1 的 Phase 1 不实现 TASK_CANCEL。未来 API 是否提供任务取
 - 参数校验、编码、长度限制、离线或发送前失败：空 taskID、error；不保留本次未派发任务。
 - 已尝试传输写入但返回错误：非空 taskID，且 `errors.Is(err, gateway.ErrDispatchUncertain)` 为 true；保留任务与 message_id，可通过 TaskSnapshot 查询。错误信息包含原 session_id；连接已关闭并废弃。
 
-最后一种情况不能推断 Probe 未执行，不得自动创建新 task_id 重试副作用操作。调用者必须先保存返回的 taskID，再处理 error。保留记录不等于实现重连补报或重发；那些能力仍属于待确认、未实现的 Phase 1C。
+最后一种情况不能推断 Probe 未执行，不得自动创建新 task_id 重试副作用操作。调用者必须先保存返回的 taskID，再处理 error。Phase 1C 已实现同 task_id 重发与跨连接补报，不能自动创建替代任务。
 
 当前没有已发布 API，也没有客户端兼容承诺。正式 API 设计后，新增或改变资源、事件或错误行为时必须同步更新本文件、实现、测试、PROJECT_STATUS 和 CHANGELOG。
 
@@ -102,3 +102,10 @@ Protocol v1 的 Phase 1 不实现 TASK_CANCEL。未来 API 是否提供任务取
 - OpenAPI 是否作为正式契约及其生成和校验流程。
 - API 兼容与废弃策略。
 - 浏览器跨域、限流、审计和可观测性要求。
+
+### Phase 1C 内部任务接口补充
+
+- `gateway.Server.ResendTask(ctx, taskID) error`：从 Task Service 获取原规格，向该 device_id 当前在线会话重发同一个 task_id；记录新的 session_id/message_id。不会创建新任务或改变 command、cwd、env、timeout。未知、离线、已 rejected、上下文取消或发送前失败返回错误；传输写入后失败返回 ErrDispatchUncertain，原任务及派发记录保持。
+- `TaskSnapshot` 包含 Dispatches，每项记录 SessionID、MessageID、对应 Ack；旧 MessageID 字段表示最近一次派发编号，不能单独用于跨会话关联。Snapshot 返回副本。
+- `WaitTaskResult` 等待真正 RESULT 或最终拒绝；即使 ACK.state 为完成态，也继续等待 RESULT。缺 ACK 的已派发结果可完成等待；重复 ACK/RESULT 不重复完成或回退状态。具体 wire 契约以 PROTOCOL.md / ADR-015 为准。
+- Server 只在内存中保留这些状态；进程重启后的恢复仍未实现。此处均为 Go 内部能力，没有新增 HTTP、WebSocket、CLI、MCP 或 AI Adapter。

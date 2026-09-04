@@ -333,6 +333,6 @@ func parseTaskResult(payload []byte) (task.Result, error) {
 	}
 	return task.Result{
 		TaskID: taskID, Status: status, StartedAt: int64(startedAt), FinishedAt: int64(finishedAt),
-		ExitCode: int(exitCode), Stdout: stdout, Stderr: stderr, Truncated: truncated,
+		ExitCode: int(exitCode), Stdout: stdout, Stderr: stderr, Truncated: truncated, Details: append(json.RawMessage(nil), resultRaw...),
 	}, nil
 }

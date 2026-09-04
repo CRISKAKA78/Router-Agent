@@ -56,7 +56,8 @@ bool ParseTask(const std::string& input, ExecTask* task, std::string* error);
 std::string TaskAckPayload(std::uint64_t reply_to,
                            const std::string& task_id,
                            bool accepted,
-                           const std::string& reason);
+                           const std::string& reason,
+                           const std::string& state = "");
 
 ExecResult ExecuteExec(const ExecTask& task, const std::atomic<bool>* stop_requested);
 

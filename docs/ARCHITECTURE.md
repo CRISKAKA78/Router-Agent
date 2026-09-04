@@ -1,6 +1,6 @@
 # 路由器远程运维平台架构基线
 
-本文定义 Management Server、Probe、对外客户端和传输通道之间的长期边界。Phase 1A 已实现 TCP Session，Phase 1B 已实现 Task and Exec 子集；其余模块仍是已经确认的架构约束和后续实现方向，不表示已经实现。
+本文定义 Management Server、Probe、对外客户端和传输通道之间的长期边界。Phase 1A 已实现 TCP Session，Phase 1B 已实现 Task and Exec，Phase 1C 已实现并发、进程内幂等和跨 TCP 会话结果补报；其余模块仍是已经确认的架构约束和后续实现方向，不表示已经实现。
 
 ## 项目目标
 
@@ -201,7 +201,7 @@ repo/
 └─ CHANGELOG.md
 ~~~
 
-当前实际仓库已包含 `cmd/server`、`internal/protocol`、`internal/gateway`、`internal/task` 和 `probe`，实现了 Phase 1A 的 framing、注册、心跳与基础重连，以及 Phase 1B 的 TASK、TASK_ACK、TASK_RESULT、单 worker exec、timeout 和基础任务状态；示意中的其他模块尚未创建或实现。
+当前实际仓库已包含 `cmd/server`、`internal/protocol`、`internal/gateway`、`internal/task` 和 `probe`，实现了 Phase 1A 的 framing、注册、心跳与基础重连，以及 Phase 1B 的 TASK、TASK_ACK、TASK_RESULT、exec、timeout 和基础任务状态，Phase 1C 的并发、去重和跨连接补报；示意中的其他模块尚未创建或实现。
 
 ## 已确认的架构约束
 
@@ -228,3 +228,10 @@ repo/
 - Management Server 的配置格式、日志、指标和运维接口。
 - API 的资源模型、认证、错误格式和实时事件协议。
 - 各前端的实现顺序和技术栈。
+
+## Phase 1C 实际模块职责
+
+- Probe TaskManager 在 RunClient 进程生命周期中拥有任务表、固定 worker pool 和有界结果缓存；RunSession 只处理连接。worker 不持有 socket，TCP 断开时继续执行已接受的 exec。
+- Connection / Message Router 负责 ACK、冲突 ERROR、心跳和缓存结果发送；同一网络线程串行发送帧。在线 poll 最多等待 50 ms，每轮发送一个待补报 RESULT 并继续处理控制消息。
+- TaskManager 的登记、状态和缓存共用互斥锁；执行和网络写不持有该锁。新连接开始新的补报轮次，不清空任务身份。默认并发数和缓存计费见 PROTOCOL.md。
+- Server Task Service 保存任务及各次 session_id/message_id 派发记录，处理 ACK、RESULT 幂等和等待；Gateway 适配 CreateExec / ResendTask / WaitTaskResult / TaskSnapshot，不引入外部 API。

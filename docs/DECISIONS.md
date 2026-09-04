@@ -139,4 +139,16 @@
 
 ### 2026-09-05 Phase 1C 接管审查补充
 
-尚未形成 Accepted 决策：重复 TASK 在 queued/running/完成态的 ACK 与 RESULT 契约、同 task_id 参数冲突响应、ACK 丢失及重复 RESULT 的跨连接补报规则。原因、影响及建议已记录在 [PROTOCOL.md](PROTOCOL.md) 末尾，审查证据见 [PHASE1AB_REVIEW.md](PHASE1AB_REVIEW.md)。这些是待确认方案，不得按已批准设计实现；既有 ADR 保持原文。
+审查时尚未确认的重复 TASK、内容冲突和补报契约，在启动检查后由用户明确确认，现见 ADR-015。审查历史保留在 [PHASE1AB_REVIEW.md](PHASE1AB_REVIEW.md)，既有 Accepted ADR 保持原文。
+
+## ADR-015 Phase 1C 重复任务与跨连接结果契约
+
+- 状态：Accepted
+- 日期：2026-09-05
+- 确认依据：用户在 Phase 1C 启动检查汇报后明确回复“确认”，接受 PROTOCOL.md 记录的三项契约及比较、重放范围建议。
+- 性质：补充 ADR-009/010 未展开的互操作细节，不取代其传输编号、最终拒绝或进程生命周期去重决定。
+- 决定：重复 queued/running 返回 accepted=true 及对应 state；完成态先发送 accepted=true/state=success/failed/timeout 的 TASK_ACK，再返回原 TASK_RESULT。ACK.reply_to 关联本次 TASK，RESULT 不设置 RESPONSE。
+- 执行身份：比较已解析 type、timeout、command、cwd、env；env 键顺序无关，省略 cwd/env 与空值等价；忽略 created_at 和未知扩展字段。相同 ID 内容冲突通过 ERROR/INVALID_PAYLOAD 响应本次 TASK，保留原任务，绝不重执行。
+- 结果恢复：每次成功 REGISTER 后重放缓存完成结果，包括旧连接上写成功的结果；运行中 exec 继续执行，完成后通过可用连接发送。不得伪造旧 ACK，不新增 RESULT_ACK。Server 对同 device_id 的已派发 task_id 可以在缺 ACK 时接受结果。
+- 幂等终态：已定义结果业务字段完全相同才是重复 RESULT；幂等成功，冲突返回 ERROR/INVALID_PAYLOAD 且不覆盖首个终态；rejected 不可被结果改写。ACK 必须匹配 session_id/message_id/task_id 派发记录。
+- 资源边界：允许有界缓存，不淘汰已接受任务的身份与结果，容量不足时拒绝新任务。具体容量和 worker 数属于实现配置；Probe 与 Server 重启恢复仍为 TBD。

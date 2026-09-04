@@ -12,6 +12,7 @@ add_library(rmp_probe_core STATIC
     src/frame.cpp
     src/json.cpp
     src/task.cpp
+    src/task_manager.cpp
 )
 target_include_directories(rmp_probe_core PUBLIC include)
 target_link_libraries(rmp_probe_core PUBLIC Threads::Threads)
@@ -29,4 +30,8 @@ if(BUILD_TESTING)
     target_link_libraries(probe_tests PRIVATE rmp_probe_core)
     add_test(NAME probe_tests COMMAND probe_tests)
     set_tests_properties(probe_tests PROPERTIES TIMEOUT 30)
+    add_executable(task_manager_tests tests/task_manager_tests.cpp)
+    target_link_libraries(task_manager_tests PRIVATE rmp_probe_core)
+    add_test(NAME task_manager_tests COMMAND task_manager_tests)
+    set_tests_properties(task_manager_tests PROPERTIES TIMEOUT 30)
 endif()

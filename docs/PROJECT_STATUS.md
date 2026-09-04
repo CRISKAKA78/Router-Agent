@@ -4,56 +4,50 @@
 
 ## 当前阶段
 
-Phase 0、Phase 1A TCP Session、Phase 1B Task and Exec 已形成可验证里程碑。接管审查 R1-R4 已按用户授权修复并通过回归；本次 Phase 1C 启动检查完成，因三项互操作契约仍未确认而暂停实现，详见 PROTOCOL.md 末尾。用户已授权 Phase 1C，但要求设计缺口先记录汇报。
+Phase 0、Phase 1A、Phase 1B 与 Phase 1C 已完成实现和验证。Phase 1C 的三项互操作补充已由用户明确确认并写入 PROTOCOL.md / ADR-015。当前准备提交、推送本次交付，然后停止等待验收；Phase 1D 未开始。
 
-baseline commit: bc8d747dfc41a375c31698073005857c238ede51
-
-Phase 1A commit: cd722b6f3fd6cfe5e8ccded256c5295828e4372f
-
-Phase 1B implementation commit: 6ed2434d646938617088f62030f3749a797616c0
-
-当前 HEAD：`f0ed826`。本次 R1-R4 修复和审查文档在工作区，尚未提交或推送；没有 Phase 1C commit。
+- baseline commit: `bc8d747dfc41a375c31698073005857c238ede51`
+- Phase 1A commit: `cd722b6f3fd6cfe5e8ccded256c5295828e4372f`
+- Phase 1B implementation commit: `6ed2434d646938617088f62030f3749a797616c0`
+- Phase 1A/B R1-R4 修复与启动检查记录 commit: `59e65b4`
+- Phase 1C implementation commit: pending（实现和完整本地回归已完成，待创建本阶段提交）
 
 ## 当前可用能力
 
-- Go Management Server：TCP framing、注册、心跳、会话、内部 CreateExec / WaitTaskResult / TaskSnapshot，按 task_id 接收单次 ACK/RESULT。
-- C++11 + CMake Probe：主动连接、注册、心跳、重连；单 worker 执行 `/bin/sh -c`，支持 cwd/env、独立 stdout/stderr、timeout 和输出截断。
-- Server 完整写出 REGISTER_ACK 后发布会话；每条连接的主动 TASK 与 ACK/ERROR 共用串行 writer 和 message_id。
-- Server 传输写失败或 message_id 耗尽时关闭并废弃 writer。发送结果不确定时 CreateExec 返回非空 task_id 与 ErrDispatchUncertain，保留派发记录，不自动重发或新建替代任务。发送前失败不保留任务。调用契约见 [API.md](API.md)。
-- Probe socket 设置 FD_CLOEXEC；socket/pipe 创建及 FD_CLOEXEC 设置与 fork 共用互斥锁，兼容不支持原子 close-on-exec 创建的目标。
-- timeout 或 worker 停止时向原进程组发送 TERM，完成 200 ms grace 后 KILL；在仍需发送组信号时保留直接子进程 PID，避免过早回收后 PID 重用。TERM 后约 400 ms 结束残留 pipe 排空，强制关闭时设置 truncated；直接子进程由 waitpid 回收。
-- 两路输出各保留最多 1 MiB；通常持续排空，最终结果适配协商控制帧大小。TASK_ACK accepted=false 仍为最终拒绝，TASK_RESULT 不设置 RESPONSE。
+- Go Server 与 C++11 Probe：TCP framing、注册、心跳、失联判断、重新注册和新 session_id；Server 注册 ACK 完整写出后才发布会话，写失败废弃连接。
+- Probe 默认 4 workers，并发执行一次性 `/bin/sh -c`；支持 cwd/env、独立 stdout/stderr、单流 1 MiB 捕获上限、协商帧大小适配、timeout 进程组 TERM/KILL 和 waitpid 回收。
+- Probe TaskManager 属于进程生命周期，任务不持有 socket；排队与运行中的 exec 跨 TCP 断线继续执行，缓存结果在新会话补报，包括此前写成功的结果。
+- 同 task_id 的 queued/running/完成态重复请求返回已有状态或结果；内容冲突返回 ERROR/INVALID_PAYLOAD 并保留原任务。已接受任务的身份与结果不淘汰，保证同一 Probe 进程内不重复执行副作用。
+- 默认最多 128 个已接受任务，8 MiB 身份/结果计费预算；新任务为结果预留协商帧上限，完成后释放未使用预留，容量不足时最终拒绝新任务。预算不是进程 RSS 上限，详见 PROTOCOL.md。
+- Server 内部 CreateExec、ResendTask、WaitTaskResult、TaskSnapshot；每次重发使用原 task_id/规格，记录 session_id/message_id/task_id。发送结果不确定时保留记录并返回 ErrDispatchUncertain。
+- Server 按 device_id/task_id 接受缺 ACK 的已派发任务补报；重复结果幂等，冲突不覆盖原终态，rejected 不可被 RESULT 改写。迟到 ACK 不回退状态，完成态 ACK 不替代 RESULT。
+- fd 创建/close-on-exec 与 fork 同步，exec 不继承控制 socket；并发任务期间连接线程继续处理控制消息。
 
-## 当前未实现与限制
+## 本次完整构建与回归
 
-- 单 worker，多任务并发、完整 task_id 幂等和去重、断线继续执行/补报未实现。断线仍会停止当前 worker；不宣称已支持 Phase 1C。
-- 重复 TASK 响应、同 ID 参数冲突、ACK 丢失和重复 RESULT 补报仍待明确确认，见 PROTOCOL.md 末尾。
-- 原进程组的 KILL 不覆盖主动 setsid 脱离组的后代；本轮保证这类后代持有的 pipe 不会无限阻塞 worker，不提供进程容器或 Process Manager。直接子进程若陷入不可中断内核等待，回收仍取决于内核。
-- 非阻塞审查建议尚未处理：更严格的 JSON 类型/Unicode 校验、队列和缓存容量、部分协商 payload 边界，见 [PHASE1AB_REVIEW.md](PHASE1AB_REVIEW.md)。
-- Probe/Server 重启恢复、安全体系、mipsel/ARM/ARM64 实机及 libc/最低内核矩阵仍为 TBD 或未验证。
-- 未实现 TASK_CANCEL、文件传输、Tunnel、HTTP/WebSocket API、数据库、UI、CLI、MCP、AI Agent、VPN、FRP、SSH/Telnet 通道。
+Linux x86_64：复用本地隔离 Alpine 构建镜像；工作区构建目录 `build/phase1c-probe`。
 
-## Phase 1C 启动检查验证
+全部通过：
 
-本次在 Windows 当前工作区运行 `go build -o build/server/router-server.exe ./cmd/server`、`go test ./... -count=1`、`go vet ./...`，均通过。未设置 RMP_PROBE_BIN，真实 Linux Probe 集成测试按现有规则跳过；未重新运行 Linux CTest 或 race，不作为 Phase 1C 完整回归。仅补充门槛与状态文档，未修改业务代码，未提交或推送；原有 R1-R4 工作区改动保持。
-
-## 此前 R1-R4 构建与测试
-
-Linux x86_64 隔离环境：Alpine 3.24，GCC 15.2.0、CMake 4.2.3、Go 1.26.3。
-
-已通过：
-
-- `cmake -S probe -B build/review-probe -DCMAKE_BUILD_TYPE=Release`
-- `cmake --build build/review-probe --parallel 2`
-- `ctest --test-dir build/review-probe --output-on-failure`：1/1 passed，包含新增后代进程清理测试。
+- `cmake -S probe -B build/phase1c-probe -DCMAKE_BUILD_TYPE=Release`
+- `cmake --build build/phase1c-probe --parallel 2`
+- `ctest --test-dir build/phase1c-probe --output-on-failure`：2/2 passed，4.70 秒。
 - `go build -o build/server/router-server ./cmd/server`
-- `RMP_PROBE_BIN=/work/build/review-probe/router-probe go test ./... -count=1`：全部通过，真实 Probe 集成 14.906 秒。
-- `RMP_PROBE_BIN=/work/build/review-probe/router-probe go test -race ./... -count=1`：全部通过，真实 Probe 集成 15.963 秒。
+- `RMP_PROBE_BIN=/work/build/phase1c-probe/router-probe go test ./... -count=1`：全部通过，真实 Probe 集成 21.958 秒。
+- `RMP_PROBE_BIN=/work/build/phase1c-probe/router-probe go test -race ./... -count=1`：全部通过，真实 Probe 集成 23.026 秒。
 - `go vet ./...`：通过。
-- Windows：Server 原生构建、Go 单测和 go vet 通过；真实 Probe 测试在 Linux 中运行。
+- Windows 原生 Server 构建、`go test ./... -count=1`、`go vet ./...`：通过；Windows 不运行 Linux Probe 集成，该部分由上面的 Linux 回归覆盖。
 
-新增回归覆盖注册 ACK 阻塞时会话不可提前派发、同设备会话替换、部分/零字节/整帧写入后报错、失败 writer 多调用者复用拒绝、发送前失败及 message_id 耗尽、不确定派发记录保留、真实 exec 不继承 socket、忽略 TERM 且输出重定向的后代 KILL、脱离组持有 pipe 时的 timeout 与停止路径，以及子进程回收。C++ 测试的 subreaper 仅用于测试后代回收，Probe 运行时无此要求。
+Phase 1C 新增覆盖：三个不同任务在全部释放执行屏障之前同时运行，反序完成与结果关联；并发重发；同一 Probe 多次重连；queued/running/完成态去重；20 个线程同时投递同 ID；执行字段冲突及默认值/扩展字段归一；容量和结果预留；完成结果不淘汰；缓存帧不因较小协商值被改写；新旧 session 同值 message_id；缺 ACK、重复/冲突 RESULT 与 rejected 保护；真实中继分别丢弃 ACK/RESULT 并断开 TCP，验证重连补报且副作用计数仍为一次。原 Phase 1A/1B 及 R1-R4 自动化回归均保留并通过。Go race 验证 Go 代码；C++ 并发由实际 worker/登记竞争测试验证。
+
+## 限制与遗留问题
+
+- Probe / Server 进程重启后的任务持久化、恢复和去重仍为 TBD。boot_id 不能证明 Probe 进程连续性。
+- 如新会话协商上限小于原缓存 RESULT，该结果保留并延后补报；恢复足够大的帧上限后可重放，不重新执行任务。重复 TASK 的该长度错误见 PROTOCOL.md。
+- 未实现 TASK_CANCEL、文件传输、Tunnel、Process Manager、HTTP/WebSocket API、数据库、UI、CLI、MCP、AI Agent、VPN、FRP、SSH/Telnet 通道。
+- 主动 setsid 脱离原进程组的后代不受组 KILL 覆盖；其 pipe 有界排空。不可中断内核等待的直接子进程回收仍依赖内核。
+- 认证/TLS/权限、安全设计、跨 CPU/最低内核/libc 实机矩阵仍待后续阶段；更严格 JSON Unicode/类型校验及完整错误关闭矩阵保留在审查报告和专项文档中。
 
 ## 下一步
 
-先明确确认 PROTOCOL.md 末尾的重复 TASK、内容冲突及跨连接补报契约，再实现已授权的 Phase 1C。实现完成后运行完整回归、同步交接文档、形成独立 Phase 1C commit 并推送 GitHub，然后停止等待验收，不进入 Phase 1D。R1-R4 修复仍未提交，须与 Phase 1C 交付区分。审查原始证据、先前操作事故与恢复限制保留在 [PHASE1AB_REVIEW.md](PHASE1AB_REVIEW.md)。
+独立提交并推送 Phase 1C 后停止，等待用户验收。不得自动进入 Phase 1D。历史审查、R1-R4 修复和先前操作事故记录见 [PHASE1AB_REVIEW.md](PHASE1AB_REVIEW.md)。

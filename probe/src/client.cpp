@@ -3,8 +3,10 @@
 #include "rmp/frame.h"
 #include "rmp/json.h"
 #include "rmp/task.h"
+#include "rmp/task_manager.h"
 
 #include <arpa/inet.h>
+#include <algorithm>
 #include <atomic>
 #include <cerrno>
 #include <chrono>
@@ -100,95 +102,6 @@ private:
     int socket_fd_;
     std::uint64_t next_message_id_;
     std::mutex mutex_;
-};
-
-class TaskWorker {
-public:
-    TaskWorker(SessionWriter* writer, std::uint32_t max_payload)
-        : writer_(writer), max_payload_(max_payload), stop_(false), running_(0),
-          thread_(&TaskWorker::Run, this) {}
-
-    ~TaskWorker() {
-        Stop();
-    }
-
-    void Enqueue(const ExecTask& task) {
-        {
-            std::lock_guard<std::mutex> lock(mutex_);
-            queue_.push_back(task);
-        }
-        condition_.notify_one();
-    }
-
-    unsigned RunningTasks() const {
-        return running_.load();
-    }
-
-    void Stop() {
-        stop_.store(true);
-        condition_.notify_all();
-        if (thread_.joinable()) {
-            thread_.join();
-        }
-    }
-
-private:
-    void Run() {
-        while (true) {
-            ExecTask task;
-            {
-                std::unique_lock<std::mutex> lock(mutex_);
-                condition_.wait(lock, [this] { return stop_.load() || !queue_.empty(); });
-                if (stop_.load()) {
-                    return;
-                }
-                task = queue_.front();
-                queue_.pop_front();
-            }
-            task.state = TaskState::kRunning;
-            running_.store(1);
-            std::cout << "task_state=RUNNING task_id=" << task.task_id << std::endl;
-            ExecResult result = ExecuteExec(task, &stop_);
-            if (result.status == "success") {
-                task.state = TaskState::kSuccess;
-            } else if (result.status == "timeout") {
-                task.state = TaskState::kTimeout;
-            } else {
-                task.state = TaskState::kFailed;
-            }
-            running_.store(0);
-            if (stop_.load()) {
-                return;
-            }
-            std::string payload;
-            std::string payload_error;
-            if (!BuildTaskResultPayload(result, max_payload_, &payload, &payload_error)) {
-                std::cerr << "task_state=FAILED task_id=" << task.task_id
-                          << " detail=" << payload_error << std::endl;
-                return;
-            }
-            std::uint64_t message_id = 0;
-            if (!writer_->Send(kTypeTaskResult, 0, payload, &message_id)) {
-                return;
-            }
-            const char* terminal_state = task.state == TaskState::kSuccess
-                                             ? "SUCCESS"
-                                             : (task.state == TaskState::kTimeout ? "TIMEOUT" : "FAILED");
-            std::cout << "task_state=" << terminal_state << " task_id=" << task.task_id << std::endl;
-            std::cout << "sent=TASK_RESULT message_id=" << message_id
-                      << " task_id=" << task.task_id
-                      << " status=" << result.status << std::endl;
-        }
-    }
-
-    SessionWriter* writer_;
-    std::uint32_t max_payload_;
-    std::atomic<bool> stop_;
-    std::atomic<unsigned> running_;
-    std::mutex mutex_;
-    std::condition_variable condition_;
-    std::deque<ExecTask> queue_;
-    std::thread thread_;
 };
 
 std::string RegisterPayload(const ClientConfig& config) {
@@ -348,11 +261,16 @@ bool HandleOnlineFrames(const std::vector<Frame>& frames,
                         std::uint64_t* expected_server_message_id,
                         std::set<std::uint64_t>* pending_heartbeats,
                         SessionWriter* writer,
-                        TaskWorker* task_worker,
+                        TaskManager* task_worker,
+                        std::uint32_t max_payload,
                         SteadyClock::time_point* last_seen,
                         std::string* error) {
     for (std::vector<Frame>::const_iterator frame = frames.begin(); frame != frames.end(); ++frame) {
         error->clear();
+        if (frame->payload.size() > max_payload) {
+            *error = "payload exceeds negotiated limit";
+            return false;
+        }
         if (!ValidateIncomingMessageID(*frame, expected_server_message_id, error)) {
             return false;
         }
@@ -383,33 +301,37 @@ bool HandleOnlineFrames(const std::vector<Frame>& frames,
             const std::string task_json(frame->payload.begin(), frame->payload.end());
             ExecTask task;
             const bool parsed = ParseTask(task_json, &task, error);
-            if (!parsed && task.task_id.empty()) {
+            if (!parsed && (task.task_id.empty() || task.task_id.size() > 128)) {
                 return false;
             }
-            const bool accepted = parsed && task.type == "exec";
-            std::string reason;
-            if (!parsed) {
-                reason = "invalid task payload: " + *error;
-            } else if (!accepted) {
-                reason = "unsupported task type: " + task.type;
-            }
-            std::uint64_t ack_message_id = 0;
-            if (!writer->Send(kTypeTaskAck, kFlagResponse,
-                              TaskAckPayload(frame->header.message_id, task.task_id, accepted, reason),
-                              &ack_message_id)) {
-                *error = "failed to send TASK_ACK";
-                return false;
+            const std::string state = task_worker->Submit(task, parsed, frame->payload.size(), max_payload);
+            std::uint64_t outgoing_id = 0;
+            if (state == "conflict") {
+                const std::string payload = "{\"reply_to\":" + std::to_string(frame->header.message_id) +
+                    ",\"code\":\"INVALID_PAYLOAD\",\"message\":\"task_id content conflict\"}";
+                if (!writer->Send(kTypeError, kFlagResponse, payload, &outgoing_id)) return false;
+            } else {
+                const bool accepted = state != "rejected";
+                std::string reason;
+                if (!parsed) reason = "invalid task payload";
+                else if (task.type != "exec") reason = "unsupported task type";
+                else if (!accepted) reason = "task capacity exhausted";
+                std::string ack = TaskAckPayload(frame->header.message_id, task.task_id, accepted, reason, state);
+                if (!writer->Send(kTypeTaskAck, kFlagResponse, ack, &outgoing_id)) return false;
+                std::cout << "sent=TASK_ACK message_id=" << outgoing_id << " task_id=" << task.task_id
+                          << " state=" << state << std::endl;
+                if (state == "success" || state == "failed" || state == "timeout") {
+                    std::string payload;
+                    if (task_worker->CachedResult(task.task_id, max_payload, &payload)) {
+                        if (!writer->Send(kTypeTaskResult, 0, payload, &outgoing_id)) return false;
+                    } else {
+                        const std::string failure = "{\"reply_to\":" + std::to_string(frame->header.message_id) +
+                            ",\"code\":\"PAYLOAD_TOO_LARGE\",\"message\":\"cached result exceeds session limit\"}";
+                        if (!writer->Send(kTypeError, kFlagResponse, failure, &outgoing_id)) return false;
+                    }
+                }
             }
             *last_seen = SteadyClock::now();
-            std::cout << "sent=TASK_ACK message_id=" << ack_message_id
-                      << " reply_to=" << frame->header.message_id
-                      << " task_id=" << task.task_id
-                      << " accepted=" << (accepted ? "true" : "false") << std::endl;
-            if (accepted) {
-                task.state = TaskState::kQueued;
-                std::cout << "task_state=QUEUED task_id=" << task.task_id << std::endl;
-                task_worker->Enqueue(task);
-            }
             continue;
         }
         std::ostringstream message;
@@ -421,7 +343,7 @@ bool HandleOnlineFrames(const std::vector<Frame>& frames,
     return true;
 }
 
-SessionResult RunSession(int socket_fd, const ClientConfig& config) {
+SessionResult RunSession(int socket_fd, const ClientConfig& config, TaskManager& task_worker) {
     SessionResult result;
     std::uint64_t expected_server_message_id = 1;
     SessionWriter writer(socket_fd);
@@ -479,7 +401,7 @@ SessionResult RunSession(int socket_fd, const ClientConfig& config) {
               << " heartbeat_interval=" << register_ack.heartbeat_interval << std::endl;
 
     std::set<std::uint64_t> pending_heartbeats;
-    TaskWorker task_worker(&writer, register_ack.max_control_payload);
+    task_worker.BeginSession();
     const std::chrono::seconds heartbeat_interval(register_ack.heartbeat_interval);
     SteadyClock::time_point last_seen = SteadyClock::now();
     SteadyClock::time_point next_heartbeat = last_seen + heartbeat_interval;
@@ -487,7 +409,7 @@ SessionResult RunSession(int socket_fd, const ClientConfig& config) {
     while (true) {
         if (!frames.empty()) {
             if (!HandleOnlineFrames(frames, &expected_server_message_id, &pending_heartbeats,
-                                    &writer, &task_worker, &last_seen, &validation_error)) {
+                                    &writer, &task_worker, register_ack.max_control_payload, &last_seen, &validation_error)) {
                 std::cerr << "state=PROTOCOL_ERROR detail=" << validation_error << std::endl;
                 return result;
             }
@@ -498,7 +420,7 @@ SessionResult RunSession(int socket_fd, const ClientConfig& config) {
         if (lost_deadline < wake_at) {
             wake_at = lost_deadline;
         }
-        const int timeout_ms = MillisecondsUntil(wake_at);
+        const int timeout_ms = std::min(50, MillisecondsUntil(wake_at));
         if (timeout_ms > 0) {
             struct pollfd descriptor;
             descriptor.fd = socket_fd;
@@ -533,12 +455,19 @@ SessionResult RunSession(int socket_fd, const ClientConfig& config) {
                 }
                 if (!frames.empty() &&
                     !HandleOnlineFrames(frames, &expected_server_message_id, &pending_heartbeats,
-                                        &writer, &task_worker, &last_seen, &validation_error)) {
+                                        &writer, &task_worker, register_ack.max_control_payload, &last_seen, &validation_error)) {
                     std::cerr << "state=PROTOCOL_ERROR detail=" << validation_error << std::endl;
                     return result;
                 }
                 frames.clear();
             }
+        }
+
+        std::string result_payload;
+        if (task_worker.NextResult(register_ack.max_control_payload, &result_payload)) {
+            std::uint64_t result_id = 0;
+            if (!writer.Send(kTypeTaskResult, 0, result_payload, &result_id)) return result;
+            std::cout << "sent=TASK_RESULT message_id=" << result_id << std::endl;
         }
 
         const SteadyClock::time_point now = SteadyClock::now();
@@ -603,6 +532,7 @@ bool ParseServerAddress(const std::string& address,
 }
 
 int RunClient(const ClientConfig& config) {
+    TaskManager task_worker(config.task_workers, config.task_capacity, config.task_cache_bytes);
     const unsigned delays[] = {1, 2, 5, 10, 30};
     std::size_t backoff_index = 0;
     while (true) {
@@ -621,7 +551,7 @@ int RunClient(const ClientConfig& config) {
         }
 
         backoff_index = 0;
-        const SessionResult session = RunSession(socket_fd, config);
+        const SessionResult session = RunSession(socket_fd, config, task_worker);
         close(socket_fd);
         if (session.retry_after > 0) {
             std::cerr << "state=RECONNECTING delay=" << session.retry_after << std::endl;

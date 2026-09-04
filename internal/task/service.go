@@ -1,11 +1,14 @@
 package task
 
 import (
+	"bytes"
 	"context"
 	"crypto/rand"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"reflect"
 	"strings"
 	"sync"
 	"time"
@@ -16,6 +19,7 @@ type State string
 const (
 	StateReceived State = "received"
 	StateQueued   State = "queued"
+	StateRunning  State = "running"
 	StateSuccess  State = "success"
 	StateFailed   State = "failed"
 	StateTimeout  State = "timeout"
@@ -53,22 +57,30 @@ type Ack struct {
 }
 
 type Result struct {
-	TaskID     string `json:"task_id"`
-	Status     string `json:"status"`
-	StartedAt  int64  `json:"started_at"`
-	FinishedAt int64  `json:"finished_at"`
-	ExitCode   int    `json:"exit_code"`
-	Stdout     string `json:"stdout"`
-	Stderr     string `json:"stderr"`
-	Truncated  bool   `json:"truncated"`
+	Details    json.RawMessage `json:"result"`
+	TaskID     string          `json:"task_id"`
+	Status     string          `json:"status"`
+	StartedAt  int64           `json:"started_at"`
+	FinishedAt int64           `json:"finished_at"`
+	ExitCode   int             `json:"exit_code"`
+	Stdout     string          `json:"stdout"`
+	Stderr     string          `json:"stderr"`
+	Truncated  bool            `json:"truncated"`
+}
+
+type Dispatch struct {
+	SessionID string
+	MessageID uint64
+	Ack       *Ack
 }
 
 type Snapshot struct {
-	Spec      Spec
-	State     State
-	MessageID uint64
-	Ack       *Ack
-	Result    *Result
+	Dispatches []Dispatch
+	Spec       Spec
+	State      State
+	MessageID  uint64
+	Ack        *Ack
+	Result     *Result
 }
 
 type record struct {
@@ -133,8 +145,8 @@ func (s *Service) NewExec(deviceID string, request ExecRequest) (Spec, error) {
 	return spec, nil
 }
 
-func (s *Service) MarkDispatched(taskID string, messageID uint64) error {
-	if messageID == 0 {
+func (s *Service) MarkDispatched(taskID, sessionID string, messageID uint64) error {
+	if messageID == 0 || sessionID == "" {
 		return errors.New("message_id must not be zero")
 	}
 	s.mu.Lock()
@@ -143,9 +155,12 @@ func (s *Service) MarkDispatched(taskID string, messageID uint64) error {
 	if !ok {
 		return ErrTaskNotFound
 	}
-	if record.snapshot.MessageID != 0 {
-		return errors.New("task was already dispatched")
+	for _, dispatch := range record.snapshot.Dispatches {
+		if dispatch.SessionID == sessionID && dispatch.MessageID == messageID {
+			return errors.New("duplicate dispatch correlation")
+		}
 	}
+	record.snapshot.Dispatches = append(record.snapshot.Dispatches, Dispatch{SessionID: sessionID, MessageID: messageID})
 	record.snapshot.MessageID = messageID
 	return nil
 }
@@ -156,37 +171,89 @@ func (s *Service) Remove(taskID string) {
 	s.mu.Unlock()
 }
 
-func (s *Service) HandleAck(deviceID string, ack Ack) error {
+func (s *Service) HandleAck(deviceID, sessionID string, ack Ack) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	record, ok := s.records[ack.TaskID]
 	if !ok {
 		return ErrTaskNotFound
 	}
-	if record.snapshot.Spec.DeviceID != deviceID {
+	snapshot := &record.snapshot
+	if snapshot.Spec.DeviceID != deviceID {
 		return errors.New("TASK_ACK device does not match task device")
 	}
-	if record.snapshot.MessageID == 0 || ack.ReplyTo != record.snapshot.MessageID {
-		return errors.New("TASK_ACK reply_to does not match TASK message_id")
+	var attempt *Dispatch
+	for i := range snapshot.Dispatches {
+		candidate := &snapshot.Dispatches[i]
+		if candidate.SessionID == sessionID && candidate.MessageID == ack.ReplyTo {
+			attempt = candidate
+			break
+		}
 	}
-	if record.snapshot.Ack != nil {
-		return errors.New("duplicate TASK_ACK")
+	if attempt == nil {
+		return errors.New("TASK_ACK does not match session/message/task dispatch")
 	}
-	if ack.Accepted && ack.State != "queued" {
-		return errors.New("accepted TASK_ACK state must be queued")
+	if attempt.Ack != nil {
+		if *attempt.Ack == ack {
+			return nil
+		}
+		return errors.New("conflicting TASK_ACK for dispatch")
 	}
-	if !ack.Accepted && ack.State != "rejected" {
-		return errors.New("rejected TASK_ACK state must be rejected")
+	incoming := State(ack.State)
+	if ack.Accepted {
+		if incoming != StateQueued && incoming != StateRunning && !terminal(incoming) {
+			return errors.New("invalid accepted TASK_ACK state")
+		}
+		if snapshot.State == StateRejected {
+			return errors.New("accepted ACK after rejection")
+		}
+		if terminal(snapshot.State) && terminal(incoming) && snapshot.State != incoming {
+			return errors.New("conflicting task terminal state")
+		}
+	} else {
+		if incoming != StateRejected {
+			return errors.New("invalid rejected TASK_ACK state")
+		}
+		if snapshot.Ack != nil && snapshot.Ack.Accepted || snapshot.Result != nil {
+			return errors.New("rejection cannot replace accepted task")
+		}
 	}
 	copy := ack
-	record.snapshot.Ack = &copy
-	if ack.Accepted {
-		record.snapshot.State = StateQueued
-		return nil
+	attempt.Ack = &copy
+	snapshot.Ack = &copy
+	if !ack.Accepted {
+		snapshot.State = StateRejected
+		s.closeLocked(record)
+	} else if !terminal(snapshot.State) && (incoming != StateQueued || snapshot.State != StateRunning) {
+		snapshot.State = incoming
 	}
-	record.snapshot.State = StateRejected
-	s.closeLocked(record)
 	return nil
+}
+
+func terminal(state State) bool {
+	return state == StateSuccess || state == StateFailed || state == StateTimeout
+}
+
+// JSON object key order is not business identity. UseNumber preserves integer
+// precision rather than rounding through float64. Unknown top-level wire fields
+// never enter Result, while the defined result object participates in equality.
+func resultDetails(raw json.RawMessage) interface{} {
+	if len(raw) == 0 {
+		raw = json.RawMessage("{}")
+	}
+	decoder := json.NewDecoder(bytes.NewReader(raw))
+	decoder.UseNumber()
+	var value interface{}
+	if decoder.Decode(&value) != nil {
+		return string(raw)
+	}
+	return value
+}
+
+func sameResult(a, b Result) bool {
+	ad, bd := resultDetails(a.Details), resultDetails(b.Details)
+	a.Details, b.Details = nil, nil
+	return reflect.DeepEqual(a, b) && reflect.DeepEqual(ad, bd)
 }
 
 func (s *Service) HandleResult(deviceID string, result Result) error {
@@ -199,11 +266,14 @@ func (s *Service) HandleResult(deviceID string, result Result) error {
 	if record.snapshot.Spec.DeviceID != deviceID {
 		return errors.New("TASK_RESULT device does not match task device")
 	}
-	if record.snapshot.Ack == nil || !record.snapshot.Ack.Accepted {
-		return errors.New("TASK_RESULT received before accepted TASK_ACK")
+	if len(record.snapshot.Dispatches) == 0 || record.snapshot.State == StateRejected {
+		return errors.New("TASK_RESULT for undispatched or rejected task")
 	}
 	if record.snapshot.Result != nil {
-		return errors.New("duplicate TASK_RESULT")
+		if sameResult(*record.snapshot.Result, result) {
+			return nil
+		}
+		return errors.New("conflicting TASK_RESULT")
 	}
 	var state State
 	switch result.Status {
@@ -216,7 +286,11 @@ func (s *Service) HandleResult(deviceID string, result Result) error {
 	default:
 		return errors.New("TASK_RESULT status is invalid")
 	}
+	if terminal(record.snapshot.State) && record.snapshot.State != state {
+		return errors.New("TASK_RESULT conflicts with terminal ACK")
+	}
 	copy := result
+	copy.Details = append(json.RawMessage(nil), result.Details...)
 	record.snapshot.Result = &copy
 	record.snapshot.State = state
 	s.closeLocked(record)
@@ -271,6 +345,13 @@ func (s *Service) WaitResult(ctx context.Context, taskID string) (Result, error)
 
 func cloneSnapshot(input Snapshot) Snapshot {
 	output := input
+	output.Dispatches = append([]Dispatch(nil), input.Dispatches...)
+	for i := range output.Dispatches {
+		if output.Dispatches[i].Ack != nil {
+			copy := *output.Dispatches[i].Ack
+			output.Dispatches[i].Ack = &copy
+		}
+	}
 	output.Spec.Env = make(map[string]string, len(input.Spec.Env))
 	for name, value := range input.Spec.Env {
 		output.Spec.Env[name] = value
@@ -281,6 +362,7 @@ func cloneSnapshot(input Snapshot) Snapshot {
 	}
 	if input.Result != nil {
 		copy := *input.Result
+		copy.Details = append(json.RawMessage(nil), input.Result.Details...)
 		output.Result = &copy
 	}
 	return output

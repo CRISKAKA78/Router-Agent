@@ -206,23 +206,57 @@ func (s *Server) CreateExec(ctx context.Context, deviceID string, request task.E
 	if err != nil {
 		return "", err
 	}
+	messageID, err := s.dispatchExec(active, spec)
+	if err != nil {
+		if messageID != 0 {
+			return spec.ID, err
+		}
+		s.tasks.Remove(spec.ID)
+		return "", err
+	}
+	return spec.ID, nil
+}
+
+// ResendTask retransmits the saved specification under the same business ID.
+// It never creates a replacement task, even after an uncertain write.
+func (s *Server) ResendTask(ctx context.Context, taskID string) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	snapshot, err := s.tasks.Snapshot(taskID)
+	if err != nil {
+		return err
+	}
+	if snapshot.State == task.StateRejected {
+		return task.ErrTaskRejected
+	}
+	s.mu.Lock()
+	active := s.sessions[snapshot.Spec.DeviceID]
+	s.mu.Unlock()
+	if active == nil {
+		return fmt.Errorf("device %q is offline", snapshot.Spec.DeviceID)
+	}
+	_, err = s.dispatchExec(active, snapshot.Spec)
+	return err
+}
+
+func (s *Server) dispatchExec(active *session, spec task.Spec) (uint64, error) {
 	wire := taskMessage{
 		TaskID: spec.ID, Type: spec.Type, CreatedAt: spec.CreatedAt, Timeout: spec.Timeout,
 		Params: execTaskParams{Command: spec.Command, Cwd: spec.Cwd, Env: spec.Env},
 	}
 	messageID, err := active.transport.sendJSON(protocol.TypeTask, 0, wire, func(messageID uint64) error {
-		return s.tasks.MarkDispatched(spec.ID, messageID)
+		return s.tasks.MarkDispatched(spec.ID, active.sessionID, messageID)
 	})
 	if err != nil {
 		if messageID != 0 {
-			return spec.ID, fmt.Errorf("%w: task_id=%s session_id=%s message_id=%d: %w",
+			return messageID, fmt.Errorf("%w: task_id=%s session_id=%s message_id=%d: %w",
 				ErrDispatchUncertain, spec.ID, active.sessionID, messageID, err)
 		}
-		s.tasks.Remove(spec.ID)
-		return "", fmt.Errorf("dispatch task: %w", err)
+		return 0, fmt.Errorf("dispatch task: %w", err)
 	}
-	s.config.Logger.Printf("sent=TASK device_id=%s session_id=%s task_id=%s type=exec", deviceID, active.sessionID, spec.ID)
-	return spec.ID, nil
+	s.config.Logger.Printf("sent=TASK device_id=%s session_id=%s task_id=%s type=exec", spec.DeviceID, active.sessionID, spec.ID)
+	return messageID, nil
 }
 
 func (s *Server) WaitTaskResult(ctx context.Context, taskID string) (task.Result, error) {
@@ -455,7 +489,7 @@ func (s *Server) handleConnection(conn net.Conn) {
 						_ = s.sendError(writer, frame.Header.MessageID, "INVALID_PAYLOAD", err.Error())
 						return
 					}
-					if err := s.tasks.HandleAck(active.deviceID, ack); err != nil {
+					if err := s.tasks.HandleAck(active.deviceID, active.sessionID, ack); err != nil {
 						_ = s.sendError(writer, frame.Header.MessageID, "INVALID_PAYLOAD", err.Error())
 						return
 					}

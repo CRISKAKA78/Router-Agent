@@ -322,12 +322,13 @@ bool ParseTask(const std::string& input, ExecTask* task, std::string* error) {
 std::string TaskAckPayload(std::uint64_t reply_to,
                            const std::string& task_id,
                            bool accepted,
-                           const std::string& reason) {
+                           const std::string& reason,
+                           const std::string& state) {
     std::ostringstream output;
     output << "{\"reply_to\":" << reply_to
            << ",\"task_id\":" << EscapeJsonString(task_id)
            << ",\"accepted\":" << (accepted ? "true" : "false")
-           << ",\"state\":\"" << (accepted ? "queued" : "rejected") << '"';
+           << ",\"state\":\"" << (state.empty() ? (accepted ? "queued" : "rejected") : state) << '"';
     if (!reason.empty()) {
         output << ",\"message\":" << EscapeJsonString(reason);
     }

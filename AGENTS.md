@@ -52,7 +52,7 @@ Phase 0 完成后，仓库内 Markdown 文档成为项目持续维护的当前�
 
 ## 当前阶段限制
 
-Phase 0 设计已经通过复核并获得用户确认。当前进入 Phase 1A 的唯一操作性门槛是在真实 Git 仓库先形成明确的 Phase 0 baseline commit。baseline 完成后，仅授权 Phase 1A：TCP framing、Header encode/decode、REGISTER、REGISTER_ACK、HEARTBEAT、HEARTBEAT_ACK 和基础断线重连。未获得后续阶段授权前，不得实现 TASK、文件传输、Tunnel、HTTP API、WebSocket、数据库、任何 UI、MCP、AI Agent、VPN、FRP、SSH 或 Telnet 通道。
+Phase 0 baseline、Phase 1A 和 Phase 1B 已形成提交。用户已明确授权 Phase 1C，并在启动检查后确认重复 TASK、内容冲突和跨连接结果补报契约（ADR-015）。本次范围仅含多任务并发、乱序结果关联、task_id 幂等、TCP 重连任务关联、Probe 进程生命周期去重及对应测试。完成后须独立提交 Phase 1C 并推送 GitHub，然后停止等待验收。未获后续阶段授权前，不得进入 Phase 1D 或实现文件传输、Tunnel、HTTP API、WebSocket、数据库、任何 UI、MCP、AI Agent、VPN、FRP、SSH 或 Telnet 通道。
 
 ## 任务执行要求
 

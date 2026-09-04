@@ -1,98 +1,48 @@
 # 项目接管手册
 
-本项目是一套由跨平台 Management Server 和路由器端轻量 Probe 组成的远程运维平台。Phase 0、Phase 1A 与 Phase 1B 已完成；当前已形成注册、心跳、基础重连和单 worker exec 任务闭环，并按用户要求停止在 Phase 1B。
-
-2026-09-05 接管审查后，用户已授权修复：R1-R4 已修复并补充自动化回归，仍在未提交工作区。本次用户授权 Phase 1C 并要求先检查设计缺口；启动检查发现三项互操作契约仍待明确确认，已补充 PROTOCOL.md 末尾，暂停实现。审查历史与修复对照见 [PHASE1AB_REVIEW.md](PHASE1AB_REVIEW.md)，最新验证见 [PROJECT_STATUS.md](PROJECT_STATUS.md)。
+项目由跨平台 Go Management Server 与轻量 C++11 Probe 组成。Phase 0、Phase 1A、Phase 1B、Phase 1C 已实现并验证；当前完成 Phase 1C 交付后停止等待验收，不进入 Phase 1D。
 
 ## 新接管者先做什么
 
-严格按以下顺序阅读：
+严格依次阅读 AGENTS.md、本文件、PROJECT_STATUS.md、ARCHITECTURE.md、ROADMAP.md，以及当前任务相关 PROTOCOL.md、API.md、DECISIONS.md。然后核对真实 Git 状态、代码、构建与测试；不得依赖旧会话推断进度。
 
-1. [../AGENTS.md](../AGENTS.md)
-2. [PROJECT_STATUS.md](PROJECT_STATUS.md)
-3. [ARCHITECTURE.md](ARCHITECTURE.md)
-4. [ROADMAP.md](ROADMAP.md)
-5. 与当前任务有关的 [PROTOCOL.md](PROTOCOL.md)、[API.md](API.md) 和 [DECISIONS.md](DECISIONS.md)
+## 当前交付与提交
 
-随后检查实际文件、Git 状态、构建和测试结果。不得依赖旧聊天或 AI 记忆替代仓库事实。
+- baseline commit: `bc8d747dfc41a375c31698073005857c238ede51`
+- Phase 1A commit: `cd722b6f3fd6cfe5e8ccded256c5295828e4372f`
+- Phase 1B implementation commit: `6ed2434d646938617088f62030f3749a797616c0`
+- Phase 1A/B R1-R4 修复和启动检查记录：`59e65b4`，与本次 Phase 1C 实现分开提交。
+- Phase 1C implementation commit: pending（待本次交付提交）
 
-## 当前阶段
+用户已在启动检查后明确确认重复 TASK、内容冲突和跨连接结果补报建议；正式契约位于 PROTOCOL.md 末尾与 Accepted ADR-015。ADR-009/010 未被静默改写。
 
-Phase 1 - Probe and Server TCP Control Link：进行中。
+## 当前运行闭环
 
-Phase 1A - TCP Session：已完成并验证。
+Server 可通过内部 CreateExec 创建 exec，通过 ResendTask 重发同一业务任务、通过 WaitTaskResult 等待结果。Gateway 适配每次传输，Task Service 保存派发关联与业务状态，缺 ACK 的已派发任务可以接收重连补报，重复结果不会覆盖或回退终态。
 
-Phase 1B - Task and Exec：已完成并验证。未进入 Phase 1C。
+Probe 在进程生命周期内维护任务表、默认 4 workers 和有界缓存；TCP 断开不停止排队/运行中的 exec，新会话补报缓存结果。同 ID 同内容只返回已有状态/结果，同 ID 不同内容返回 ERROR 并保留原任务。缓存不淘汰已接受身份，满后拒绝新任务。
 
-baseline commit: bc8d747dfc41a375c31698073005857c238ede51
+exec 支持 cwd/env、独立 stdout/stderr、有界输出和 timeout 进程组回收；Reader/连接线程继续处理心跳与控制帧。每次重新 REGISTER 产生新 session_id，message_id 在单连接单方向重新编号。
 
-Phase 1A commit: cd722b6f3fd6cfe5e8ccded256c5295828e4372f
-
-Phase 1B implementation commit: 6ed2434d646938617088f62030f3749a797616c0
-
-## 当前能运行什么
-
-- Go Management Server：接受 Probe 连接，完成 Phase 1A 注册/心跳/会话，并通过独立 Task Service 对在线 device_id 创建 exec、发送 TASK、处理 TASK_ACK/TASK_RESULT 和等待结果。
-- C++11 Probe：在线路由 HEARTBEAT_ACK 与 TASK，通过单 worker 执行 `/bin/sh -c`，返回 accepted/rejected ACK 和 success/failed/timeout RESULT。
-- exec 支持 cwd、env、独立 stdout/stderr、单流 1 MiB 捕获上限、控制帧大小适配、超时进程组终止与 waitpid 回收。
-- exec 运行期间 TCP Reader 与心跳保持工作；同一 socket 的主动写由双方各自串行化，message_id 沿单连接单方向递增。
-- 每次重连重新 REGISTER 并获得不同的新 session_id；Phase 1A 自动化回归继续通过。
-- Server 完整写出 REGISTER_ACK 后才公开会话；传输写失败后关闭并永久废弃 writer。
-- CreateExec 遇到发送结果不确定时返回非空 task_id 与 ErrDispatchUncertain，并保留任务记录；调用者不能自动新建替代副作用任务。
-- Probe 控制 socket 设置 close-on-exec，fd 创建与 fork 共用同步锁；超时或 worker 停止会完成进程组 TERM/KILL，输出排空最多持续到 TERM 后约 400 ms，强制关闭 pipe 时标记 truncated。
-
-最小构建、运行和测试命令见 [../README.md](../README.md)，详细验证结果见 [PROJECT_STATUS.md](PROJECT_STATUS.md)。
-
-## 当前不能运行什么
-
-Phase 1C 多任务并发、完整 task_id 幂等、断线任务恢复和结果补报尚未实现。TASK_CANCEL、文件传输、Process Manager、Tunnel、HTTP / WebSocket API、数据库、Web / Windows / 微信小程序、CLI、MCP、AI Agent、VPN、FRP、SSH 和 Telnet 也未实现。
-
-## 实际仓库入口
+## 实际入口
 
 | 路径 | 用途 |
 | --- | --- |
-| [../cmd/server/main.go](../cmd/server/main.go) | Management Server 命令入口；当前不提供外部任务 CLI/API |
-| [../internal/protocol](../internal/protocol) | Go Header、Frame、消息类型和 TCP stream decoder |
-| [../internal/gateway](../internal/gateway) | TCP Session、在线消息路由、协议适配和串行连接写入 |
-| [../internal/task](../internal/task) | Server 内存任务状态、ACK/RESULT 关联与等待能力 |
-| [../probe/src/task.cpp](../probe/src/task.cpp) | Probe TASK 解析、exec、timeout、输出捕获和结果编码 |
-| [../probe/src/client.cpp](../probe/src/client.cpp) | Probe Connection、Message Router、单 Task Worker 和心跳 |
-| [../tests/integration](../tests/integration) | 启动真实 Probe 的 Phase 1A / Phase 1B 集成测试 |
-| [PROJECT_STATUS.md](PROJECT_STATUS.md) | 当前事实、验证结果和已知问题 |
-| [PROTOCOL.md](PROTOCOL.md) | Probe TCP 协议规范性基线 |
-| [ROADMAP.md](ROADMAP.md) | 阶段与里程碑状态 |
+| [../cmd/server/main.go](../cmd/server/main.go) | Server 入口，尚无外部任务 CLI/API |
+| [../internal/gateway](../internal/gateway) | 注册、会话、消息路由、串行发送、CreateExec/ResendTask 传输适配 |
+| [../internal/task](../internal/task) | 业务任务、派发关联、ACK/RESULT 幂等、状态与等待 |
+| [../probe/src/client.cpp](../probe/src/client.cpp) | 连接/重连、消息路由、心跳、ACK 与缓存结果发送 |
+| [../probe/src/task_manager.cpp](../probe/src/task_manager.cpp) | 进程级 worker pool、任务身份、缓存、去重与容量 |
+| [../probe/src/task.cpp](../probe/src/task.cpp) | TASK 解析、exec、输出捕获、timeout 与 RESULT 编码 |
+| [../probe/tests/task_manager_tests.cpp](../probe/tests/task_manager_tests.cpp) | 并发登记、queued/running/完成态去重、容量与重放 |
+| [../tests/integration/phase1c_test.go](../tests/integration/phase1c_test.go) | 真实并发/乱序、重连、冲突及 ACK/RESULT 丢失补报 |
 
-## Phase 1B 已完成内容
+完整构建/回归结果见 [PROJECT_STATUS.md](PROJECT_STATUS.md)，通用运行命令见 [../README.md](../README.md)。Linux CTest 2/2、全量 Go 测试、真实 Probe 集成、Go race、vet 和 Windows 原生构建/单测/vet 均通过。
 
-- TASK、TASK_ACK、TASK_RESULT 和 message_id / reply_to / flags 语义。
-- Management Server 内部 CreateExec、WaitTaskResult 和基础任务状态记录。
-- Server 单连接写锁，主动 TASK 与 HEARTBEAT_ACK / ERROR 共用发送序列。
-- Probe HEARTBEAT_ACK / TASK 消息路由、RECEIVED → QUEUED → RUNNING → SUCCESS / FAILED / TIMEOUT 基础状态。
-- 单 worker 串行 exec，不阻塞 TCP Reader。
-- `/bin/sh -c`、cwd、env、独立 pipe、poll 同时读取、单流 1 MiB 上限与 truncated。
-- timeout 的 SIGTERM、200 ms grace、SIGKILL 和 waitpid 回收。
-- Linux x86_64 C++ 单测、真实 Probe 集成、Phase 1A 回归、Go race 和 go vet 验证。
+## 接管边界
 
-## 不可擅自改变的基线
-
-- Probe 主动连接 Server；消息为 20-byte Header + Payload，整数 Big Endian，magic 为 RMP1，version 为 1。
-- message_id 从 1 开始，按单连接、单方向递增；TASK_ACK 等直接 JSON Response 设置 RESPONSE 并包含 reply_to；TASK_RESULT 不设置 RESPONSE。
-- TASK_ACK accepted=false 是最终拒绝，不再发送 TASK_RESULT；Phase 1 不实现 TASK_CANCEL。
-- exec 是一次性非交互命令，不是 SSH Shell；控制 TCP 不承载 SSH、Telnet 或 Web Tunnel 的持续流量。
-- Management Server 使用 Go；Probe 使用 C++11 + CMake，保持轻量。
-- Phase 1C 及之后能力必须等待明确授权，并继续遵守 [../AGENTS.md](../AGENTS.md)。
-
-## 当前已知问题
-
-- R1-R4 已修复。主动 setsid 脱离原进程组的后代不在本轮进程组终止范围内，但其 pipe 不再阻塞 worker；不可中断内核等待的直接子进程仍受内核调度/回收条件限制。
-- 重复任务响应、同 ID 参数冲突和跨连接补报边界仍待确认；建议不是 Accepted 设计。
-- 单 worker 之外的多任务并发、乱序结果与 task_id 幂等属于 Phase 1C，尚未实现。
-- TCP 断开时运行中任务当前终止，不补报、不缓存、不跨连接恢复。
-- 用户与 Probe 身份认证、TLS、权限、租户、密钥和审计仍为 TBD。
-- Probe / Server 重启后的任务和传输恢复仍为 TBD。
-- mipsel / ARM / ARM64 toolchain files、最低内核和 libc 兼容矩阵尚未验证。
-- 完整 Protocol 错误关闭矩阵仍为 TBD。
-
-## 下一步
-
-明确确认 PROTOCOL.md 末尾的重复 TASK、参数冲突和补报契约后，实现已授权的 Phase 1C；完成完整测试和文档同步，提交独立 Phase 1C commit 并推送 GitHub，然后停止等待验收。当前无 1C 实现或提交；R1-R4 未提交改动须保留并与 1C 区分，不得进入 Phase 1D。
+- 尚无文件传输、Tunnel、HTTP/WebSocket、数据库、UI、MCP、AI Agent、SSH/Telnet 通道，不实现 TASK_CANCEL。
+- 去重覆盖同一 Probe 进程，进程重启恢复与持久化仍 TBD；不要把 boot_id 当成 Probe 进程实例 ID。
+- 默认缓存容量、计费预算及降低协商帧上限时的结果延后补报限制见 PROTOCOL.md / PROJECT_STATUS.md。
+- R1-R4 已修复；剩余已知限制和历史操作事故保留在 [PHASE1AB_REVIEW.md](PHASE1AB_REVIEW.md)，不因本次 1C 删除历史证据。
+- Phase 1C 提交推送后停止等待验收。后续阶段必须另获明确授权。
