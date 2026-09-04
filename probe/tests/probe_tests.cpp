@@ -12,6 +12,9 @@
 #include <iostream>
 #include <sstream>
 #include <string>
+#include <sys/prctl.h>
+#include <sys/wait.h>
+#include <thread>
 #include <unistd.h>
 #include <vector>
 
@@ -251,9 +254,84 @@ void TestExecOutputLimit() {
           "TASK_RESULT fits negotiated control payload: " + error);
 }
 
+void TestExecDescendantCleanup(bool escaped, bool stop_session) {
+    char executable[4096];
+    const ssize_t length = readlink("/proc/self/exe", executable, sizeof(executable) - 1);
+    Check(length > 0, "resolve exec test helper");
+    if (length <= 0) return;
+    executable[length] = '\0';
+    std::ostringstream path;
+    path << "/tmp/rmp-cleanup-" << getpid() << '-' << escaped << '-' << stop_session;
+    const std::string pid_path = path.str();
+    unlink(pid_path.c_str());
+    rmp::ExecTask task;
+    task.task_id = "descendant-cleanup";
+    task.type = "exec";
+    task.timeout = stop_session ? 10 : 1;
+    task.command = std::string("'") + executable + "' --cleanup-helper " +
+                   (escaped ? "escaped " : "ignore-term ") + pid_path +
+                   (escaped ? " & wait" : " >/dev/null 2>&1 & wait");
+    std::atomic<bool> stop(false);
+    std::thread stopper;
+    if (stop_session) {
+        stopper = std::thread([&] {
+            // Wait for helper readiness so stop covers an escaped pipe holder.
+            for (unsigned i = 0; i < 200 && access(pid_path.c_str(), F_OK) != 0; ++i) {
+                std::this_thread::sleep_for(std::chrono::milliseconds(10));
+            }
+            stop.store(true);
+        });
+    }
+    const std::chrono::steady_clock::time_point start = std::chrono::steady_clock::now();
+    const rmp::ExecResult result = rmp::ExecuteExec(task, &stop);
+    if (stopper.joinable()) stopper.join();
+    const double elapsed = std::chrono::duration<double>(std::chrono::steady_clock::now() - start).count();
+    Check(result.status == (stop_session ? "failed" : "timeout"), "cleanup terminal status");
+    Check(elapsed < 3.0, "pipe EOF cannot delay timeout or worker stop");
+    if (escaped) Check(result.truncated, "forced pipe close marks output truncated");
+    long helper = 0;
+    std::ifstream input(pid_path.c_str());
+    input >> helper;
+    Check(helper > 0, "cleanup helper started");
+    if (helper > 0) {
+        int status = 0;
+        pid_t reaped = 0;
+        if (!escaped) {
+            for (unsigned i = 0; i < 100 && reaped == 0; ++i) {
+                reaped = waitpid(static_cast<pid_t>(helper), &status, WNOHANG);
+                if (reaped == 0) std::this_thread::sleep_for(std::chrono::milliseconds(10));
+            }
+            Check(reaped == helper && WIFSIGNALED(status) && WTERMSIG(status) == SIGKILL,
+                  "TERM-ignoring descendant receives SIGKILL even after shell exits and pipes close");
+        }
+        if (reaped != helper) {
+            // Escaped helpers are outside the managed group. The fixture owns
+            // and reaps them; production does not claim setsid containment.
+            kill(static_cast<pid_t>(helper), SIGKILL);
+            while (waitpid(static_cast<pid_t>(helper), &status, 0) < 0 && errno == EINTR) {}
+        }
+    }
+    unlink(pid_path.c_str());
+    int status = 0;
+    Check(waitpid(-1, &status, WNOHANG) == -1 && errno == ECHILD,
+          "cleanup leaves no unreaped test descendants");
+}
+
 }  // namespace
 
-int main() {
+int main(int argc, char** argv) {
+    if (argc == 4 && std::string(argv[1]) == "--cleanup-helper") {
+        if (std::string(argv[2]) == "escaped" && setsid() < 0) return 2;
+        signal(SIGTERM, SIG_IGN);
+        std::ofstream output(argv[3]);
+        output << getpid() << std::endl;
+        output.close();
+        sleep(10);
+        return 0;
+    }
+    // Only the test runner adopts grandchildren for deterministic cleanup;
+    // the Probe runtime does not require Linux subreaper support.
+    Check(prctl(PR_SET_CHILD_SUBREAPER, 1) == 0, "test runner becomes subreaper");
     TestHeaderAndBigEndian();
     TestStreamFraming();
     TestHeaderErrors();
@@ -263,6 +341,9 @@ int main() {
     TestExecResultModes();
     TestExecTimeoutAndReap();
     TestExecOutputLimit();
+    TestExecDescendantCleanup(false, false);
+    TestExecDescendantCleanup(true, false);
+    TestExecDescendantCleanup(true, true);
     if (failures != 0) {
         std::cerr << failures << " test assertion(s) failed" << std::endl;
         return EXIT_FAILURE;

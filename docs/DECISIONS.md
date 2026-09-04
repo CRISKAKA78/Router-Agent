@@ -136,3 +136,7 @@
 - API 的正式资源模型、错误、认证和实时事件协议。
 
 协议层的具体未决项见 [PROTOCOL.md](PROTOCOL.md) 的 Protocol Review。
+
+### 2026-09-05 Phase 1C 接管审查补充
+
+尚未形成 Accepted 决策：重复 TASK 在 queued/running/完成态的 ACK 与 RESULT 契约、同 task_id 参数冲突响应、ACK 丢失及重复 RESULT 的跨连接补报规则。原因、影响及建议已记录在 [PROTOCOL.md](PROTOCOL.md) 末尾，审查证据见 [PHASE1AB_REVIEW.md](PHASE1AB_REVIEW.md)。这些是待确认方案，不得按已批准设计实现；既有 ADR 保持原文。

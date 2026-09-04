@@ -69,10 +69,11 @@ Management Server 使用 Go 的 Accepted 决策保持不变。Phase 0 Git baseli
 - [x] timeout。
 - [x] 基础任务状态机。
 - [x] 形成 Phase 1B 可构建、可运行、可测试闭环。
+- [x] 接管审查 R1-R4 修复：注册与派发顺序、失败 writer 失效和不确定派发保留、exec socket 隔离、TERM/KILL 与 pipe 排空回归。
 
 ### Phase 1C Concurrency Idempotency and Reconnect
 
-状态：未开始
+状态：启动检查完成，实现暂停等待协议确认；2026-09-05 用户明确授权本阶段并要求设计缺口先记录汇报。核对 Git HEAD `f0ed826` 与工作区后，PROTOCOL.md 末尾的重复 TASK、内容冲突和跨连接补报三项契约仍未确认，已补充具体建议。R1-R4 已修复并通过此前回归但尚未提交，见 [PHASE1AB_REVIEW.md](PHASE1AB_REVIEW.md)。无 Phase 1C 实现提交；完成后须完整回归、独立提交并推送，然后停止等待验收。
 
 - [ ] 多任务并发。
 - [ ] 乱序结果。
@@ -109,7 +110,7 @@ Management Server 使用 Go 的 Accepted 决策保持不变。Phase 0 Git baseli
 - [ ] 文件中断。
 - [ ] Phase 1 完整验收。
 
-Phase 1 必须满足 [PROTOCOL.md](PROTOCOL.md) 的规则和验收基线。Phase 0、Phase 1A 与 Phase 1B 已完成；未获得明确授权前停止，不进入 Phase 1C。
+Phase 1 必须满足 [PROTOCOL.md](PROTOCOL.md) 的规则和验收基线。Phase 0、Phase 1A 与 Phase 1B 已形成里程碑提交；当前停在 R1-R4 修复验收和 Phase 1C 设计确认门槛，不得将 A/B 回归通过视为 1C 验收通过。
 
 ## Phase 2 Device Management
 

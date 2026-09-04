@@ -73,7 +73,13 @@ type connectionWriter struct {
 	mu                sync.Mutex
 	nextOutgoingID    uint64
 	maxControlPayload uint32
+	failed            error // guarded by mu; a failed byte stream must never be reused
 }
+
+// ErrDispatchUncertain means TASK bytes may have reached the Probe. CreateExec
+// returns a non-empty task ID with this error; callers must retain that ID and
+// must not automatically create a replacement side-effecting task.
+var ErrDispatchUncertain = errors.New("task dispatch outcome is uncertain")
 
 type Server struct {
 	config Config
@@ -138,8 +144,8 @@ func (s *Server) Serve(listener net.Listener) error {
 			return nil
 		}
 		s.connections[conn] = struct{}{}
-		s.mu.Unlock()
 		s.wg.Add(1)
+		s.mu.Unlock()
 		go func() {
 			defer s.wg.Done()
 			defer func() {
@@ -204,10 +210,14 @@ func (s *Server) CreateExec(ctx context.Context, deviceID string, request task.E
 		TaskID: spec.ID, Type: spec.Type, CreatedAt: spec.CreatedAt, Timeout: spec.Timeout,
 		Params: execTaskParams{Command: spec.Command, Cwd: spec.Cwd, Env: spec.Env},
 	}
-	_, err = active.transport.sendJSON(protocol.TypeTask, 0, wire, func(messageID uint64) error {
+	messageID, err := active.transport.sendJSON(protocol.TypeTask, 0, wire, func(messageID uint64) error {
 		return s.tasks.MarkDispatched(spec.ID, messageID)
 	})
 	if err != nil {
+		if messageID != 0 {
+			return spec.ID, fmt.Errorf("%w: task_id=%s session_id=%s message_id=%d: %w",
+				ErrDispatchUncertain, spec.ID, active.sessionID, messageID, err)
+		}
 		s.tasks.Remove(spec.ID)
 		return "", fmt.Errorf("dispatch task: %w", err)
 	}
@@ -291,9 +301,15 @@ func (w *connectionWriter) sendJSON(messageType uint8, flags uint16, value inter
 	}
 	w.mu.Lock()
 	defer w.mu.Unlock()
+	if w.failed != nil {
+		return 0, w.failed
+	}
 	messageID := w.nextOutgoingID
 	if messageID == 0 || messageID == ^uint64(0) {
-		return 0, errors.New("message_id exhausted")
+		return 0, w.failLocked(errors.New("message_id exhausted"))
+	}
+	if err := w.conn.SetWriteDeadline(time.Now().Add(10 * time.Second)); err != nil {
+		return 0, w.failLocked(err)
 	}
 	if beforeWrite != nil {
 		if err := beforeWrite(messageID); err != nil {
@@ -304,12 +320,19 @@ func (w *connectionWriter) sendJSON(messageType uint8, flags uint16, value inter
 		Header:  protocol.Header{Version: protocol.Version1, Type: messageType, Flags: flags, MessageID: messageID},
 		Payload: payload,
 	}
-	_ = w.conn.SetWriteDeadline(time.Now().Add(10 * time.Second))
 	if err := protocol.WriteFrame(w.conn, frame); err != nil {
-		return 0, err
+		// A nonzero ID means a transport write was attempted, even when the
+		// transport reports zero bytes. Delivery cannot safely be inferred.
+		return messageID, w.failLocked(err)
 	}
 	w.nextOutgoingID = messageID + 1
 	return messageID, nil
+}
+
+func (w *connectionWriter) failLocked(err error) error {
+	w.failed = err
+	_ = w.conn.Close()
+	return err
 }
 
 func (s *Server) handleConnection(conn net.Conn) {
@@ -376,15 +399,6 @@ func (s *Server) handleConnection(conn net.Conn) {
 						return
 					}
 					candidate := &session{deviceID: register.DeviceID, sessionID: sessionID, transport: writer}
-					s.mu.Lock()
-					previous := s.sessions[register.DeviceID]
-					s.sessions[register.DeviceID] = candidate
-					s.mu.Unlock()
-					if previous != nil {
-						_ = previous.transport.conn.Close()
-					}
-					active = candidate
-					lastSeen = time.Now()
 					ack := registerAckSuccess{
 						ReplyTo: frame.Header.MessageID, Success: true, SessionID: sessionID,
 						HeartbeatInterval: int64(s.config.HeartbeatInterval / time.Second),
@@ -394,8 +408,24 @@ func (s *Server) handleConnection(conn net.Conn) {
 					if _, err := writer.sendJSON(protocol.TypeRegisterAck, protocol.FlagResponse, ack, nil); err != nil {
 						return
 					}
+					// Publish only after the complete registration response. The
+					// registry lock orders concurrent replacements without holding
+					// a server-wide lock across network writes or Close.
+					s.mu.Lock()
+					if s.closed {
+						s.mu.Unlock()
+						return
+					}
+					previous := s.sessions[register.DeviceID]
+					s.sessions[register.DeviceID] = candidate
+					active = candidate
 					registered = true
+					lastSeen = time.Now()
 					s.emit(SessionEvent{Type: EventOnline, DeviceID: active.deviceID, SessionID: active.sessionID})
+					s.mu.Unlock()
+					if previous != nil {
+						_ = previous.transport.conn.Close()
+					}
 					s.config.Logger.Printf("state=ONLINE device_id=%s session_id=%s", active.deviceID, active.sessionID)
 					continue
 				}

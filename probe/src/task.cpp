@@ -223,6 +223,11 @@ std::size_t Utf8PrefixLength(const std::string& input, std::size_t wanted) {
 
 }  // namespace
 
+std::mutex& ExecForkMutex() {
+    static std::mutex mutex;
+    return mutex;
+}
+
 bool ParseTask(const std::string& input, ExecTask* task, std::string* error) {
     *task = ExecTask();
     JsonObject object;
@@ -364,6 +369,9 @@ ExecResult ExecuteExec(const ExecTask& task, const std::atomic<bool>* stop_reque
     int stdout_pipe[2] = {-1, -1};
     int stderr_pipe[2] = {-1, -1};
     std::string setup_error;
+    // Hold through both pipe()+fcntl() pairs and fork, so another exec cannot
+    // inherit a descriptor in the interval before FD_CLOEXEC is installed.
+    std::unique_lock<std::mutex> fork_lock(ExecForkMutex());
     if (!ConfigurePipe(stdout_pipe, &setup_error)) {
         result.status = "failed";
         result.stderr_text = "pipe stdout: " + setup_error;
@@ -380,6 +388,9 @@ ExecResult ExecuteExec(const ExecTask& task, const std::atomic<bool>* stop_reque
     }
 
     const pid_t child = fork();
+    if (child != 0) {
+        fork_lock.unlock();
+    }
     if (child < 0) {
         setup_error = std::strerror(errno);
         close(stdout_pipe[0]);
@@ -443,7 +454,8 @@ ExecResult ExecuteExec(const ExecTask& task, const std::atomic<bool>* stop_reque
     bool child_reaped = false;
     int child_status = 0;
 
-    while (!child_reaped || stdout_pipe[0] >= 0 || stderr_pipe[0] >= 0) {
+    while (!child_reaped || stdout_pipe[0] >= 0 || stderr_pipe[0] >= 0 ||
+           (term_sent && !kill_sent)) {
         const SteadyClock::time_point now = SteadyClock::now();
         if (!term_sent && stop_requested != NULL && stop_requested->load()) {
             stopping = true;
@@ -485,7 +497,26 @@ ExecResult ExecuteExec(const ExecTask& task, const std::atomic<bool>* stop_reque
         DrainDescriptor(&stdout_pipe[0], &result.stdout_text, &result.truncated, &read_failed);
         DrainDescriptor(&stderr_pipe[0], &result.stderr_text, &result.truncated, &read_failed);
 
-        if (!child_reaped) {
+        // Escaped descendants can keep pipes open after the original process
+        // group is killed. Give output a bounded drain interval, then close our
+        // readers. This does not claim to terminate descendants using setsid.
+        if (kill_sent && SteadyClock::now() >= terminate_started + std::chrono::milliseconds(400)) {
+            if (stdout_pipe[0] >= 0) {
+                close(stdout_pipe[0]);
+                stdout_pipe[0] = -1;
+                result.truncated = true;
+            }
+            if (stderr_pipe[0] >= 0) {
+                close(stderr_pipe[0]);
+                stderr_pipe[0] = -1;
+                result.truncated = true;
+            }
+        }
+
+        // Keep the child (possibly a zombie) until no further group signals
+        // are needed. This pins its PID/PGID and avoids signaling a reused PID.
+        if (!child_reaped && (kill_sent ||
+            (!term_sent && stdout_pipe[0] < 0 && stderr_pipe[0] < 0 && !read_failed))) {
             pid_t waited;
             do {
                 waited = waitpid(child, &child_status, WNOHANG);

@@ -5,9 +5,14 @@
 #include <cstddef>
 #include <cstdint>
 #include <map>
+#include <mutex>
 #include <string>
 
 namespace rmp {
+
+// Serializes fd creation + FD_CLOEXEC with fork on older Linux/libc targets.
+// The fork child never unlocks this mutex: it only performs execve or _exit.
+std::mutex& ExecForkMutex();
 
 static const std::size_t kMaxTaskOutput = 1024U * 1024U;
 

@@ -2,6 +2,8 @@
 
 本项目是一套由跨平台 Management Server 和路由器端轻量 Probe 组成的远程运维平台。Phase 0、Phase 1A 与 Phase 1B 已完成；当前已形成注册、心跳、基础重连和单 worker exec 任务闭环，并按用户要求停止在 Phase 1B。
 
+2026-09-05 接管审查后，用户已授权修复：R1-R4 已修复并补充自动化回归，仍在未提交工作区。本次用户授权 Phase 1C 并要求先检查设计缺口；启动检查发现三项互操作契约仍待明确确认，已补充 PROTOCOL.md 末尾，暂停实现。审查历史与修复对照见 [PHASE1AB_REVIEW.md](PHASE1AB_REVIEW.md)，最新验证见 [PROJECT_STATUS.md](PROJECT_STATUS.md)。
+
 ## 新接管者先做什么
 
 严格按以下顺序阅读：
@@ -35,6 +37,9 @@ Phase 1B implementation commit: 6ed2434d646938617088f62030f3749a797616c0
 - exec 支持 cwd、env、独立 stdout/stderr、单流 1 MiB 捕获上限、控制帧大小适配、超时进程组终止与 waitpid 回收。
 - exec 运行期间 TCP Reader 与心跳保持工作；同一 socket 的主动写由双方各自串行化，message_id 沿单连接单方向递增。
 - 每次重连重新 REGISTER 并获得不同的新 session_id；Phase 1A 自动化回归继续通过。
+- Server 完整写出 REGISTER_ACK 后才公开会话；传输写失败后关闭并永久废弃 writer。
+- CreateExec 遇到发送结果不确定时返回非空 task_id 与 ErrDispatchUncertain，并保留任务记录；调用者不能自动新建替代副作用任务。
+- Probe 控制 socket 设置 close-on-exec，fd 创建与 fork 共用同步锁；超时或 worker 停止会完成进程组 TERM/KILL，输出排空最多持续到 TERM 后约 400 ms，强制关闭 pipe 时标记 truncated。
 
 最小构建、运行和测试命令见 [../README.md](../README.md)，详细验证结果见 [PROJECT_STATUS.md](PROJECT_STATUS.md)。
 
@@ -79,6 +84,8 @@ Phase 1C 多任务并发、完整 task_id 幂等、断线任务恢复和结果�
 
 ## 当前已知问题
 
+- R1-R4 已修复。主动 setsid 脱离原进程组的后代不在本轮进程组终止范围内，但其 pipe 不再阻塞 worker；不可中断内核等待的直接子进程仍受内核调度/回收条件限制。
+- 重复任务响应、同 ID 参数冲突和跨连接补报边界仍待确认；建议不是 Accepted 设计。
 - 单 worker 之外的多任务并发、乱序结果与 task_id 幂等属于 Phase 1C，尚未实现。
 - TCP 断开时运行中任务当前终止，不补报、不缓存、不跨连接恢复。
 - 用户与 Probe 身份认证、TLS、权限、租户、密钥和审计仍为 TBD。
@@ -88,4 +95,4 @@ Phase 1C 多任务并发、完整 task_id 幂等、断线任务恢复和结果�
 
 ## 下一步
 
-等待用户验收 Phase 1B。只有获得明确授权后才能进入 Phase 1C；不得自动实现多任务并发、task_id 幂等、跨连接任务关联或后续阶段能力。
+明确确认 PROTOCOL.md 末尾的重复 TASK、参数冲突和补报契约后，实现已授权的 Phase 1C；完成完整测试和文档同步，提交独立 Phase 1C commit 并推送 GitHub，然后停止等待验收。当前无 1C 实现或提交；R1-R4 未提交改动须保留并与 1C 区分，不得进入 Phase 1D。

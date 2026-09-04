@@ -12,6 +12,7 @@
 #include <condition_variable>
 #include <cstring>
 #include <deque>
+#include <fcntl.h>
 #include <iostream>
 #include <limits>
 #include <mutex>
@@ -74,6 +75,7 @@ public:
         if (next_message_id_ == 0 ||
             next_message_id_ == std::numeric_limits<std::uint64_t>::max()) {
             std::cerr << "state=PROTOCOL_ERROR detail=probe_message_id_exhausted" << std::endl;
+            shutdown(socket_fd_, SHUT_RDWR);
             return false;
         }
         Header header;
@@ -229,11 +231,19 @@ int Connect(const ClientConfig& config, std::string* error) {
     int connected = -1;
     int last_error = 0;
     for (struct addrinfo* current = addresses; current != NULL; current = current->ai_next) {
+        std::unique_lock<std::mutex> fork_lock(ExecForkMutex());
         const int candidate = socket(current->ai_family, current->ai_socktype, current->ai_protocol);
         if (candidate < 0) {
             last_error = errno;
             continue;
         }
+        const int descriptor_flags = fcntl(candidate, F_GETFD, 0);
+        if (descriptor_flags < 0 || fcntl(candidate, F_SETFD, descriptor_flags | FD_CLOEXEC) != 0) {
+            last_error = errno;
+            close(candidate);
+            continue;
+        }
+        fork_lock.unlock();
         const int enabled = 1;
         setsockopt(candidate, SOL_SOCKET, SO_KEEPALIVE, &enabled, sizeof(enabled));
         struct timeval send_timeout;

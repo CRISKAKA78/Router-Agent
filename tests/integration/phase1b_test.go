@@ -131,6 +131,13 @@ func TestTaskExecEndToEnd(t *testing.T) {
 		t.Fatalf("success result = %#v\nprobe log:\n%s", success, probeLog.String())
 	}
 
+	descriptors := runExec(t, server, deviceID, task.ExecRequest{
+		Command: `for f in /proc/$$/fd/*; do readlink "$f"; done; true`, Timeout: 5 * time.Second,
+	})
+	if descriptors.Status != "success" || descriptors.Stdout == "" || strings.Contains(descriptors.Stdout, "socket:[") {
+		t.Fatalf("exec inherited a control socket: %#v", descriptors)
+	}
+
 	failed := runExec(t, server, deviceID, task.ExecRequest{Command: `/bin/sh -c "exit 7"`, Timeout: 5 * time.Second})
 	if failed.Status != "failed" || failed.ExitCode != 7 {
 		t.Fatalf("failed result = %#v", failed)

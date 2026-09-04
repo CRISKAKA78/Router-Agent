@@ -78,6 +78,16 @@ Protocol v1 的 Phase 1 不实现 TASK_CANCEL。未来 API 是否提供任务取
 
 ## 状态与兼容
 
+### 当前内部任务派发接口
+
+`gateway.Server.CreateExec(ctx, deviceID, request)` 返回 `(taskID, error)`，由 Gateway 调用 Task Service 建立与维护记录，尚无 HTTP/CLI 入口。
+
+- 成功派发：非空 taskID、nil error。
+- 参数校验、编码、长度限制、离线或发送前失败：空 taskID、error；不保留本次未派发任务。
+- 已尝试传输写入但返回错误：非空 taskID，且 `errors.Is(err, gateway.ErrDispatchUncertain)` 为 true；保留任务与 message_id，可通过 TaskSnapshot 查询。错误信息包含原 session_id；连接已关闭并废弃。
+
+最后一种情况不能推断 Probe 未执行，不得自动创建新 task_id 重试副作用操作。调用者必须先保存返回的 taskID，再处理 error。保留记录不等于实现重连补报或重发；那些能力仍属于待确认、未实现的 Phase 1C。
+
 当前没有已发布 API，也没有客户端兼容承诺。正式 API 设计后，新增或改变资源、事件或错误行为时必须同步更新本文件、实现、测试、PROJECT_STATUS 和 CHANGELOG。
 
 ## 待讨论
