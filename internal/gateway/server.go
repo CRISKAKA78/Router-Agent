@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"routerprobe/internal/protocol"
+	"routerprobe/internal/task"
 )
 
 type Config struct {
@@ -64,7 +65,14 @@ type SessionEvent struct {
 type session struct {
 	deviceID  string
 	sessionID string
-	conn      net.Conn
+	transport *connectionWriter
+}
+
+type connectionWriter struct {
+	conn              net.Conn
+	mu                sync.Mutex
+	nextOutgoingID    uint64
+	maxControlPayload uint32
 }
 
 type Server struct {
@@ -76,6 +84,7 @@ type Server struct {
 	connections map[net.Conn]struct{}
 	closed      bool
 	events      chan SessionEvent
+	tasks       *task.Service
 	wg          sync.WaitGroup
 }
 
@@ -84,12 +93,14 @@ func New(config Config) (*Server, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &Server{
+	server := &Server{
 		config:      normalized,
 		sessions:    make(map[string]*session),
 		connections: make(map[net.Conn]struct{}),
 		events:      make(chan SessionEvent, 128),
-	}, nil
+		tasks:       task.NewService(),
+	}
+	return server, nil
 }
 
 func (s *Server) Events() <-chan SessionEvent {
@@ -172,7 +183,44 @@ func (s *Server) Disconnect(deviceID string) bool {
 	if active == nil {
 		return false
 	}
-	return active.conn.Close() == nil
+	return active.transport.conn.Close() == nil
+}
+
+func (s *Server) CreateExec(ctx context.Context, deviceID string, request task.ExecRequest) (string, error) {
+	if err := ctx.Err(); err != nil {
+		return "", err
+	}
+	s.mu.Lock()
+	active := s.sessions[deviceID]
+	s.mu.Unlock()
+	if active == nil {
+		return "", fmt.Errorf("device %q is offline", deviceID)
+	}
+	spec, err := s.tasks.NewExec(deviceID, request)
+	if err != nil {
+		return "", err
+	}
+	wire := taskMessage{
+		TaskID: spec.ID, Type: spec.Type, CreatedAt: spec.CreatedAt, Timeout: spec.Timeout,
+		Params: execTaskParams{Command: spec.Command, Cwd: spec.Cwd, Env: spec.Env},
+	}
+	_, err = active.transport.sendJSON(protocol.TypeTask, 0, wire, func(messageID uint64) error {
+		return s.tasks.MarkDispatched(spec.ID, messageID)
+	})
+	if err != nil {
+		s.tasks.Remove(spec.ID)
+		return "", fmt.Errorf("dispatch task: %w", err)
+	}
+	s.config.Logger.Printf("sent=TASK device_id=%s session_id=%s task_id=%s type=exec", deviceID, active.sessionID, spec.ID)
+	return spec.ID, nil
+}
+
+func (s *Server) WaitTaskResult(ctx context.Context, taskID string) (task.Result, error) {
+	return s.tasks.WaitResult(ctx, taskID)
+}
+
+func (s *Server) TaskSnapshot(taskID string) (task.Snapshot, error) {
+	return s.tasks.Snapshot(taskID)
 }
 
 func (s *Server) emit(event SessionEvent) {
@@ -219,14 +267,59 @@ type errorResponse struct {
 	Message string `json:"message"`
 }
 
+type execTaskParams struct {
+	Command string            `json:"command"`
+	Cwd     string            `json:"cwd,omitempty"`
+	Env     map[string]string `json:"env"`
+}
+
+type taskMessage struct {
+	TaskID    string         `json:"task_id"`
+	Type      string         `json:"type"`
+	CreatedAt int64          `json:"created_at"`
+	Timeout   uint32         `json:"timeout"`
+	Params    execTaskParams `json:"params"`
+}
+
+func (w *connectionWriter) sendJSON(messageType uint8, flags uint16, value interface{}, beforeWrite func(uint64) error) (uint64, error) {
+	payload, err := json.Marshal(value)
+	if err != nil {
+		return 0, err
+	}
+	if uint64(len(payload)) > uint64(w.maxControlPayload) {
+		return 0, fmt.Errorf("payload length %d exceeds %d", len(payload), w.maxControlPayload)
+	}
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	messageID := w.nextOutgoingID
+	if messageID == 0 || messageID == ^uint64(0) {
+		return 0, errors.New("message_id exhausted")
+	}
+	if beforeWrite != nil {
+		if err := beforeWrite(messageID); err != nil {
+			return 0, err
+		}
+	}
+	frame := protocol.Frame{
+		Header:  protocol.Header{Version: protocol.Version1, Type: messageType, Flags: flags, MessageID: messageID},
+		Payload: payload,
+	}
+	_ = w.conn.SetWriteDeadline(time.Now().Add(10 * time.Second))
+	if err := protocol.WriteFrame(w.conn, frame); err != nil {
+		return 0, err
+	}
+	w.nextOutgoingID = messageID + 1
+	return messageID, nil
+}
+
 func (s *Server) handleConnection(conn net.Conn) {
 	defer conn.Close()
+	writer := &connectionWriter{conn: conn, nextOutgoingID: 1, maxControlPayload: s.config.MaxControlPayload}
 	decoder := protocol.NewDecoder(s.config.MaxControlPayload)
 	buffer := make([]byte, 32*1024)
 	var active *session
 	registered := false
 	nextIncomingID := uint64(1)
-	nextOutgoingID := uint64(1)
 	lastSeen := time.Now()
 
 	defer func() {
@@ -259,14 +352,13 @@ func (s *Server) handleConnection(conn net.Conn) {
 					return
 				}
 				nextIncomingID++
-				if frame.Header.Flags != 0 {
-					_ = s.sendError(conn, &nextOutgoingID, frame.Header.MessageID, "INVALID_PAYLOAD", "request flags must be zero")
-					return
-				}
-
 				if !registered {
+					if frame.Header.Flags != 0 {
+						_ = s.sendError(writer, frame.Header.MessageID, "INVALID_PAYLOAD", "REGISTER flags must be zero")
+						return
+					}
 					if frame.Header.Type != protocol.TypeRegister {
-						_ = s.sendError(conn, &nextOutgoingID, frame.Header.MessageID, "UNSUPPORTED_TYPE", "REGISTER must be the first message")
+						_ = s.sendError(writer, frame.Header.MessageID, "UNSUPPORTED_TYPE", "REGISTER must be the first message")
 						return
 					}
 					register, err := parseRegister(frame.Payload)
@@ -275,7 +367,7 @@ func (s *Server) handleConnection(conn net.Conn) {
 							ReplyTo: frame.Header.MessageID, Success: false, ErrorCode: "INVALID_REGISTER",
 							Message: err.Error(), RetryAfter: 30,
 						}
-						_ = s.sendJSON(conn, &nextOutgoingID, protocol.TypeRegisterAck, protocol.FlagResponse, failure)
+						_, _ = writer.sendJSON(protocol.TypeRegisterAck, protocol.FlagResponse, failure, nil)
 						return
 					}
 					sessionID, err := newSessionID()
@@ -283,13 +375,13 @@ func (s *Server) handleConnection(conn net.Conn) {
 						s.config.Logger.Printf("session_id_error=%v", err)
 						return
 					}
-					candidate := &session{deviceID: register.DeviceID, sessionID: sessionID, conn: conn}
+					candidate := &session{deviceID: register.DeviceID, sessionID: sessionID, transport: writer}
 					s.mu.Lock()
 					previous := s.sessions[register.DeviceID]
 					s.sessions[register.DeviceID] = candidate
 					s.mu.Unlock()
 					if previous != nil {
-						_ = previous.conn.Close()
+						_ = previous.transport.conn.Close()
 					}
 					active = candidate
 					lastSeen = time.Now()
@@ -299,7 +391,7 @@ func (s *Server) handleConnection(conn net.Conn) {
 						ServerTime:        time.Now().Unix(), MaxControlPayload: s.config.MaxControlPayload,
 						FileChunkSize: s.config.FileChunkSize,
 					}
-					if err := s.sendJSON(conn, &nextOutgoingID, protocol.TypeRegisterAck, protocol.FlagResponse, ack); err != nil {
+					if _, err := writer.sendJSON(protocol.TypeRegisterAck, protocol.FlagResponse, ack, nil); err != nil {
 						return
 					}
 					registered = true
@@ -310,24 +402,60 @@ func (s *Server) handleConnection(conn net.Conn) {
 
 				switch frame.Header.Type {
 				case protocol.TypeHeartbeat:
+					if frame.Header.Flags != 0 {
+						_ = s.sendError(writer, frame.Header.MessageID, "INVALID_PAYLOAD", "HEARTBEAT flags must be zero")
+						return
+					}
 					if err := validateHeartbeat(frame.Payload); err != nil {
-						_ = s.sendError(conn, &nextOutgoingID, frame.Header.MessageID, "INVALID_PAYLOAD", err.Error())
+						_ = s.sendError(writer, frame.Header.MessageID, "INVALID_PAYLOAD", err.Error())
 						return
 					}
 					lastSeen = time.Now()
 					ack := heartbeatAck{ReplyTo: frame.Header.MessageID, ServerTime: time.Now().Unix()}
-					if err := s.sendJSON(conn, &nextOutgoingID, protocol.TypeHeartbeatAck, protocol.FlagResponse, ack); err != nil {
+					if _, err := writer.sendJSON(protocol.TypeHeartbeatAck, protocol.FlagResponse, ack, nil); err != nil {
 						return
 					}
+				case protocol.TypeTaskAck:
+					if frame.Header.Flags != protocol.FlagResponse {
+						_ = s.sendError(writer, frame.Header.MessageID, "INVALID_PAYLOAD", "TASK_ACK must set RESPONSE only")
+						return
+					}
+					ack, err := parseTaskAck(frame.Payload)
+					if err != nil {
+						_ = s.sendError(writer, frame.Header.MessageID, "INVALID_PAYLOAD", err.Error())
+						return
+					}
+					if err := s.tasks.HandleAck(active.deviceID, ack); err != nil {
+						_ = s.sendError(writer, frame.Header.MessageID, "INVALID_PAYLOAD", err.Error())
+						return
+					}
+					lastSeen = time.Now()
+					s.config.Logger.Printf("received=TASK_ACK device_id=%s task_id=%s accepted=%t", active.deviceID, ack.TaskID, ack.Accepted)
+				case protocol.TypeTaskResult:
+					if frame.Header.Flags != 0 {
+						_ = s.sendError(writer, frame.Header.MessageID, "INVALID_PAYLOAD", "TASK_RESULT flags must be zero")
+						return
+					}
+					result, err := parseTaskResult(frame.Payload)
+					if err != nil {
+						_ = s.sendError(writer, frame.Header.MessageID, "INVALID_PAYLOAD", err.Error())
+						return
+					}
+					if err := s.tasks.HandleResult(active.deviceID, result); err != nil {
+						_ = s.sendError(writer, frame.Header.MessageID, "INVALID_PAYLOAD", err.Error())
+						return
+					}
+					lastSeen = time.Now()
+					s.config.Logger.Printf("received=TASK_RESULT device_id=%s task_id=%s status=%s exit_code=%d", active.deviceID, result.TaskID, result.Status, result.ExitCode)
 				default:
-					_ = s.sendError(conn, &nextOutgoingID, frame.Header.MessageID, "UNSUPPORTED_TYPE", fmt.Sprintf("message type 0x%02X is not supported", frame.Header.Type))
+					_ = s.sendError(writer, frame.Header.MessageID, "UNSUPPORTED_TYPE", fmt.Sprintf("message type 0x%02X is not supported", frame.Header.Type))
 					return
 				}
 			}
 			if decodeErr != nil {
 				var frameErr *protocol.FrameError
 				if errors.As(decodeErr, &frameErr) && frameErr.Header != nil && frameErr.Header.MessageID != 0 {
-					_ = s.sendError(conn, &nextOutgoingID, frameErr.Header.MessageID, frameErr.Code, frameErr.Detail)
+					_ = s.sendError(writer, frameErr.Header.MessageID, frameErr.Code, frameErr.Detail)
 				}
 				s.config.Logger.Printf("protocol_error=%v remote=%s", decodeErr, conn.RemoteAddr())
 				return
@@ -339,36 +467,13 @@ func (s *Server) handleConnection(conn net.Conn) {
 	}
 }
 
-func (s *Server) sendError(conn net.Conn, nextMessageID *uint64, replyTo uint64, errorCode, message string) error {
-	return s.sendJSON(conn, nextMessageID, protocol.TypeError, protocol.FlagResponse, errorResponse{
+func (s *Server) sendError(writer *connectionWriter, replyTo uint64, errorCode, message string) error {
+	_, err := writer.sendJSON(protocol.TypeError, protocol.FlagResponse, errorResponse{
 		ReplyTo: replyTo,
 		Code:    errorCode,
 		Message: message,
-	})
-}
-
-func (s *Server) sendJSON(conn net.Conn, nextMessageID *uint64, messageType uint8, flags uint16, value interface{}) error {
-	payload, err := json.Marshal(value)
-	if err != nil {
-		return err
-	}
-	messageID := *nextMessageID
-	if messageID == 0 {
-		return errors.New("message_id exhausted")
-	}
-	frame := protocol.Frame{
-		Header:  protocol.Header{Version: protocol.Version1, Type: messageType, Flags: flags, MessageID: messageID},
-		Payload: payload,
-	}
-	_ = conn.SetWriteDeadline(time.Now().Add(10 * time.Second))
-	if err := protocol.WriteFrame(conn, frame); err != nil {
-		return err
-	}
-	if messageID == ^uint64(0) {
-		return errors.New("message_id exhausted")
-	}
-	*nextMessageID = messageID + 1
-	return nil
+	}, nil)
+	return err
 }
 
 func Run(ctx context.Context, address string, config Config) error {

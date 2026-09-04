@@ -161,34 +161,54 @@ private:
         if (position_ >= input_.size()) {
             return Fail("unexpected end of JSON value");
         }
+        const std::size_t start = position_;
         const char next = input_[position_];
         if (next == '"') {
             value->type = JsonType::kString;
-            return ParseString(&value->string_value);
+            if (!ParseString(&value->string_value)) {
+                return false;
+            }
+            value->raw_value = input_.substr(start, position_ - start);
+            return true;
         }
         if (next == '{') {
             value->type = JsonType::kOther;
-            return ParseObject(NULL, depth);
+            if (!ParseObject(NULL, depth)) {
+                return false;
+            }
+            value->raw_value = input_.substr(start, position_ - start);
+            return true;
         }
         if (next == '[') {
             value->type = JsonType::kOther;
-            return ParseArray(depth);
+            if (!ParseArray(depth)) {
+                return false;
+            }
+            value->raw_value = input_.substr(start, position_ - start);
+            return true;
         }
         if (MatchLiteral("true")) {
             value->type = JsonType::kBoolean;
             value->bool_value = true;
+            value->raw_value = input_.substr(start, position_ - start);
             return true;
         }
         if (MatchLiteral("false")) {
             value->type = JsonType::kBoolean;
             value->bool_value = false;
+            value->raw_value = input_.substr(start, position_ - start);
             return true;
         }
         if (MatchLiteral("null")) {
             value->type = JsonType::kOther;
+            value->raw_value = input_.substr(start, position_ - start);
             return true;
         }
-        return ParseNumber(value);
+        if (!ParseNumber(value)) {
+            return false;
+        }
+        value->raw_value = input_.substr(start, position_ - start);
+        return true;
     }
 
     bool ParseNumber(JsonValue* value) {

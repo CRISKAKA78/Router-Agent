@@ -3,7 +3,7 @@
 协议版本：Protocol v1  
 基线来源：v0.2 Word 设计输入  
 日期：2026-09-05  
-状态：已确认的互操作设计；Phase 1A 子集已实现
+状态：已确认的互操作设计；Phase 1A 与 Phase 1B 子集已实现
 
 本文是 [路由器探针_TCP长连接控制协议设计_v0.2.docx](../路由器探针_TCP长连接控制协议设计_v0.2.docx) 中 TCP 协议部分的仓库内维护版本，并包含 Phase 0 最终确认的 Protocol v1 互操作细化。这些规则不改变 TCP 长连接、20-byte Header、JSON Control 和 Binary FILE_CHUNK 的核心设计。
 

@@ -180,4 +180,8 @@ std::size_t StreamDecoder::buffered() const {
     return buffer_.size();
 }
 
+void StreamDecoder::SetMaxPayload(std::uint32_t max_payload) {
+    max_payload_ = max_payload;
+}
+
 }  // namespace rmp

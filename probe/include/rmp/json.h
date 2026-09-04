@@ -17,6 +17,7 @@ enum class JsonType {
 struct JsonValue {
     JsonType type;
     std::string string_value;
+    std::string raw_value;
     bool bool_value;
     std::uint64_t unsigned_value;
 

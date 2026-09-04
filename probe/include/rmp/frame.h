@@ -16,6 +16,9 @@ static const std::uint8_t kTypeRegister = 0x01;
 static const std::uint8_t kTypeRegisterAck = 0x02;
 static const std::uint8_t kTypeHeartbeat = 0x03;
 static const std::uint8_t kTypeHeartbeatAck = 0x04;
+static const std::uint8_t kTypeTask = 0x10;
+static const std::uint8_t kTypeTaskAck = 0x11;
+static const std::uint8_t kTypeTaskResult = 0x12;
 static const std::uint8_t kTypeError = 0xFE;
 
 static const std::uint16_t kFlagResponse = 1U << 0;
@@ -68,6 +71,7 @@ public:
               std::vector<Frame>* frames,
               FrameErrorCode* error);
 
+    void SetMaxPayload(std::uint32_t max_payload);
     std::size_t buffered() const;
 
 private:

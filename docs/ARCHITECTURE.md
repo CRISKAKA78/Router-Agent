@@ -1,6 +1,6 @@
 # 路由器远程运维平台架构基线
 
-本文定义 Management Server、Probe、对外客户端和传输通道之间的长期边界。Phase 1A 已实现 Management Server 与 Probe 的 TCP Session 子集；其余模块仍是已经确认的架构约束和后续实现方向，不表示已经实现。
+本文定义 Management Server、Probe、对外客户端和传输通道之间的长期边界。Phase 1A 已实现 TCP Session，Phase 1B 已实现 Task and Exec 子集；其余模块仍是已经确认的架构约束和后续实现方向，不表示已经实现。
 
 ## 项目目标
 
@@ -201,7 +201,7 @@ repo/
 └─ CHANGELOG.md
 ~~~
 
-当前实际仓库已包含 `cmd/server`、`internal/protocol`、`internal/gateway` 和 `probe`，只实现 Phase 1A 的 framing、注册、心跳与基础重连；示意中的其他模块尚未创建或实现。
+当前实际仓库已包含 `cmd/server`、`internal/protocol`、`internal/gateway`、`internal/task` 和 `probe`，实现了 Phase 1A 的 framing、注册、心跳与基础重连，以及 Phase 1B 的 TASK、TASK_ACK、TASK_RESULT、单 worker exec、timeout 和基础任务状态；示意中的其他模块尚未创建或实现。
 
 ## 已确认的架构约束
 

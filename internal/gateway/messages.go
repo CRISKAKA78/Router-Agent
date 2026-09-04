@@ -9,6 +9,9 @@ import (
 	"strconv"
 	"strings"
 	"unicode/utf8"
+
+	"routerprobe/internal/protocol"
+	"routerprobe/internal/task"
 )
 
 type registerMessage struct {
@@ -202,4 +205,134 @@ func validateHeartbeat(payload []byte) error {
 		}
 	}
 	return nil
+}
+
+func parseBoolean(raw json.RawMessage, name string) (bool, error) {
+	if bytes.Equal(bytes.TrimSpace(raw), []byte("null")) {
+		return false, fmt.Errorf("%s must not be null", name)
+	}
+	var value bool
+	if err := json.Unmarshal(raw, &value); err != nil {
+		return false, fmt.Errorf("%s must be a boolean", name)
+	}
+	return value, nil
+}
+
+func parseSignedInteger(raw json.RawMessage, name string, minimum, maximum int64) (int64, error) {
+	text := string(bytes.TrimSpace(raw))
+	if text == "" || strings.ContainsAny(text, ".eE") {
+		return 0, fmt.Errorf("%s must be an integer", name)
+	}
+	value, err := strconv.ParseInt(text, 10, 64)
+	if err != nil || value < minimum || value > maximum {
+		return 0, fmt.Errorf("%s is out of range", name)
+	}
+	return value, nil
+}
+
+func parseTaskAck(payload []byte) (task.Ack, error) {
+	object, err := decodeObject(payload)
+	if err != nil {
+		return task.Ack{}, err
+	}
+	replyRaw, ok := object["reply_to"]
+	if !ok {
+		return task.Ack{}, errors.New("reply_to is required")
+	}
+	replyTo, err := parseUnsignedInteger(replyRaw, "reply_to", math.MaxUint64)
+	if err != nil || replyTo == 0 {
+		if err != nil {
+			return task.Ack{}, err
+		}
+		return task.Ack{}, errors.New("reply_to must not be zero")
+	}
+	taskID, err := requiredString(object, "task_id", 1, 128, false)
+	if err != nil {
+		return task.Ack{}, err
+	}
+	acceptedRaw, ok := object["accepted"]
+	if !ok {
+		return task.Ack{}, errors.New("accepted is required")
+	}
+	accepted, err := parseBoolean(acceptedRaw, "accepted")
+	if err != nil {
+		return task.Ack{}, err
+	}
+	state, err := requiredString(object, "state", 1, 32, true)
+	if err != nil {
+		return task.Ack{}, err
+	}
+	return task.Ack{ReplyTo: replyTo, TaskID: taskID, Accepted: accepted, State: state}, nil
+}
+
+func parseTaskResult(payload []byte) (task.Result, error) {
+	object, err := decodeObject(payload)
+	if err != nil {
+		return task.Result{}, err
+	}
+	taskID, err := requiredString(object, "task_id", 1, 128, false)
+	if err != nil {
+		return task.Result{}, err
+	}
+	status, err := requiredString(object, "status", 1, 32, true)
+	if err != nil {
+		return task.Result{}, err
+	}
+	if status != "success" && status != "failed" && status != "timeout" {
+		return task.Result{}, errors.New("status must be success, failed, or timeout")
+	}
+	startedRaw, ok := object["started_at"]
+	if !ok {
+		return task.Result{}, errors.New("started_at is required")
+	}
+	startedAt, err := parseUnsignedInteger(startedRaw, "started_at", math.MaxInt64)
+	if err != nil {
+		return task.Result{}, err
+	}
+	finishedRaw, ok := object["finished_at"]
+	if !ok {
+		return task.Result{}, errors.New("finished_at is required")
+	}
+	finishedAt, err := parseUnsignedInteger(finishedRaw, "finished_at", math.MaxInt64)
+	if err != nil {
+		return task.Result{}, err
+	}
+	if finishedAt < startedAt {
+		return task.Result{}, errors.New("finished_at must not be earlier than started_at")
+	}
+	exitRaw, ok := object["exit_code"]
+	if !ok {
+		return task.Result{}, errors.New("exit_code is required")
+	}
+	exitCode, err := parseSignedInteger(exitRaw, "exit_code", math.MinInt32, math.MaxInt32)
+	if err != nil {
+		return task.Result{}, err
+	}
+	stdout, err := requiredString(object, "stdout", 0, int(protocol.MaxControlPayload), false)
+	if err != nil {
+		return task.Result{}, err
+	}
+	stderr, err := requiredString(object, "stderr", 0, int(protocol.MaxControlPayload), false)
+	if err != nil {
+		return task.Result{}, err
+	}
+	truncatedRaw, ok := object["truncated"]
+	if !ok {
+		return task.Result{}, errors.New("truncated is required")
+	}
+	truncated, err := parseBoolean(truncatedRaw, "truncated")
+	if err != nil {
+		return task.Result{}, err
+	}
+	resultRaw, ok := object["result"]
+	if !ok {
+		return task.Result{}, errors.New("result is required")
+	}
+	if _, err := decodeObject(resultRaw); err != nil {
+		return task.Result{}, fmt.Errorf("result must be a JSON object: %w", err)
+	}
+	return task.Result{
+		TaskID: taskID, Status: status, StartedAt: int64(startedAt), FinishedAt: int64(finishedAt),
+		ExitCode: int(exitCode), Stdout: stdout, Stderr: stderr, Truncated: truncated,
+	}, nil
 }

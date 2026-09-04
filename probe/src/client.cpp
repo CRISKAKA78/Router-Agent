@@ -2,14 +2,19 @@
 
 #include "rmp/frame.h"
 #include "rmp/json.h"
+#include "rmp/task.h"
 
 #include <arpa/inet.h>
+#include <atomic>
 #include <cerrno>
 #include <chrono>
 #include <climits>
+#include <condition_variable>
 #include <cstring>
+#include <deque>
 #include <iostream>
 #include <limits>
+#include <mutex>
 #include <netdb.h>
 #include <poll.h>
 #include <set>
@@ -17,6 +22,7 @@
 #include <stdexcept>
 #include <sys/socket.h>
 #include <sys/sysinfo.h>
+#include <sys/time.h>
 #include <thread>
 #include <unistd.h>
 
@@ -55,20 +61,133 @@ bool SendAll(int socket_fd, const std::vector<std::uint8_t>& data) {
     return true;
 }
 
-bool SendJsonFrame(int socket_fd,
-                   std::uint8_t type,
-                   std::uint64_t message_id,
-                   const std::string& payload) {
-    Header header;
-    header.type = type;
-    header.message_id = message_id;
-    try {
-        return SendAll(socket_fd, EncodeFrame(header, Bytes(payload)));
-    } catch (const std::exception& exception) {
-        std::cerr << "state=PROTOCOL_ERROR detail=" << exception.what() << std::endl;
-        return false;
+class SessionWriter {
+public:
+    explicit SessionWriter(int socket_fd)
+        : socket_fd_(socket_fd), next_message_id_(1) {}
+
+    bool Send(std::uint8_t type,
+              std::uint16_t flags,
+              const std::string& payload,
+              std::uint64_t* message_id) {
+        std::lock_guard<std::mutex> lock(mutex_);
+        if (next_message_id_ == 0 ||
+            next_message_id_ == std::numeric_limits<std::uint64_t>::max()) {
+            std::cerr << "state=PROTOCOL_ERROR detail=probe_message_id_exhausted" << std::endl;
+            return false;
+        }
+        Header header;
+        header.type = type;
+        header.flags = flags;
+        header.message_id = next_message_id_;
+        try {
+            if (!SendAll(socket_fd_, EncodeFrame(header, Bytes(payload)))) {
+                shutdown(socket_fd_, SHUT_RDWR);
+                return false;
+            }
+        } catch (const std::exception& exception) {
+            std::cerr << "state=PROTOCOL_ERROR detail=" << exception.what() << std::endl;
+            shutdown(socket_fd_, SHUT_RDWR);
+            return false;
+        }
+        *message_id = next_message_id_++;
+        return true;
     }
-}
+
+private:
+    int socket_fd_;
+    std::uint64_t next_message_id_;
+    std::mutex mutex_;
+};
+
+class TaskWorker {
+public:
+    TaskWorker(SessionWriter* writer, std::uint32_t max_payload)
+        : writer_(writer), max_payload_(max_payload), stop_(false), running_(0),
+          thread_(&TaskWorker::Run, this) {}
+
+    ~TaskWorker() {
+        Stop();
+    }
+
+    void Enqueue(const ExecTask& task) {
+        {
+            std::lock_guard<std::mutex> lock(mutex_);
+            queue_.push_back(task);
+        }
+        condition_.notify_one();
+    }
+
+    unsigned RunningTasks() const {
+        return running_.load();
+    }
+
+    void Stop() {
+        stop_.store(true);
+        condition_.notify_all();
+        if (thread_.joinable()) {
+            thread_.join();
+        }
+    }
+
+private:
+    void Run() {
+        while (true) {
+            ExecTask task;
+            {
+                std::unique_lock<std::mutex> lock(mutex_);
+                condition_.wait(lock, [this] { return stop_.load() || !queue_.empty(); });
+                if (stop_.load()) {
+                    return;
+                }
+                task = queue_.front();
+                queue_.pop_front();
+            }
+            task.state = TaskState::kRunning;
+            running_.store(1);
+            std::cout << "task_state=RUNNING task_id=" << task.task_id << std::endl;
+            ExecResult result = ExecuteExec(task, &stop_);
+            if (result.status == "success") {
+                task.state = TaskState::kSuccess;
+            } else if (result.status == "timeout") {
+                task.state = TaskState::kTimeout;
+            } else {
+                task.state = TaskState::kFailed;
+            }
+            running_.store(0);
+            if (stop_.load()) {
+                return;
+            }
+            std::string payload;
+            std::string payload_error;
+            if (!BuildTaskResultPayload(result, max_payload_, &payload, &payload_error)) {
+                std::cerr << "task_state=FAILED task_id=" << task.task_id
+                          << " detail=" << payload_error << std::endl;
+                return;
+            }
+            std::uint64_t message_id = 0;
+            if (!writer_->Send(kTypeTaskResult, 0, payload, &message_id)) {
+                return;
+            }
+            const char* terminal_state = task.state == TaskState::kSuccess
+                                             ? "SUCCESS"
+                                             : (task.state == TaskState::kTimeout ? "TIMEOUT" : "FAILED");
+            std::cout << "task_state=" << terminal_state << " task_id=" << task.task_id << std::endl;
+            std::cout << "sent=TASK_RESULT message_id=" << message_id
+                      << " task_id=" << task.task_id
+                      << " status=" << result.status << std::endl;
+        }
+    }
+
+    SessionWriter* writer_;
+    std::uint32_t max_payload_;
+    std::atomic<bool> stop_;
+    std::atomic<unsigned> running_;
+    std::mutex mutex_;
+    std::condition_variable condition_;
+    std::deque<ExecTask> queue_;
+    std::thread thread_;
+};
 
 std::string RegisterPayload(const ClientConfig& config) {
     std::ostringstream output;
@@ -79,18 +198,18 @@ std::string RegisterPayload(const ClientConfig& config) {
     }
     output << ",\"arch\":" << EscapeJsonString(config.arch)
            << ",\"boot_id\":" << EscapeJsonString(config.boot_id)
-           << ",\"capabilities\":[]}";
+           << ",\"capabilities\":[\"exec\"]}";
     return output.str();
 }
 
-std::string HeartbeatPayload() {
+std::string HeartbeatPayload(unsigned running_tasks) {
     struct sysinfo info;
     std::uint64_t uptime = 0;
     if (sysinfo(&info) == 0 && info.uptime > 0) {
         uptime = static_cast<std::uint64_t>(info.uptime);
     }
     std::ostringstream output;
-    output << "{\"uptime\":" << uptime << ",\"running_tasks\":0}";
+    output << "{\"uptime\":" << uptime << ",\"running_tasks\":" << running_tasks << '}';
     return output.str();
 }
 
@@ -117,6 +236,10 @@ int Connect(const ClientConfig& config, std::string* error) {
         }
         const int enabled = 1;
         setsockopt(candidate, SOL_SOCKET, SO_KEEPALIVE, &enabled, sizeof(enabled));
+        struct timeval send_timeout;
+        send_timeout.tv_sec = 10;
+        send_timeout.tv_usec = 0;
+        setsockopt(candidate, SOL_SOCKET, SO_SNDTIMEO, &send_timeout, sizeof(send_timeout));
         if (connect(candidate, current->ai_addr, current->ai_addrlen) == 0) {
             connected = candidate;
             break;
@@ -180,10 +303,9 @@ bool ReceiveFrames(int socket_fd,
     return true;
 }
 
-bool ValidateIncomingHeader(const Frame& frame,
-                            std::uint64_t* expected_message_id,
-                            std::uint8_t expected_type,
-                            std::string* error) {
+bool ValidateIncomingMessageID(const Frame& frame,
+                               std::uint64_t* expected_message_id,
+                               std::string* error) {
     if (frame.header.message_id != *expected_message_id) {
         std::ostringstream message;
         message << "server message_id " << frame.header.message_id
@@ -196,17 +318,6 @@ bool ValidateIncomingHeader(const Frame& frame,
         return false;
     }
     ++*expected_message_id;
-    if (frame.header.type != expected_type) {
-        std::ostringstream message;
-        message << "unexpected message type 0x" << std::hex
-                << static_cast<unsigned>(frame.header.type);
-        *error = message.str();
-        return false;
-    }
-    if (frame.header.flags != kFlagResponse) {
-        *error = "response flags are invalid";
-        return false;
-    }
     return true;
 }
 
@@ -223,15 +334,92 @@ int MillisecondsUntil(const SteadyClock::time_point& deadline) {
     return static_cast<int>(remaining.count());
 }
 
+bool HandleOnlineFrames(const std::vector<Frame>& frames,
+                        std::uint64_t* expected_server_message_id,
+                        std::set<std::uint64_t>* pending_heartbeats,
+                        SessionWriter* writer,
+                        TaskWorker* task_worker,
+                        SteadyClock::time_point* last_seen,
+                        std::string* error) {
+    for (std::vector<Frame>::const_iterator frame = frames.begin(); frame != frames.end(); ++frame) {
+        error->clear();
+        if (!ValidateIncomingMessageID(*frame, expected_server_message_id, error)) {
+            return false;
+        }
+        if (frame->header.type == kTypeHeartbeatAck) {
+            if (frame->header.flags != kFlagResponse) {
+                *error = "HEARTBEAT_ACK flags are invalid";
+                return false;
+            }
+            const std::string heartbeat_json(frame->payload.begin(), frame->payload.end());
+            HeartbeatAck heartbeat_ack;
+            if (!ParseHeartbeatAck(heartbeat_json, &heartbeat_ack, error) ||
+                pending_heartbeats->erase(heartbeat_ack.reply_to) != 1) {
+                if (error->empty()) {
+                    *error = "HEARTBEAT_ACK reply_to mismatch";
+                }
+                return false;
+            }
+            *last_seen = SteadyClock::now();
+            std::cout << "received=HEARTBEAT_ACK message_id=" << frame->header.message_id
+                      << " reply_to=" << heartbeat_ack.reply_to << std::endl;
+            continue;
+        }
+        if (frame->header.type == kTypeTask) {
+            if (frame->header.flags != 0) {
+                *error = "TASK flags are invalid";
+                return false;
+            }
+            const std::string task_json(frame->payload.begin(), frame->payload.end());
+            ExecTask task;
+            const bool parsed = ParseTask(task_json, &task, error);
+            if (!parsed && task.task_id.empty()) {
+                return false;
+            }
+            const bool accepted = parsed && task.type == "exec";
+            std::string reason;
+            if (!parsed) {
+                reason = "invalid task payload: " + *error;
+            } else if (!accepted) {
+                reason = "unsupported task type: " + task.type;
+            }
+            std::uint64_t ack_message_id = 0;
+            if (!writer->Send(kTypeTaskAck, kFlagResponse,
+                              TaskAckPayload(frame->header.message_id, task.task_id, accepted, reason),
+                              &ack_message_id)) {
+                *error = "failed to send TASK_ACK";
+                return false;
+            }
+            *last_seen = SteadyClock::now();
+            std::cout << "sent=TASK_ACK message_id=" << ack_message_id
+                      << " reply_to=" << frame->header.message_id
+                      << " task_id=" << task.task_id
+                      << " accepted=" << (accepted ? "true" : "false") << std::endl;
+            if (accepted) {
+                task.state = TaskState::kQueued;
+                std::cout << "task_state=QUEUED task_id=" << task.task_id << std::endl;
+                task_worker->Enqueue(task);
+            }
+            continue;
+        }
+        std::ostringstream message;
+        message << "unexpected message type 0x" << std::hex
+                << static_cast<unsigned>(frame->header.type);
+        *error = message.str();
+        return false;
+    }
+    return true;
+}
+
 SessionResult RunSession(int socket_fd, const ClientConfig& config) {
     SessionResult result;
-    std::uint64_t next_probe_message_id = 1;
     std::uint64_t expected_server_message_id = 1;
+    SessionWriter writer(socket_fd);
 
     std::cout << "state=REGISTERING device_id=" << config.device_id << std::endl;
     const std::string register_payload = RegisterPayload(config);
-    const std::uint64_t register_message_id = next_probe_message_id++;
-    if (!SendJsonFrame(socket_fd, kTypeRegister, register_message_id, register_payload)) {
+    std::uint64_t register_message_id = 0;
+    if (!writer.Send(kTypeRegister, 0, register_payload, &register_message_id)) {
         return result;
     }
     std::cout << "sent=REGISTER message_id=" << register_message_id << std::endl;
@@ -247,13 +435,12 @@ SessionResult RunSession(int socket_fd, const ClientConfig& config) {
             return result;
         }
     }
-    if (frames.size() != 1) {
-        std::cerr << "state=PROTOCOL_ERROR detail=unexpected_frames_during_registration" << std::endl;
-        return result;
-    }
-
     std::string validation_error;
-    if (!ValidateIncomingHeader(frames[0], &expected_server_message_id, kTypeRegisterAck, &validation_error)) {
+    if (!ValidateIncomingMessageID(frames[0], &expected_server_message_id, &validation_error) ||
+        frames[0].header.type != kTypeRegisterAck || frames[0].header.flags != kFlagResponse) {
+        if (validation_error.empty()) {
+            validation_error = "REGISTER_ACK type or flags are invalid";
+        }
         std::cerr << "state=PROTOCOL_ERROR detail=" << validation_error << std::endl;
         return result;
     }
@@ -274,18 +461,28 @@ SessionResult RunSession(int socket_fd, const ClientConfig& config) {
                   << " message=" << register_ack.message << std::endl;
         return result;
     }
+    frames.erase(frames.begin());
+    registration_decoder.SetMaxPayload(register_ack.max_control_payload);
 
     std::cout << "state=ONLINE device_id=" << config.device_id
               << " session_id=" << register_ack.session_id
               << " heartbeat_interval=" << register_ack.heartbeat_interval << std::endl;
 
-    StreamDecoder online_decoder(register_ack.max_control_payload);
     std::set<std::uint64_t> pending_heartbeats;
+    TaskWorker task_worker(&writer, register_ack.max_control_payload);
     const std::chrono::seconds heartbeat_interval(register_ack.heartbeat_interval);
     SteadyClock::time_point last_seen = SteadyClock::now();
     SteadyClock::time_point next_heartbeat = last_seen + heartbeat_interval;
 
     while (true) {
+        if (!frames.empty()) {
+            if (!HandleOnlineFrames(frames, &expected_server_message_id, &pending_heartbeats,
+                                    &writer, &task_worker, &last_seen, &validation_error)) {
+                std::cerr << "state=PROTOCOL_ERROR detail=" << validation_error << std::endl;
+                return result;
+            }
+            frames.clear();
+        }
         const SteadyClock::time_point lost_deadline = last_seen + 3 * heartbeat_interval;
         SteadyClock::time_point wake_at = next_heartbeat;
         if (lost_deadline < wake_at) {
@@ -319,31 +516,18 @@ SessionResult RunSession(int socket_fd, const ClientConfig& config) {
                     std::cerr << "state=ONLINE error=connection_closed" << std::endl;
                     return result;
                 }
-                frames.clear();
                 FrameErrorCode frame_error = FrameErrorCode::kNone;
-                if (!online_decoder.Feed(buffer, static_cast<std::size_t>(received), &frames, &frame_error)) {
+                if (!registration_decoder.Feed(buffer, static_cast<std::size_t>(received), &frames, &frame_error)) {
                     std::cerr << "state=PROTOCOL_ERROR detail=" << FrameErrorName(frame_error) << std::endl;
                     return result;
                 }
-                for (std::vector<Frame>::const_iterator frame = frames.begin(); frame != frames.end(); ++frame) {
-                    if (!ValidateIncomingHeader(*frame, &expected_server_message_id, kTypeHeartbeatAck, &validation_error)) {
-                        std::cerr << "state=PROTOCOL_ERROR detail=" << validation_error << std::endl;
-                        return result;
-                    }
-                    const std::string heartbeat_json(frame->payload.begin(), frame->payload.end());
-                    HeartbeatAck heartbeat_ack;
-                    if (!ParseHeartbeatAck(heartbeat_json, &heartbeat_ack, &validation_error) ||
-                        pending_heartbeats.erase(heartbeat_ack.reply_to) != 1) {
-                        if (validation_error.empty()) {
-                            validation_error = "HEARTBEAT_ACK reply_to mismatch";
-                        }
-                        std::cerr << "state=PROTOCOL_ERROR detail=" << validation_error << std::endl;
-                        return result;
-                    }
-                    last_seen = SteadyClock::now();
-                    std::cout << "received=HEARTBEAT_ACK message_id=" << frame->header.message_id
-                              << " reply_to=" << heartbeat_ack.reply_to << std::endl;
+                if (!frames.empty() &&
+                    !HandleOnlineFrames(frames, &expected_server_message_id, &pending_heartbeats,
+                                        &writer, &task_worker, &last_seen, &validation_error)) {
+                    std::cerr << "state=PROTOCOL_ERROR detail=" << validation_error << std::endl;
+                    return result;
                 }
+                frames.clear();
             }
         }
 
@@ -353,17 +537,15 @@ SessionResult RunSession(int socket_fd, const ClientConfig& config) {
             return result;
         }
         if (now >= next_heartbeat) {
-            if (next_probe_message_id == 0 ||
-                next_probe_message_id == std::numeric_limits<std::uint64_t>::max()) {
-                std::cerr << "state=RECONNECTING reason=message_id_exhausted" << std::endl;
-                return result;
-            }
-            const std::uint64_t heartbeat_message_id = next_probe_message_id++;
-            if (!SendJsonFrame(socket_fd, kTypeHeartbeat, heartbeat_message_id, HeartbeatPayload())) {
+            const unsigned running_tasks = task_worker.RunningTasks();
+            std::uint64_t heartbeat_message_id = 0;
+            if (!writer.Send(kTypeHeartbeat, 0, HeartbeatPayload(running_tasks),
+                             &heartbeat_message_id)) {
                 return result;
             }
             pending_heartbeats.insert(heartbeat_message_id);
-            std::cout << "sent=HEARTBEAT message_id=" << heartbeat_message_id << std::endl;
+            std::cout << "sent=HEARTBEAT message_id=" << heartbeat_message_id
+                      << " running_tasks=" << running_tasks << std::endl;
             next_heartbeat = now + heartbeat_interval;
         }
     }

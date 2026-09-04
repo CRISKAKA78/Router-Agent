@@ -1,10 +1,18 @@
 #include "rmp/client.h"
 #include "rmp/frame.h"
 #include "rmp/json.h"
+#include "rmp/task.h"
 
+#include <atomic>
+#include <cerrno>
+#include <chrono>
 #include <cstdlib>
+#include <csignal>
+#include <fstream>
 #include <iostream>
+#include <sstream>
 #include <string>
+#include <unistd.h>
 #include <vector>
 
 namespace {
@@ -147,6 +155,102 @@ void TestServerAddress() {
           "IPv6 server address");
 }
 
+void TestTaskParsingAndAck() {
+    const std::string payload =
+        "{\"task_id\":\"task-1\",\"type\":\"exec\",\"created_at\":1,\"timeout\":5,"
+        "\"params\":{\"command\":\"printf \\\"$VALUE\\\"\",\"cwd\":\"/tmp\","
+        "\"env\":{\"VALUE\":\"hello\"}},\"future\":true}";
+    rmp::ExecTask task;
+    std::string error;
+    Check(rmp::ParseTask(payload, &task, &error), "exec TASK parses: " + error);
+    Check(task.task_id == "task-1" && task.type == "exec" && task.timeout == 5 &&
+              task.cwd == "/tmp" && task.env["VALUE"] == "hello",
+          "exec TASK fields");
+
+    error.clear();
+    Check(rmp::ParseTask(
+              "{\"task_id\":\"task-2\",\"type\":\"upload\",\"timeout\":5,\"params\":{}}",
+              &task, &error) && task.type == "upload",
+          "unsupported TASK remains parseable for rejection");
+
+    rmp::JsonObject ack;
+    error.clear();
+    Check(rmp::ParseJsonObject(rmp::TaskAckPayload(7, "task-2", false, "unsupported task type"),
+                               &ack, &error),
+          "rejected TASK_ACK is JSON: " + error);
+    Check(ack["reply_to"].unsigned_value == 7 && !ack["accepted"].bool_value &&
+              ack["state"].string_value == "rejected",
+          "rejected TASK_ACK fields");
+}
+
+void TestExecResultModes() {
+    std::atomic<bool> stop(false);
+    rmp::ExecTask task;
+    task.task_id = "exec-success";
+    task.type = "exec";
+    task.timeout = 5;
+    task.command = "printf out; printf err >&2; printf \"$VALUE\"";
+    task.env["VALUE"] = "-env";
+    rmp::ExecResult result = rmp::ExecuteExec(task, &stop);
+    Check(result.status == "success" && result.exit_code == 0,
+          "exec success result");
+    Check(result.stdout_text == "out-env" && result.stderr_text == "err",
+          "stdout and stderr captured separately");
+
+    task.task_id = "exec-failed";
+    task.command = "exit 7";
+    result = rmp::ExecuteExec(task, &stop);
+    Check(result.status == "failed" && result.exit_code == 7,
+          "non-zero exec result");
+}
+
+void TestExecTimeoutAndReap() {
+    std::ostringstream path_builder;
+    path_builder << "/tmp/rmp-probe-timeout-" << static_cast<unsigned long>(getpid());
+    const std::string pid_path = path_builder.str();
+    unlink(pid_path.c_str());
+
+    rmp::ExecTask task;
+    task.task_id = "exec-timeout";
+    task.type = "exec";
+    task.timeout = 1;
+    task.command = "echo $$ > " + pid_path + "; sleep 10";
+    std::atomic<bool> stop(false);
+    const std::chrono::steady_clock::time_point started = std::chrono::steady_clock::now();
+    const rmp::ExecResult result = rmp::ExecuteExec(task, &stop);
+    const std::chrono::seconds elapsed =
+        std::chrono::duration_cast<std::chrono::seconds>(std::chrono::steady_clock::now() - started);
+    Check(result.status == "timeout" && elapsed.count() < 4,
+          "timeout terminates promptly");
+
+    std::ifstream pid_file(pid_path.c_str());
+    long child_pid = 0;
+    pid_file >> child_pid;
+    errno = 0;
+    Check(child_pid > 0 && kill(static_cast<pid_t>(child_pid), 0) == -1 && errno == ESRCH,
+          "timed out shell is killed and reaped");
+    unlink(pid_path.c_str());
+}
+
+void TestExecOutputLimit() {
+    rmp::ExecTask task;
+    task.task_id = "exec-output-limit";
+    task.type = "exec";
+    task.timeout = 10;
+    task.command = "head -c 1100000 /dev/zero >&2; printf done";
+    std::atomic<bool> stop(false);
+    rmp::ExecResult result = rmp::ExecuteExec(task, &stop);
+    Check(result.status == "success" && result.stdout_text == "done",
+          "large stderr does not block stdout");
+    Check(result.stderr_text.size() == rmp::kMaxTaskOutput && result.truncated,
+          "task output is capped and marked truncated");
+    std::string payload;
+    std::string error;
+    Check(rmp::BuildTaskResultPayload(result, rmp::kMaxControlPayload, &payload, &error) &&
+              payload.size() <= rmp::kMaxControlPayload,
+          "TASK_RESULT fits negotiated control payload: " + error);
+}
+
 }  // namespace
 
 int main() {
@@ -155,6 +259,10 @@ int main() {
     TestHeaderErrors();
     TestResponseJson();
     TestServerAddress();
+    TestTaskParsingAndAck();
+    TestExecResultModes();
+    TestExecTimeoutAndReap();
+    TestExecOutputLimit();
     if (failures != 0) {
         std::cerr << failures << " test assertion(s) failed" << std::endl;
         return EXIT_FAILURE;

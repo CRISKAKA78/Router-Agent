@@ -41,7 +41,7 @@ Phase 1 保持一个总阶段，按 Phase 1A 至 Phase 1E 顺序推进。每个�
 - [x] 交叉编译策略：后续使用 CMake toolchain files 适配 mipsel、ARM、ARM64；具体工具链版本按真实设备补充。
 - [x] REGISTER、REGISTER_ACK、HEARTBEAT 和 HEARTBEAT_ACK 的完整字段契约与注册失败响应已写入 PROTOCOL.md。
 
-Management Server 使用 Go 的 Accepted 决策保持不变。Phase 0 Git baseline 与 Phase 1A 均已完成。
+Management Server 使用 Go 的 Accepted 决策保持不变。Phase 0 Git baseline、Phase 1A 与 Phase 1B 均已完成。
 
 ### Phase 1A TCP Session
 
@@ -60,15 +60,15 @@ Management Server 使用 Go 的 Accepted 决策保持不变。Phase 0 Git baseli
 
 ### Phase 1B Task and Exec
 
-状态：未开始
+状态：已完成
 
-- [ ] TASK。
-- [ ] TASK_ACK。
-- [ ] TASK_RESULT。
-- [ ] exec。
-- [ ] timeout。
-- [ ] 基础任务状态机。
-- [ ] 形成 Phase 1B 可构建、可运行、可测试闭环。
+- [x] TASK。
+- [x] TASK_ACK。
+- [x] TASK_RESULT。
+- [x] exec。
+- [x] timeout。
+- [x] 基础任务状态机。
+- [x] 形成 Phase 1B 可构建、可运行、可测试闭环。
 
 ### Phase 1C Concurrency Idempotency and Reconnect
 
@@ -109,7 +109,7 @@ Management Server 使用 Go 的 Accepted 决策保持不变。Phase 0 Git baseli
 - [ ] 文件中断。
 - [ ] Phase 1 完整验收。
 
-Phase 1 必须满足 [PROTOCOL.md](PROTOCOL.md) 的规则和验收基线。Phase 0 与 Phase 1A 已完成；未获得明确授权前停止，不进入 Phase 1B。
+Phase 1 必须满足 [PROTOCOL.md](PROTOCOL.md) 的规则和验收基线。Phase 0、Phase 1A 与 Phase 1B 已完成；未获得明确授权前停止，不进入 Phase 1C。
 
 ## Phase 2 Device Management
 

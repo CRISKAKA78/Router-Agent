@@ -11,6 +11,7 @@ add_library(rmp_probe_core STATIC
     src/client.cpp
     src/frame.cpp
     src/json.cpp
+    src/task.cpp
 )
 target_include_directories(rmp_probe_core PUBLIC include)
 target_link_libraries(rmp_probe_core PUBLIC Threads::Threads)
