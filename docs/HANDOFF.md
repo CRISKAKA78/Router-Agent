@@ -26,7 +26,7 @@ baseline commit: bc8d747dfc41a375c31698073005857c238ede51
 
 Phase 1A commit: cd722b6f3fd6cfe5e8ccded256c5295828e4372f
 
-Phase 1B implementation commit: pending
+Phase 1B implementation commit: 6ed2434d646938617088f62030f3749a797616c0
 
 ## 当前能运行什么
 

@@ -14,14 +14,14 @@ baseline commit: bc8d747dfc41a375c31698073005857c238ede51
 
 Phase 1A commit: cd722b6f3fd6cfe5e8ccded256c5295828e4372f
 
-Phase 1B implementation commit: pending
+Phase 1B implementation commit: 6ed2434d646938617088f62030f3749a797616c0
 
 ## 当前代码状态
 
 - Management Server 使用 Go，实现位于 `cmd/server`、`internal/protocol`、`internal/gateway` 和 `internal/task`。
 - Probe 使用 C++11 + CMake，实现位于 `probe`，仅依赖 C++ 标准库、POSIX socket、pipe、poll、进程与 pthread 能力。
 - Server 与 Probe 共用 Protocol v1 的 20-byte Header、Big Endian、message_id、reply_to 和 task_id 语义。
-- Phase 1A 已提交为 `cd722b6f3fd6cfe5e8ccded256c5295828e4372f`；Phase 1B 等待本次独立提交。
+- Phase 1A 已提交为 `cd722b6f3fd6cfe5e8ccded256c5295828e4372f`；Phase 1B 实现已提交为 `6ed2434d646938617088f62030f3749a797616c0`。
 
 ## 当前可用功能
 
@@ -76,7 +76,7 @@ Phase 0 baseline：`bc8d747dfc41a375c31698073005857c238ede51`。
 
 Phase 1A commit：`cd722b6f3fd6cfe5e8ccded256c5295828e4372f`（`feat: complete Phase 1A TCP session`）。
 
-Phase 1B implementation commit：pending。
+Phase 1B implementation commit：`6ed2434d646938617088f62030f3749a797616c0`（`feat: complete Phase 1B task exec`）。
 
 ## 下一步
 
