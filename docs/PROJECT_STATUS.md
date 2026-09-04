@@ -4,13 +4,13 @@
 
 ## 当前阶段
 
-Phase 0、Phase 1A、Phase 1B 与 Phase 1C 已完成实现和验证。Phase 1C 的三项互操作补充已由用户明确确认并写入 PROTOCOL.md / ADR-015。当前准备提交、推送本次交付，然后停止等待验收；Phase 1D 未开始。
+Phase 0、Phase 1A、Phase 1B 与 Phase 1C 已完成实现和验证。Phase 1C 的三项互操作补充已由用户明确确认并写入 PROTOCOL.md / ADR-015。Phase 1C 实现提交已推送 GitHub main，当前停止等待验收；Phase 1D 未开始。
 
 - baseline commit: `bc8d747dfc41a375c31698073005857c238ede51`
 - Phase 1A commit: `cd722b6f3fd6cfe5e8ccded256c5295828e4372f`
 - Phase 1B implementation commit: `6ed2434d646938617088f62030f3749a797616c0`
 - Phase 1A/B R1-R4 修复与启动检查记录 commit: `59e65b4`
-- Phase 1C implementation commit: pending（实现和完整本地回归已完成，待创建本阶段提交）
+- Phase 1C implementation commit: `71e5d1791224a4d952f468626e507c41fae9e502`（已推送 origin/main）
 
 ## 当前可用能力
 
@@ -50,4 +50,4 @@ Phase 1C 新增覆盖：三个不同任务在全部释放执行屏障之前同�
 
 ## 下一步
 
-独立提交并推送 Phase 1C 后停止，等待用户验收。不得自动进入 Phase 1D。历史审查、R1-R4 修复和先前操作事故记录见 [PHASE1AB_REVIEW.md](PHASE1AB_REVIEW.md)。
+Phase 1C 已独立提交并推送，停止等待用户验收。不得自动进入 Phase 1D。历史审查、R1-R4 修复和先前操作事故记录见 [PHASE1AB_REVIEW.md](PHASE1AB_REVIEW.md)。

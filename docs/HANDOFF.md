@@ -12,7 +12,7 @@
 - Phase 1A commit: `cd722b6f3fd6cfe5e8ccded256c5295828e4372f`
 - Phase 1B implementation commit: `6ed2434d646938617088f62030f3749a797616c0`
 - Phase 1A/B R1-R4 修复和启动检查记录：`59e65b4`，与本次 Phase 1C 实现分开提交。
-- Phase 1C implementation commit: pending（待本次交付提交）
+- Phase 1C implementation commit: `71e5d1791224a4d952f468626e507c41fae9e502`，已推送 GitHub main，等待验收。
 
 用户已在启动检查后明确确认重复 TASK、内容冲突和跨连接结果补报建议；正式契约位于 PROTOCOL.md 末尾与 Accepted ADR-015。ADR-009/010 未被静默改写。
 
@@ -45,4 +45,4 @@ exec 支持 cwd/env、独立 stdout/stderr、有界输出和 timeout 进程组�
 - 去重覆盖同一 Probe 进程，进程重启恢复与持久化仍 TBD；不要把 boot_id 当成 Probe 进程实例 ID。
 - 默认缓存容量、计费预算及降低协商帧上限时的结果延后补报限制见 PROTOCOL.md / PROJECT_STATUS.md。
 - R1-R4 已修复；剩余已知限制和历史操作事故保留在 [PHASE1AB_REVIEW.md](PHASE1AB_REVIEW.md)，不因本次 1C 删除历史证据。
-- Phase 1C 提交推送后停止等待验收。后续阶段必须另获明确授权。
+- Phase 1C 已提交推送，停止等待验收。后续阶段必须另获明确授权。
