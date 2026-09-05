@@ -56,6 +56,7 @@ type record struct {
 	target      string
 	overwrite   bool
 	events      chan event
+	eventMu     sync.Mutex // protects detaching the receive mailbox when the worker exits
 	cancel      chan struct{}
 	once        sync.Once
 	snapshot    Snapshot
@@ -249,12 +250,18 @@ func (s *Service) OnAck(sessionID string, a task.Ack) error {
 	return r.enqueue(event{ack: &a})
 }
 func (r *record) enqueue(e event) error {
+	r.eventMu.Lock()
+	events := r.events
+	r.eventMu.Unlock()
+	if events == nil {
+		return nil
+	}
 	select {
 	case <-r.t.Done:
 		return nil
 	case <-r.cancel:
 		return nil
-	case r.events <- e:
+	case events <- e:
 		return nil
 	}
 }
@@ -350,7 +357,14 @@ func (r *record) ack(reply uint64, phase string, n int64) (bool, error) {
 func (s *Service) run(r *record) error {
 	// ACKs for retries never start a second transfer. A closed record remains in
 	// the identity table; later ACKs are discarded by cancel, FILE frames rejected.
-	defer r.once.Do(func() { close(r.cancel) })
+	defer func() {
+		r.once.Do(func() { close(r.cancel) })
+		// Retain identity/snapshot, not queued file bytes. Concurrent enqueuers
+		// may hold the old mailbox briefly but are released by cancel.
+		r.eventMu.Lock()
+		r.events = nil
+		r.eventMu.Unlock()
+	}()
 	defer func() {
 		s.mu.Lock()
 		if s.active[r.t.SessionID] == r.p.TransferID {

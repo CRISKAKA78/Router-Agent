@@ -7,7 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"math"
-	"strconv"
+	"routerprobe/internal/protocol"
 	"strings"
 	"unicode/utf8"
 )
@@ -109,7 +109,7 @@ func NewAck(reply uint64, id, status string, n int64) Ack {
 // Required fields are checked before decoding so zero, false and absent differ.
 func Decode(data []byte, out interface{}, fields ...string) error {
 	var m map[string]json.RawMessage
-	if !validUnicodeJSON(data) || json.Unmarshal(data, &m) != nil || m == nil {
+	if !protocol.ValidUnicodeJSON(data) || json.Unmarshal(data, &m) != nil || m == nil {
 		return errors.New("invalid file JSON object")
 	}
 	// Decode top-level keys once to reject duplicates, including escaped aliases.
@@ -140,52 +140,6 @@ func Decode(data []byte, out interface{}, fields ...string) error {
 	return json.Unmarshal(data, out)
 }
 
-// encoding/json replaces unmatched UTF-16 surrogates. Protocol v1 requires
-// rejecting them; raw UTF-8 and all remaining JSON syntax are checked separately.
-func validUnicodeJSON(b []byte) bool {
-	if !utf8.Valid(b) {
-		return false
-	}
-	quoted := false
-	for i := 0; i < len(b); i++ {
-		if b[i] == '"' {
-			quoted = !quoted
-			continue
-		}
-		if !quoted || b[i] != '\\' {
-			continue
-		}
-		i++
-		if i >= len(b) {
-			return false
-		}
-		if b[i] != 'u' {
-			continue
-		}
-		if i+4 >= len(b) {
-			return false
-		}
-		n, e := strconv.ParseUint(string(b[i+1:i+5]), 16, 16)
-		if e != nil {
-			return false
-		}
-		i += 4
-		if n >= 0xdc00 && n <= 0xdfff {
-			return false
-		}
-		if n >= 0xd800 && n <= 0xdbff {
-			if i+6 >= len(b) || b[i+1] != '\\' || b[i+2] != 'u' {
-				return false
-			}
-			low, e := strconv.ParseUint(string(b[i+3:i+7]), 16, 16)
-			if e != nil || low < 0xdc00 || low > 0xdfff {
-				return false
-			}
-			i += 6
-		}
-	}
-	return true
-}
 func ParseAck(data []byte) (Ack, error) {
 	var a Ack
 	e := Decode(data, &a, "reply_to", "transfer_id", "status", "received")

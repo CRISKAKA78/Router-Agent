@@ -26,7 +26,7 @@ baseline commit: bc8d747dfc41a375c31698073005857c238ede51
 
 ## Phase 1 Probe and Server TCP Control Link
 
-状态：进行中
+状态：已完成（Phase 1A～1E 验收通过）
 
 Phase 1 保持一个总阶段，按 Phase 1A 至 Phase 1E 顺序推进。每个里程碑必须形成可构建、可运行、可测试的小闭环；不得一次性铺开整个 Phase 1。
 
@@ -73,7 +73,7 @@ Management Server 使用 Go 的 Accepted 决策保持不变。Phase 0 Git baseli
 
 ### Phase 1C Concurrency Idempotency and Reconnect
 
-状态：已完成实现与验证，独立提交 `71e5d17` 已推送 GitHub main；用户现已授权启动 Phase 1D。用户已明确确认三项互操作契约，见 PROTOCOL.md / ADR-015；R1-R4 前置修复已单独提交为 `59e65b4`。
+状态：已完成实现与验证，独立提交 `71e5d17` 已推送 GitHub main；后续 Phase 1D/1E 已完成。用户已明确确认三项互操作契约，见 PROTOCOL.md / ADR-015；R1-R4 前置修复已单独提交为 `59e65b4`。
 
 - [x] 多任务并发。
 - [x] 乱序结果。
@@ -86,7 +86,7 @@ Management Server 使用 Go 的 Accepted 决策保持不变。Phase 0 Git baseli
 
 ### Phase 1D File Transfer
 
-状态：已完成实现与全量验证，独立实现提交 `f1d9fa08d047f4f46a8bc27119565a2f6d217ecc` 已推送 GitHub main，停止等待验收。P1-P5 与 sha256_ok 补充已确认，正式契约见 ADR-016/017。
+状态：已完成实现与全量验证，独立实现提交 `f1d9fa08d047f4f46a8bc27119565a2f6d217ecc` 已推送 GitHub main；后续 Phase 1E 已完成整体验收。P1-P5 与 sha256_ok 补充已确认，正式契约见 ADR-016/017。
 
 - [x] upload。
 - [x] download。
@@ -100,19 +100,19 @@ Management Server 使用 Go 的 Accepted 决策保持不变。Phase 0 Git baseli
 
 ### Phase 1E Verification
 
-状态：未开始
+状态：已完成，Phase 1 完整验收通过；本次独立 Verification commit 交付后停止等待用户验收。
 
-- [ ] 协议单元测试。
-- [ ] Server 与 Probe 集成测试。
-- [ ] 非法 Header。
-- [ ] 非法 JSON。
-- [ ] payload limit。
-- [ ] 重复 task_id。
-- [ ] 网络中断。
-- [ ] 文件中断。
-- [ ] Phase 1 完整验收。
+- [x] 协议单元测试。
+- [x] Server 与 Probe 集成测试。
+- [x] 非法 Header。
+- [x] 非法 JSON。
+- [x] payload limit。
+- [x] 重复 task_id。
+- [x] 网络中断。
+- [x] 文件中断。
+- [x] Phase 1 完整验收。
 
-Phase 1 必须满足 [PROTOCOL.md](PROTOCOL.md) 的规则和验收基线。Phase 0、Phase 1A、Phase 1B、Phase 1C 已形成里程碑提交。当前仅授权 Phase 1D，按已确认互操作规范完成文件传输实现、测试、文档与独立提交推送，然后停止等待验收。Phase 1E 未开始，不将已有阶段测试视为整个 Phase 1 验收完成。
+Protocol v1 的 14 项验收基线已映射至可运行测试，完整结果见 [PHASE1_VERIFICATION.md](PHASE1_VERIFICATION.md)。A～D 全量回归、C++/Go、Go race/vet、真实 Probe、C++ sanitizers 和 Windows Server 适用验证均通过。明确实现 bug 已修复，没有新增后续能力或变更 Accepted ADR。Phase 2 须另行授权。
 
 ## Phase 2 Device Management
 

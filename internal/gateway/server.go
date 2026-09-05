@@ -422,6 +422,9 @@ func (s *Server) handleConnection(conn net.Conn) {
 					s.config.Logger.Printf("protocol_error=INVALID_MESSAGE_ID remote=%s got=%d want=%d", conn.RemoteAddr(), frame.Header.MessageID, nextIncomingID)
 					return
 				}
+				if nextIncomingID == ^uint64(0) {
+					return // Never wrap and accept the reserved message_id zero.
+				}
 				nextIncomingID++
 				if !registered {
 					if frame.Header.Flags != 0 {

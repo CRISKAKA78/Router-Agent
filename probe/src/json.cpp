@@ -266,7 +266,9 @@ private:
         char* end = NULL;
         const unsigned long long parsed = std::strtoull(text.c_str(), &end, 10);
         if (errno == ERANGE || end == NULL || *end != '\0') {
-            return Fail("JSON integer is out of uint64 range");
+            // Valid JSON can carry larger numbers in unknown extension fields.
+            // Known integer fields require kUnsignedInteger and reject this value.
+            return true;
         }
         value->type = JsonType::kUnsignedInteger;
         value->unsigned_value = static_cast<std::uint64_t>(parsed);

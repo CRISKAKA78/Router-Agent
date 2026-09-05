@@ -2,6 +2,7 @@
 #include "rmp/frame.h"
 #include "rmp/json.h"
 #include "rmp/task.h"
+#include "rmp/pending_heartbeats.h"
 
 #include <atomic>
 #include <cerrno>
@@ -116,6 +117,15 @@ void TestHeaderErrors() {
 }
 
 void TestResponseJson() {
+    rmp::PendingHeartbeats pending;
+    Check(!pending.Add(0), "zero heartbeat identity refused");
+    for (std::uint64_t i=1; i<=1024; ++i)
+        Check(pending.Add(i*3), "interleaved heartbeat identity recorded");
+    Check(pending.Full() && !pending.Add(4000), "missing ACKs cannot grow memory indefinitely");
+    Check(!pending.Acknowledge(1), "non-heartbeat reply refused");
+    Check(pending.Acknowledge(3072) && pending.Acknowledge(3), "out-of-order and oldest ACK preserved");
+    Check(!pending.Acknowledge(3), "duplicate ACK refused");
+    Check(!pending.Full() && pending.Add(4000), "ACK releases capacity");
     const std::string failure_json =
         "{\"reply_to\":1,\"success\":false,\"error_code\":\"INVALID_REGISTER\","
         "\"message\":\"device_id is required\",\"retry_after\":30}";
@@ -145,6 +155,22 @@ void TestResponseJson() {
           "HEARTBEAT_ACK parses: " + error);
     Check(heartbeat_ack.reply_to == 27 && heartbeat_ack.server_time == 2,
           "HEARTBEAT_ACK reply_to");
+
+    Check(rmp::ParseHeartbeatAck(
+              "{\"reply_to\":27,\"server_time\":2,\"future\":18446744073709551616}",
+              &heartbeat_ack, &error), "unknown large JSON integer is ignored");
+    Check(!rmp::ParseHeartbeatAck(
+              "{\"reply_to\":18446744073709551616,\"server_time\":2}",
+              &heartbeat_ack, &error), "known uint64 field still rejects overflow");
+    const char* invalid[] = {
+        "{\"reply_to\":null,\"server_time\":2}",
+        "{\"reply_to\":27.0,\"server_time\":2}",
+        "{\"reply_to\":27,\"server_time\":2,\"future\":\"\\ud800\"}",
+        "{\"reply_to\":27,\"server_time\":2,\"future\":\"\\udc00\"}",
+        "{\"reply_to\":27,\"server_time\":2} trailing"
+    };
+    for (std::size_t i=0; i<sizeof(invalid)/sizeof(invalid[0]); ++i)
+        Check(!rmp::ParseHeartbeatAck(invalid[i], &heartbeat_ack, &error), "invalid JSON/field rejected");
 }
 
 void TestServerAddress() {

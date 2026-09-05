@@ -1,5 +1,6 @@
 #include "rmp/file_manager.h"
 #include "rmp/priority_gate.h"
+#include "rmp/pending_heartbeats.h"
 #include "rmp/client.h"
 
 #include "rmp/frame.h"
@@ -22,7 +23,6 @@
 #include <mutex>
 #include <netdb.h>
 #include <poll.h>
-#include <set>
 #include <sstream>
 #include <stdexcept>
 #include <sys/socket.h>
@@ -274,7 +274,7 @@ int MillisecondsUntil(const SteadyClock::time_point& deadline) {
 
 bool HandleOnlineFrames(const std::vector<Frame>& frames,
                         std::uint64_t* expected_server_message_id,
-                        std::set<std::uint64_t>* pending_heartbeats,
+                        PendingHeartbeats* pending_heartbeats,
                         SessionWriter* writer,
                         TaskManager* task_worker,
                         FileManager* files,
@@ -303,7 +303,7 @@ bool HandleOnlineFrames(const std::vector<Frame>& frames,
             const std::string heartbeat_json(frame->payload.begin(), frame->payload.end());
             HeartbeatAck heartbeat_ack;
             if (!ParseHeartbeatAck(heartbeat_json, &heartbeat_ack, error) ||
-                pending_heartbeats->erase(heartbeat_ack.reply_to) != 1) {
+                !pending_heartbeats->Acknowledge(heartbeat_ack.reply_to)) {
                 if (error->empty()) {
                     *error = "HEARTBEAT_ACK reply_to mismatch";
                 }
@@ -420,12 +420,19 @@ SessionResult RunSession(int socket_fd, const ClientConfig& config, TaskManager&
     }
     frames.erase(frames.begin());
     registration_decoder.SetMaxPayload(register_ack.max_control_payload);
+    // A coalesced ACK can leave only the next header buffered under the old
+    // limit. Revalidate it now without waiting for another byte from the peer.
+    FrameErrorCode negotiated_error = FrameErrorCode::kNone;
+    if (!registration_decoder.Feed(NULL, 0, &frames, &negotiated_error)) {
+        std::cerr << "state=PROTOCOL_ERROR detail=" << FrameErrorName(negotiated_error) << std::endl;
+        return result;
+    }
 
     std::cout << "state=ONLINE device_id=" << config.device_id
               << " session_id=" << register_ack.session_id
               << " heartbeat_interval=" << register_ack.heartbeat_interval << std::endl;
 
-    std::set<std::uint64_t> pending_heartbeats;
+    PendingHeartbeats pending_heartbeats;
     writer.SetLimit(register_ack.max_control_payload);
     task_worker.BeginSession();
     FileManager files(task_worker,[&writer](std::uint8_t t,std::uint16_t f,const std::string&p,std::uint64_t*id){return writer.Send(t,f,p,id);},[socket_fd]{shutdown(socket_fd,SHUT_RDWR);},register_ack.file_chunk_size);
@@ -504,13 +511,17 @@ SessionResult RunSession(int socket_fd, const ClientConfig& config, TaskManager&
             return result;
         }
         if (now >= next_heartbeat) {
+            if (pending_heartbeats.Full()) {
+                std::cerr << "state=RECONNECTING reason=pending_heartbeat_capacity" << std::endl;
+                return result;
+            }
             const unsigned running_tasks = task_worker.RunningTasks();
             std::uint64_t heartbeat_message_id = 0;
             if (!writer.Send(kTypeHeartbeat, 0, HeartbeatPayload(running_tasks),
                              &heartbeat_message_id)) {
                 return result;
             }
-            pending_heartbeats.insert(heartbeat_message_id);
+            pending_heartbeats.Add(heartbeat_message_id);
             std::cout << "sent=HEARTBEAT message_id=" << heartbeat_message_id
                       << " running_tasks=" << running_tasks << std::endl;
             next_heartbeat = now + heartbeat_interval;

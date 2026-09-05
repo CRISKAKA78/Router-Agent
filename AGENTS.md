@@ -52,7 +52,9 @@ Phase 0 完成后，仓库内 Markdown 文档成为项目持续维护的当前�
 
 ## 当前阶段限制
 
-Phase 0 baseline、Phase 1A、Phase 1B 和 Phase 1C 已形成提交。用户已明确授权 Phase 1D File Transfer，仅实现 ROADMAP 中 upload/download、FILE_BEGIN/ACK/CHUNK/END、size/SHA-256 校验、控制消息优先级和对应自动化测试。遵守 ADR-016 已确认约束；用户已明确确认 P1-P5，遵守 PROTOCOL.md 规范与 Accepted ADR-017，ready 省略 sha256_ok、done 固定 true、failed 固定 false。完成后须独立提交 Phase 1D 并推送 GitHub，然后停止等待验收。不得进入 Phase 1E，不实现 resume、专用文件数据连接、File/Tool Repository、Process Manager、Tunnel、HTTP/WebSocket API、UI、MCP、AI Agent、TASK_CANCEL、Probe/Server 进程重启恢复或后续安全体系。
+Phase 0 baseline 与 Phase 1A～1D 已形成提交，Phase 1E 已通过完整验收。用户本次授权 Phase 1E Verification：以 main 实际代码为基础，对 Protocol v1 与 Server/Probe 的 Phase 1A～1D 做完整收口验收，不新增后续功能。明确 bug 可直接修复并补测试；需要改变 Protocol v1 互操作语义的新设计缺口，先记录并汇报，等待明确确认。遵守 ADR-009～017 的已确认契约。
+
+完成 C++、Go、race、vet、真实 Probe 集成与 Windows Server 适用验证后，同步必要文档；只有实际验收通过才能将 Phase 1 标记为完成。创建独立 Phase 1E / Verification commit 并推送 GitHub，然后停止等待验收。不得进入 Phase 2；不实现 resume、专用文件数据连接、File/Tool Repository、Process Manager、Tunnel、HTTP/WebSocket API、数据库、UI、MCP、AI Agent、TASK_CANCEL、Probe/Server 进程重启恢复或后续安全体系。
 
 ## 任务执行要求
 

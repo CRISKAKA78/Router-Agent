@@ -3,7 +3,7 @@
 协议版本：Protocol v1  
 基线来源：v0.2 Word 设计输入  
 日期：2026-09-05  
-状态：已确认的互操作设计；Phase 1A、Phase 1B、Phase 1C 与 Phase 1D 子集已实现
+状态：已确认的互操作设计；Phase 1A～1D 子集已实现，Phase 1E 完整验收通过
 
 本文是 [路由器探针_TCP长连接控制协议设计_v0.2.docx](../路由器探针_TCP长连接控制协议设计_v0.2.docx) 中 TCP 协议部分的仓库内维护版本，并包含 Phase 0 最终确认的 Protocol v1 互操作细化。这些规则不改变 TCP 长连接、20-byte Header、JSON Control 和 Binary FILE_CHUNK 的核心设计。
 
@@ -897,3 +897,11 @@ Probe ClientConfig.file_queue_capacity 默认 8（等待槽位，不含一个 ac
 文件 I/O 在独立 worker 执行；每条连接接收文件邮箱最多 16 帧。chunk_size 默认 64 KiB，硬上限 512 KiB（不含 28-byte 前缀）。两端发送缓冲目标 64 KiB，OS 可调整实际容量；控制优先只在完整帧边界生效，不承诺抢占 TCP 已排入字节或不可中断的内核 I/O。Probe deadline watcher 负责超时断开 socket。
 
 无覆盖发布要求目标文件系统支持同目录 hard link；不支持时任务失败，不退化为覆盖或复制不完整文件。Windows Server 使用本地路径，Probe remote_path 使用 Linux 绝对路径。进程崩溃后的临时文件清理、状态恢复与持久化仍未实现。
+
+### Phase 1E 验收与本地资源配置
+
+Phase 1 完整验收已通过，14 项基线与测试映射见 [PHASE1_VERIFICATION.md](PHASE1_VERIFICATION.md)。本轮修复实现偏离，不修改上述字段、时序或 Accepted ADR。
+
+Probe 当前每连接最多保留 1024 个未确认 HEARTBEAT 的 message_id。若一直存在其他合法流量但对端不确认心跳，容量耗尽时在发送下一心跳之前关闭 TCP，并沿用既有重连与任务处理规则。该本地资源上限不增加 wire 字段或 ACK 超时：在线会话中不淘汰未确认关联，乱序和迟到 ACK 仍按原 reply_to 校验；任意合法消息仍刷新 last_seen。
+
+协商上限缩小时，Probe 立即复核同批 REGISTER_ACK 后已经缓冲的下一 Header，不等待超限 Payload 到齐。Server 文件 worker 退出后释放接收邮箱，任务身份与最终快照保留；文件块不因终态记录而继续驻留。

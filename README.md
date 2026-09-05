@@ -2,7 +2,7 @@
 
 本项目用于建设一套由 Management Server 和路由器端 Probe 组成的远程运维平台。Management Server 统一承载设备、任务、文件与工具、Tunnel 和对外 API 等核心能力；Probe 主动连接 Server，并向上提供轻量、通用的设备控制原语。
 
-Phase 0 设计已经完成最终复核并形成 Git baseline。Phase 1A TCP Session、Phase 1B Task and Exec 与 Phase 1C 并发/幂等/重连任务关联已实现并通过 Linux x86_64 构建与测试；Phase 1D 已实现流式双向文件传输，全量回归通过，独立实现提交已推送 GitHub main，停止等待验收。最新进度见 PROJECT_STATUS，正式文件契约见 PROTOCOL 与 Accepted ADR-017。
+Phase 0 设计与 Git baseline、Phase 1A～1D 实现及 Phase 1E 整体验收均已完成。当前可运行 TCP 注册/心跳/重连、并发 exec、进程内 task_id 幂等与结果补报，以及流式双向文件传输。完整 C++/Go/race/vet、真实 Probe、C++ sanitizers 与 Windows Server 适用验证通过；验收证据见 [PHASE1_VERIFICATION](docs/PHASE1_VERIFICATION.md)，最新事实见 [PROJECT_STATUS](docs/PROJECT_STATUS.md)。Phase 2 尚未开始，当前停止等待用户验收。
 
 ## 系统关系
 

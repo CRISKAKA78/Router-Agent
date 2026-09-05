@@ -8,7 +8,6 @@ import (
 	"math"
 	"strconv"
 	"strings"
-	"unicode/utf8"
 
 	"routerprobe/internal/protocol"
 	"routerprobe/internal/task"
@@ -29,8 +28,8 @@ type registerMessage struct {
 }
 
 func decodeObject(payload []byte) (map[string]json.RawMessage, error) {
-	if !utf8.Valid(payload) {
-		return nil, errors.New("payload is not valid UTF-8")
+	if !protocol.ValidUnicodeJSON(payload) {
+		return nil, errors.New("payload contains invalid Unicode")
 	}
 	var object map[string]json.RawMessage
 	if err := json.Unmarshal(payload, &object); err != nil {
@@ -158,8 +157,12 @@ func parseUnsignedInteger(raw json.RawMessage, name string, maximum uint64) (uin
 func parseNonNegativeNumber(raw json.RawMessage, name string) error {
 	decoder := json.NewDecoder(bytes.NewReader(raw))
 	decoder.UseNumber()
-	var value json.Number
-	if err := decoder.Decode(&value); err != nil {
+	var decoded interface{}
+	if err := decoder.Decode(&decoded); err != nil {
+		return fmt.Errorf("%s must be a number", name)
+	}
+	value, ok := decoded.(json.Number)
+	if !ok {
 		return fmt.Errorf("%s must be a number", name)
 	}
 	number, err := strconv.ParseFloat(value.String(), 64)
