@@ -1,6 +1,85 @@
 # 架构决策记录
 
-本文件使用轻量 ADR 记录已经确认的重要设计决定。状态为 Accepted 的决定不得被实现静默改变；需要变更时，应新增取代决策并说明迁移与影响。
+本文件使用轻量 ADR 记录重要设计决定与待确认草案。仅 Accepted 条目构成已确认决定；Proposed 条目不得被实现推断为已接受。状态为 Accepted 的决定不得被实现静默改变；需要变更时，应新增取代决策并说明迁移与影响。
+
+## ADR-019 Phase 3 File and Tool Repository
+
+- 状态：**Accepted。用户明确确认 R1～R6，并补充 artifact_id 全 Repository 唯一与稳定身份不重用规则；实际完成状态见 PROJECT_STATUS。**
+- 日期：2026-09-05。
+- 启动基线：HEAD、main 与 fetch 后 origin/main 同为 `b9982f5d2765546d23e09c28977c27ceb510a368`，起始工作区干净。
+- 授权：用户已授权 ROADMAP Phase 3；明确要求以下长期设计先汇报推荐方案并等待确认。AGENTS/HANDOFF 的旧“不得进入 Phase 3”属于上一阶段状态与授权边界，本次同步为新授权，不修改历史 Accepted ADR。
+- 启动代码事实：`internal/filetransfer` 已负责流式准备、upload/download、size/SHA-256、传输状态与下载提交事实；Gateway 提供 CreateUpload/CreateDownload/ResendTask 等适配入口。`internal/device` 保存完整 REGISTER 资料，但当前真实 Probe 只发送 device_id、probe_version、可选 hostname、arch、boot_id 和 exec/file capabilities，未发送 libc/kernel/model。启动时仓库没有 Repository、资产目录或元数据持久化。
+- 问题与影响：ARCHITECTURE 对 Repository 存储、版本、兼容性和清理仍为 TBD；这些决定将影响资产引用稳定性、重启后可用性、设备投放准入和以后 API 的资源模型，不能由实现隐含确定。
+- 与已接受设计关系：建议补充 ADR-003/004/006/011 的管理端能力，保持 ADR-009～018 的 wire、Device/Session、任务/传输幂等及提交事实。不把 Repository 持久化扩大为 Device/Task/Session 恢复。
+
+### R1 文件资产持久化与目录
+
+决定：使用 Server 本地文件系统作为持久化 Repository，无外部数据库或服务。提供 `repository-dir` 配置，默认 `./data/repository`，相对于 Server 启动工作目录解析为绝对路径并记录实际路径；路径由部署者配置，不能从资产名称或设备字段拼接。Repository 是单进程独占写入的目录，不支持多个 Server 共享写入。
+
+目录职责为 `blobs/sha256/<前两位>/<完整摘要>` 存不可变字节、`metadata/` 存版本化目录清单、`staging/` 存导入和下载暂存。运行数据排除 Git。资产导入流式计算 size/SHA-256，完整内容先发布，再提交元数据引用；失败不能生成指向不完整文件的可用资产。目录锁与发布方式必须在 Linux/Windows 验证，启动失败不能静默降级为内存仓库。
+
+原因与影响：重启后工具必须仍能找到实际文件，不能引用调用者随时可能修改的源路径。此方案保持单程序部署；仅支持本地文件系统，不承诺网络共享盘、多进程写入或完整灾难恢复。
+
+### R2 元数据持久化范围
+
+决定：资产元数据、工具身份、版本、产物与兼容约束及归档状态均持久化。第一版采用带 schema_version 的 JSON 目录快照，串行写入、临时写入并同步后完整发布；更新失败保留上一有效状态，不把内存状态先宣布成功。启动严格验证结构、唯一性和引用；损坏或不支持的格式报错，不自动创建空仓库覆盖原数据。
+
+仅持久化 Repository；Device Inventory、Session、Task/transfer 和投放过程记录继续沿用既有进程内生命周期。Server 重启不恢复旧在线状态，不恢复或自动重发旧任务。目录备份要求停服后一并复制元数据和 blobs；在线备份、迁移工具及完整断电恢复保证后续另议。小规模目录整体快照的成本可以接受，暂不引入 SQLite 或其他数据库依赖。
+
+### R3 工具版本唯一性与升级关系
+
+模型：FileAsset（独立 asset_id、名称、size、SHA-256、创建时间、归档状态）；Tool（稳定 tool_id、名称、描述、归档状态）；ToolVersion（tool_id + version、创建时间、归档状态）；Artifact（独立不透明 UUID artifact_id，在整个 Repository 全局唯一；另含 asset_id、platform、兼容规则、投放 mode）。一个工具版本允许多个架构/平台产物，一个产物引用一个完整资产。
+
+用户补充确认：tool_id、asset_id、artifact_id 均为稳定业务身份，不因归档、文件去重或存储路径变化而重用；artifact_id 使用独立不透明 UUID，在整个 Repository 范围全局唯一。
+
+`(tool_id, version)` 唯一，version 是区分大小写的不透明标签；不推断 SemVer 排序或自动选择 latest。发布时版本、产物、资产绑定和兼容规则整体不可变；改文件或约束须发布新版本。重复发布完全相同规格返回已有记录，不同规格冲突；归档后也保留身份，不能用同版本号覆盖历史。
+
+投放必须明确工具版本；可以明确 artifact_id，自动选择时仅允许恰好一个兼容产物，多个匹配返回歧义并由调用者选择。升级或回退均是调用者显式选择版本并发起新 upload；本阶段不建安装状态、自动升级链、包管理器、依赖解析或工具自动执行。
+
+原因与影响：同一版本可能需要 mipsel/ARM/ARM64 多个文件；版本号与摘要各有职责。显式版本和不可变产物避免重试时暗中改变投放内容。
+
+### R4 平台与兼容性匹配规则
+
+决定：兼容结果为 compatible / incompatible / unknown，并返回逐项原因。不同字段之间 AND，同字段允许值之间 OR，required_capabilities 必须全部具备；缺少受限制的设备字段为 unknown，已知不匹配为 incompatible，只有全部通过才 compatible。有任何已知不匹配时总结果 incompatible，其余未满足因缺失信息时 unknown。投放仅接受 compatible，且设备必须 online 并声明 file 能力。
+
+- platform 显式为 linux；现有 Probe 架构基线仅支持 Linux，当前不新增 OS 上报字段，也不推导 Windows Probe 支持。
+- arch 必须声明允许集合或显式 any。只规范化明确等价别名 `amd64 -> x86_64`、`arm64 -> aarch64`；其余精确匹配。arm 不推断 ARM 代际、浮点 ABI；mips/mipsel 不互通。any 是发布者明确声明，不是未填写的默认值。
+- libc 使用精确允许集合，或显式 any 表示该产物不依赖特定 libc；将 ASCII 大小写统一为小写。缺失 libc 不能满足 glibc/uclibc/musl 限制，不凭 arch 猜测。当前不推断 libc 版本或 ABI 兼容。
+- model 可选精确允许集合，区分大小写；空集合明确表示不限制，受限而未知则 unknown。
+- kernel 可选完整字符串允许集合，精确匹配；空集合表示不限制。Phase 3 不实现最低版本、范围、正则或厂商后缀推断，避免把内核版本数字当成 ABI/特性保证。
+- capabilities 精确 token 集合包含判断；仍表示 Probe 声明的协议能力，不代表系统自带命令、CPU 特性或授权。兼容判断是对已声明条件的匹配，不证明文件实际能执行。
+
+真实 Probe 当前缺少 libc/kernel/model 时，受这些条件限制的工具不能投放；明确不限制这些字段的产物可形成真实投放闭环。完整字段组合通过 Device Service 单元测试和真实 TCP 注册测试覆盖，本阶段不为 Repository 向 Probe 增加资产概念或新 wire 字段。
+
+兼容查询可针对离线设备的最近资料返回匹配结果，但不能据此直接派发。投放检查绑定当前 session_id，实际发送前若 Session 已替换则返回错误，由调用者重新查询和判断；不会自动沿用旧资料投向新 Session。Gateway 只执行通用 Session 前置条件，不了解工具规则。
+
+### R5 文件去重、SHA-256 与资产身份
+
+决定：asset_id 使用独立不透明 UUID，SHA-256 标识存储内容和完整性，不作为资产业务主键。同内容允许多个资产记录（名称/来源可能不同），只共用一个不可变 blob。不同工具版本可以引用相同 asset_id 或共用同内容 blob；去重不合并工具、版本、任务或 transfer 身份。
+
+导入计算摘要；复用已有 blob 时验证其大小和内容，冲突/损坏报错而不覆盖。投放准备须将实际内容 size/SHA-256 与资产记录核对，再复用既有 upload；已有传输过程的再次校验保留。不能因文件被外部修改就把新摘要默认为该资产的新内容。
+
+原因与影响：资产业务身份不会因存储布局或去重改变；能复用字节而不混淆引用。SHA-256 用于既有完整性和内容寻址，不引入签名或来源认证。
+
+### R6 删除、版本保留与清理
+
+决定：Phase 3 的删除语义为归档（逻辑删除），保留资产/工具/版本及其 ID、引用和文件。归档项不能用于新的引用或投放，查询可显式包含归档项；已派发任务与传输继续使用固定规格，不受归档影响，不撤回设备文件。
+
+资产被未归档版本引用时拒绝归档，先归档引用它的版本；归档工具使其全部版本不可新投放，但保留历史身份与数据。不自动清理旧版本，不重用归档版本号，不物理删除 blob，不在本阶段实现 GC 或设备端卸载。只清理本次操作自有且尚未被传输占用的暂存文件；崩溃遗留暂存/未引用 blob 保留并报告，后续显式清理策略另议。
+
+原因与影响：避免清理与进行中传输、共享 blob、旧任务发生竞态；代价是磁盘占用增长且本阶段归档不会回收空间。
+
+### 已确认内部投放与下载闭环
+
+File Repository 管理资产字节和元数据，Tool Service 管理工具/版本与兼容性；Application Service 组合 Repository、Device 查询及既有文件/任务接口。Repository 不持有 Gateway 连接表、不处理 FILE 帧，Device 不依赖 Repository。
+
+投放：明确 tool/version → 查询当前设备与兼容候选 → 固定 artifact/asset/session → 核对内容 → 既有 CreateUpload（远端路径、mode、overwrite、timeout）→ 返回并保存 task_id/transfer_id 及资产/版本关联 → 通过原 TaskSnapshot/FileSnapshot/WaitTaskResult 查询。资产 ID、工具 ID、版本、兼容规则留在 Server。非空 task_id 与 ErrDispatchUncertain 必须一起保留，绝不自动生成替代任务；ResendTask 仍只查询/补报原身份，文件中断重新传输须新 task_id/transfer_id。
+
+下载：既有 CreateDownload 写入 Repository 分配的暂存路径；显式完成导入时检查 FileSnapshot.Committed 并重新核对 size/SHA-256，成功后登记资产。Task 最终状态与本地提交事实分别返回；允许在已提交但 done ACK 丢失导致 failed 时显式保留该完整资产，不伪造任务 success。没有完整本地提交事实则禁止导入。同一下载任务在本进程中重复完成导入返回已有资产，不重复创建身份；重启后的任务关联恢复不在本阶段。
+
+### 验证与当前状态
+
+验证覆盖导入/重开/损坏/失败发布、重复内容与引用、版本不可变与归档、兼容规则/未知/歧义、Session 替换、派发失败与不确定派发、真实 Probe 投放和重复任务、下载导入与提交/确认分离，并运行 Phase 1/2 全量回归、Go race/vet、C++ 构建/CTest 和 Windows 原生适用验证。用户已明确确认并授权实现；Phase 3 完成与验证事实见 PROJECT_STATUS。
 
 ## ADR-001 Probe 主动建立 TCP 长连接
 

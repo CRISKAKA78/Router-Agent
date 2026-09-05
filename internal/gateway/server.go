@@ -303,12 +303,23 @@ func (s *Server) ResendTask(ctx context.Context, taskID string) error {
 }
 
 func (s *Server) dispatchExec(active *session, spec task.Spec) (uint64, error) {
+	return s.dispatchChecked(active, spec, false)
+}
+
+func (s *Server) dispatchChecked(active *session, spec task.Spec, requireCurrent bool) (uint64, error) {
 	wireExec := taskMessage{TaskID: spec.ID, Type: spec.Type, CreatedAt: spec.CreatedAt, Timeout: spec.Timeout, Params: execTaskParams{Command: spec.Command, Cwd: spec.Cwd, Env: spec.Env}}
 	var wire interface{} = wireExec
 	if spec.Type != "exec" {
 		wire = map[string]interface{}{"task_id": spec.ID, "type": spec.Type, "created_at": spec.CreatedAt, "timeout": spec.Timeout, "params": spec.Params}
 	}
 	messageID, err := active.transport.sendJSON(protocol.TypeTask, 0, wire, func(messageID uint64) error {
+		if requireCurrent {
+			s.mu.Lock()
+			defer s.mu.Unlock()
+			if s.sessions[spec.DeviceID] != active {
+				return ErrSessionChanged
+			}
+		}
 		return s.tasks.MarkDispatched(spec.ID, active.sessionID, messageID)
 	})
 	if err != nil {

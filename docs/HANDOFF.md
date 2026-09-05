@@ -1,6 +1,6 @@
 # 项目接管手册
 
-项目由跨平台 Go Management Server 与轻量 C++11 Probe 组成。Phase 0、Phase 1A～1E 与 Phase 2 Device Management 已完成实现和验收；本次 Phase 2 独立提交交付后停止等待用户验收，不进入 Phase 3。
+项目由跨平台 Go Management Server 与轻量 C++11 Probe 组成。Phase 0、Phase 1A～1E 与 Phase 2 Device Management 已交付。Phase 3 已按 Accepted ADR-019 R1～R6 及用户身份补充完成实现与自动化验收，Phase 1/2 全量回归通过；验收事实见 PROJECT_STATUS 和 [PHASE3_VERIFICATION](PHASE3_VERIFICATION.md)。独立 Phase 3 commit 推送后停止等待用户验收，不进入 Phase 4 或外部 API/UI/MCP/AI Agent。
 
 ## 接管顺序与事实来源
 
@@ -16,13 +16,24 @@
 - Phase 1D：`f1d9fa08d047f4f46a8bc27119565a2f6d217ecc`
 - Phase 1E 起点：`d61054543500fbf5a62c94cd2afe492637230b85`，启动时等于 origin/main，工作区干净。
 - Phase 1E / Phase 2 起点：`3de7924353d05261e6b01faa87cbca00a0a0d0a5`，Phase 2 启动时等于 origin/main，工作区干净。
-- Phase 2：本次独立 `feat: complete Phase 2 device management` commit；使用 `git log --format=fuller --grep="Phase 2"` 获取实际 SHA，不在提交自身填入自引用 SHA。
+- Phase 2 / Phase 3 起点：`b9982f5d2765546d23e09c28977c27ceb510a368`，本次启动时 HEAD、main 与 fetch 后 origin/main 一致，工作区干净。
+- Phase 3：独立 `feat: complete Phase 3 file and tool repository` commit；实际 SHA 通过 `git log --format=fuller --grep="Phase 3"` 查询。
+
+## Phase 3 接管要点
+
+用户已明确确认 [ADR-019](DECISIONS.md#adr-019-phase-3-file-and-tool-repository) R1～R6，并补充 artifact_id 为整个 Repository 全局唯一的独立 UUID；tool_id、asset_id、artifact_id 不因归档、去重或存储路径变化而重用。FileService/ToolService 共用本地 JSON 目录与 blob，management.Service 组织工具投放和下载导入；接口见 API.md。
+
+当前真实 Probe 不上报 libc/kernel/model；缺失受限字段为 unknown，投放须 compatible。兼容检查绑定当前 Session，发送准入前复核；复用 CreateUpload/CreateDownload，保留非空 task_id + ErrDispatchUncertain、旧 ID 重发和下载 Committed 与最终 RESULT 分离。CompleteDownload 在 Committed + Released 后显式导入，重复返回原资产身份。
+
+默认仓库 `./data/repository`，用 `-repository-dir` 配置；启动记录绝对路径。单写者目录锁、JSON schema_version=1、不可变 blob；停服后整体备份，不支持在线备份、多 Server 共享写入、物理 GC 或任务重启恢复。归档不回收空间，崩溃遗留只报告，不自动删除。代码本地路径细节和锁顺序见 ARCHITECTURE。
 
 ## 运行闭环与入口
 
 | 入口 | 实际职责 |
 | --- | --- |
-| cmd/server/main.go | TCP Server 程序；尚无外部任务 CLI/API |
+| cmd/server/main.go | 组合 Management Server 与持久 Repository；尚无外部任务 CLI/API |
+| internal/management | File/Tool/Device 与既有传输的编排、Operation、下载导入 |
+| internal/repository | FileService、ToolService、兼容规则、本地持久目录和稳定身份 |
 | internal/protocol | framing、Unicode 基础校验 |
 | internal/gateway | REGISTER/Session/心跳、消息路由、优先级串行 writer、内部任务与文件传输适配 |
 | internal/device | 设备 Inventory、注册资料、Session 业务状态与有界历史、内部查询 |
@@ -33,6 +44,7 @@
 | probe/src/task.cpp | exec、cwd/env、stdout/stderr、timeout 与进程组清理 |
 | probe/src/file_manager.cpp | Session 文件 FIFO、文件 I/O worker/deadline watcher、完整性与发布 |
 | tests/integration/phase1a_test.go～phase1e_test.go | 真实 Server/Probe、故障中继、并发/重复/重连、文件与非法协议验收 |
+| tests/integration/phase3_test.go | 真实工具投放/执行分离、字节/权限、幂等、兼容准入与下载确认丢失 |
 
 Server 内部入口为 CreateExec、CreateUpload、CreateDownload、ResendTask、WaitTaskResult、TaskSnapshot、FileSnapshot，契约见 API.md。task_id 处理业务幂等，message_id/reply_to 只在单连接方向关联。每次重连重新注册并产生新 session_id。
 
@@ -46,9 +58,11 @@ Probe 默认四个 exec workers；TCP 断线后 exec 继续执行，完成结果
 
 完整 Release C++/Go/真实 Probe、Go race/vet、C++ ASan/UBSan/LSan、TSan 单测与真实 Probe 全量集成、Windows Server 原生适用测试均通过；精确命令和时长见验收记录。通用构建命令见 README。
 
+Phase 3 最终普通全量集成 152.691 秒，Go race + TSan Probe 全量集成 159.799 秒；Release/ASan/TSan CTest 均 3/3，Linux/Windows 构建和 vet 通过。测试映射与本阶段限制见 PHASE3_VERIFICATION。已具备申请 Phase 4 的基础，但须用户验收与另行授权；本次交付后停止。
+
 - 已接受身份和结果保留，不淘汰；Probe 默认 128 身份、8 MiB 计费预算。Server 保留内存任务/派发历史，暂无历史清理或持久化。
 - Probe 每连接最多 1024 未确认心跳；满后按既有重连流程处理，旧关联不在在线会话中被淘汰。
 - 控制优先只作用于帧边界，不抢占已写出的 TCP 字节、对端缓冲或不可中断内核 I/O；文件系统能力与恢复边界见 PROJECT_STATUS。
 - boot_id 不是 Probe 进程实例证明；Probe/Server 进程重启恢复、认证/TLS/权限和嵌入式 CPU/libc/内核实机矩阵仍待后续阶段。
 - Device Inventory 只在 Server 进程内保存；默认当前 Session + 最近 64 条已结束历史，容量可配置，查询暴露截断计数。离线设备保留；历史淘汰不删除 Task/File 记录。Server 重启清空，没有数据库、心跳时序或审计重放。
-- Phase 2 与 Phase 1 全量回归均通过，证据见 [PHASE2_VERIFICATION.md](PHASE2_VERIFICATION.md)：最终普通集成 149.921 秒，Go race + TSan Probe 集成 156.221 秒；C++ 各 CTest、Linux/Windows 构建和 vet 均通过。本次提交推送后停止等待用户验收；不进入 Phase 3 或新增外部 API。
+- Phase 2 交付时 Phase 1/2 全量回归通过，证据见 [PHASE2_VERIFICATION.md](PHASE2_VERIFICATION.md)：最终普通集成 149.921 秒，Go race + TSan Probe 集成 156.221 秒；C++ 各 CTest、Linux/Windows 构建和 vet 均通过。此处为历史交付证据，Phase 3 完成前须对最终实现重新全量验证。

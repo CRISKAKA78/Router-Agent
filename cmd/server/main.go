@@ -11,6 +11,8 @@ import (
 	"time"
 
 	"routerprobe/internal/gateway"
+	"routerprobe/internal/management"
+	"routerprobe/internal/repository"
 )
 
 func main() {
@@ -18,6 +20,7 @@ func main() {
 	heartbeatSeconds := flag.Int("heartbeat-interval", 30, "heartbeat interval in seconds (10-300)")
 	maxControlPayload := flag.Uint("max-control-payload", 1024*1024, "maximum JSON control payload in bytes")
 	fileChunkSize := flag.Uint("file-chunk-size", 64*1024, "negotiated file chunk size in bytes")
+	repositoryDirectory := flag.String("repository-dir", repository.DefaultDirectory, "persistent local file/tool repository directory")
 	flag.Parse()
 
 	if *maxControlPayload > uint(^uint32(0)) || *fileChunkSize > uint(^uint32(0)) {
@@ -29,12 +32,12 @@ func main() {
 	defer stop()
 
 	logger := log.New(os.Stdout, "server ", log.LstdFlags|log.Lmicroseconds)
-	err := gateway.Run(ctx, *listenAddress, gateway.Config{
+	err := management.Run(ctx, *listenAddress, management.Config{RepositoryDirectory: *repositoryDirectory, Gateway: gateway.Config{
 		HeartbeatInterval: time.Duration(*heartbeatSeconds) * time.Second,
 		MaxControlPayload: uint32(*maxControlPayload),
 		FileChunkSize:     uint32(*fileChunkSize),
 		Logger:            logger,
-	})
+	}})
 	if err != nil {
 		logger.Printf("fatal=%v", err)
 		os.Exit(1)

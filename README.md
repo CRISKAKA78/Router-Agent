@@ -2,7 +2,7 @@
 
 本项目用于建设一套由 Management Server 和路由器端 Probe 组成的远程运维平台。Management Server 统一承载设备、任务、文件与工具、Tunnel 和对外 API 等核心能力；Probe 主动连接 Server，并向上提供轻量、通用的设备控制原语。
 
-Phase 0、Phase 1A～1E 与 Phase 2 已完成验收。当前可运行 TCP 注册/心跳/重连、并发 exec、进程内 task_id 幂等与结果补报、流式双向文件传输，以及设备 Inventory、状态、capabilities 和有界 Session 历史内部查询。本次 Phase 2 交付后停止等待用户验收，不进入 Phase 3。最新事实见 [PROJECT_STATUS](docs/PROJECT_STATUS.md)，验证记录见 [Phase 1](docs/PHASE1_VERIFICATION.md) 与 [Phase 2](docs/PHASE2_VERIFICATION.md)。
+Phase 0、Phase 1A～1E、Phase 2 与 Phase 3 已完成实现与自动化验收。Phase 3 按 [Accepted ADR-019](docs/DECISIONS.md#adr-019-phase-3-file-and-tool-repository) 提供持久化文件资产、工具版本/兼容产物及管理端投放与下载导入，事实见 [PROJECT_STATUS](docs/PROJECT_STATUS.md) 和 [Phase 3 验证记录](docs/PHASE3_VERIFICATION.md)。既有 TCP 注册/心跳/重连、并发 exec、幂等补报、双向文件传输与 Device Inventory 全量回归通过；Phase 3 独立提交推送后停止等待验收，不进入 Phase 4。
 
 ## 系统关系
 
@@ -24,6 +24,7 @@ Server 与 Probe 之间使用 Probe 主动发起的 TCP 长连接。该连接负
 
 ## 当前状态
 
+- File/Tool Repository 使用本地持久目录，稳定 UUID 资产/工具/产物身份、不可变版本、SHA-256 内容去重与逻辑归档。内部 management.Service 进行兼容性查询、工具投放、资产上传、下载显式导入；全部复用现有文件传输。
 - Device Service 以稳定 device_id 保存最近 REGISTER 资料、当前/最近 Session 与在线状态。内部 `Server.Devices().List/Get/Sessions` 返回查询副本；默认每设备保留最近 64 条已结束 Session，Server 重启后清空。
 - 已建立项目入口、架构、协议、API 基线、路线图、状态快照、接管手册、决策记录和变更记录。
 - 已将 Word 设计输入中的 TCP 协议整理为可维护的 Markdown 基线。
@@ -74,6 +75,10 @@ cmake --build build/probe --parallel
 ~~~sh
 ./build/server/router-server -listen :9000
 ~~~
+
+Server 默认在启动工作目录下创建 `./data/repository`，也可指定 `-repository-dir /absolute/data/repository`（Windows 可使用本地盘符路径）。启动日志记录解析后的绝对路径；同一仓库只允许一个 Server 写入。Repository 启动失败时 Server 报错退出，不降级为空仓库。运行数据默认排除 Git，使用自定义仓库目录时应放在源码仓库之外。
+
+资产与工具通过 [内部 Service 接口](docs/API.md#phase-3-内部-repository-与管理接口) 管理，尚无外部操作 CLI/API。停服后整体备份仓库目录；归档保留文件，不自动清理旧版本或磁盘。设备/任务/Session 仍只在 Server 进程内保留。
 
 终端二启动 Probe：
 

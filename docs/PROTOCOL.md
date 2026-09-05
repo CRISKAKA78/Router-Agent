@@ -711,7 +711,7 @@ Probe                         Server
 
 ### 上传工具并抓包
 
-该时序描述未来上层调用，不表示 AI 或工具仓库已经实现。
+该时序的工具投放和文件回收已由 Phase 3 管理端内部 Service 复用既有 upload/download 实现；exec 仍须调用方单独发起。AI 编排和 start_process 仍为后续能力，不能从此示意推断已实现。Repository 资产、版本、产物和兼容规则不进入 wire。
 
 ~~~text
 Management or AI

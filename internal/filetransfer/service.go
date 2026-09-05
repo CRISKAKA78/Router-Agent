@@ -21,11 +21,18 @@ type UploadRequest struct {
 	SourcePath, RemotePath, Mode string
 	Overwrite                    bool
 	Timeout                      time.Duration
+	ExpectedSessionID            string           // local dispatch precondition; never serialized
+	Expected                     *ContentMetadata // optional immutable source expectation
+}
+type ContentMetadata struct {
+	Size   int64
+	SHA256 string
 }
 type DownloadRequest struct {
 	RemotePath, ResultName, TargetPath string
 	Overwrite                          bool
 	Timeout                            time.Duration
+	ExpectedSessionID                  string
 }
 type Transport struct {
 	SessionID string
@@ -40,6 +47,7 @@ type Snapshot struct {
 	Size                          int64
 	SHA256                        string
 	Committed                     bool
+	Released                      bool // local worker has closed all file handles
 	Error                         string
 }
 type event struct {
@@ -88,6 +96,10 @@ func (s *Service) Upload(ctx context.Context, device string, q UploadRequest, t 
 	f, n, h, e := OpenSource(ctx, q.SourcePath)
 	if e != nil {
 		return task.Spec{}, e
+	}
+	if q.Expected != nil && (q.Expected.Size != n || q.Expected.SHA256 != h) {
+		f.Close()
+		return task.Spec{}, errors.New("source does not match expected size/SHA-256")
 	}
 	id, e := newUUID()
 	if e != nil {
@@ -146,6 +158,9 @@ func (s *Service) add(device, kind string, timeout time.Duration, p Params, t Tr
 			if r.source != nil {
 				r.source.Close()
 			}
+			s.mu.Lock()
+			r.snapshot.Released = true
+			s.mu.Unlock()
 		}()
 		if e := s.run(r); e != nil {
 			s.mu.Lock()

@@ -79,13 +79,16 @@ func (s *Server) fileTransport(a *session) filetransfer.Transport {
 		return id, err
 	}}
 }
+
+var ErrSessionChanged = errors.New("device session changed")
+
 func (s *Server) CreateUpload(ctx context.Context, device string, q filetransfer.UploadRequest) (string, error) {
-	return s.createFile(ctx, device, func(a *session) (task.Spec, error) { return s.files.Upload(ctx, device, q, s.fileTransport(a)) })
+	return s.createFile(ctx, device, q.ExpectedSessionID, func(a *session) (task.Spec, error) { return s.files.Upload(ctx, device, q, s.fileTransport(a)) })
 }
 func (s *Server) CreateDownload(ctx context.Context, device string, q filetransfer.DownloadRequest) (string, error) {
-	return s.createFile(ctx, device, func(a *session) (task.Spec, error) { return s.files.Download(ctx, device, q, s.fileTransport(a)) })
+	return s.createFile(ctx, device, q.ExpectedSessionID, func(a *session) (task.Spec, error) { return s.files.Download(ctx, device, q, s.fileTransport(a)) })
 }
-func (s *Server) createFile(ctx context.Context, device string, prepare func(*session) (task.Spec, error)) (string, error) {
+func (s *Server) createFile(ctx context.Context, device, expectedSession string, prepare func(*session) (task.Spec, error)) (string, error) {
 	if e := ctx.Err(); e != nil {
 		return "", e
 	}
@@ -94,6 +97,9 @@ func (s *Server) createFile(ctx context.Context, device string, prepare func(*se
 	s.mu.Unlock()
 	if a == nil {
 		return "", errors.New("device offline")
+	}
+	if expectedSession != "" && a.sessionID != expectedSession {
+		return "", ErrSessionChanged
 	}
 	spec, e := prepare(a)
 	if e != nil {
@@ -104,7 +110,7 @@ func (s *Server) createFile(ctx context.Context, device string, prepare func(*se
 		s.tasks.Remove(spec.ID)
 		return "", e
 	}
-	id, e := s.dispatchExec(a, spec)
+	id, e := s.dispatchChecked(a, spec, expectedSession != "")
 	if e != nil && id == 0 {
 		s.files.Remove(spec.ID)
 		s.tasks.Remove(spec.ID)

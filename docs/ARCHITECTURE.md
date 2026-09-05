@@ -1,6 +1,6 @@
 # 路由器远程运维平台架构基线
 
-本文定义 Management Server、Probe、对外客户端和传输通道之间的长期边界。Phase 1 已实现 TCP Session、并发 exec、进程内幂等、跨 TCP 结果补报与双向文件传输；Phase 2 已实现 Device Inventory 和内部查询，验证状态见 PROJECT_STATUS。其余模块仍是已经确认的架构约束和后续实现方向，不表示已经实现。
+本文定义 Management Server、Probe、对外客户端和传输通道之间的长期边界。Phase 1 已实现 TCP Session、并发 exec、进程内幂等、跨 TCP 结果补报与双向文件传输；Phase 2 已实现 Device Inventory 和内部查询；Phase 3 已实现持久 File/Tool Repository、兼容判断和管理端文件投放/下载导入，验证状态见 PROJECT_STATUS。其他模块仍是架构约束和后续实现方向，不表示已经实现。
 
 ## 项目目标
 
@@ -163,7 +163,7 @@ Adapter 负责协议适配、参数解析、认证与上下文获取以及响应
 - Tool：工具元数据、兼容性和向设备投放。
 - Tunnel：临时 Tunnel 的创建、状态与关闭。
 
-File 与 Tool 可以在早期由同一模块承载，但职责必须能够区分。具体存储模型为 TBD。
+File 与 Tool 在 Phase 3 由同一 `internal/repository` 包内的独立 FileService/ToolService 承载，共用目录事务以保护资产引用。存储与兼容性按 Accepted [ADR-019](DECISIONS.md#adr-019-phase-3-file-and-tool-repository) 实现；不替代 `internal/filetransfer` 的传输职责。
 
 ### Probe TCP Gateway
 
@@ -201,7 +201,7 @@ repo/
 └─ CHANGELOG.md
 ~~~
 
-当前实际仓库已包含 `cmd/server`、`internal/protocol`、`internal/gateway`、`internal/task` 和 `probe`，实现了 Phase 1A 的 framing、注册、心跳与基础重连，以及 Phase 1B 的 TASK、TASK_ACK、TASK_RESULT、exec、timeout 和基础任务状态，Phase 1C 的并发、去重和跨连接补报；Phase 1D 已增加 internal/filetransfer 与 Probe FileManager；Phase 2 已增加 internal/device；示意中的其他模块尚未创建或实现。
+当前实际仓库已包含 `cmd/server`、`internal/protocol`、`internal/gateway`、`internal/task` 和 `probe`，实现了 Phase 1A 的 framing、注册、心跳与基础重连，以及 Phase 1B 的 TASK、TASK_ACK、TASK_RESULT、exec、timeout 和基础任务状态，Phase 1C 的并发、去重和跨连接补报；Phase 1D 已增加 internal/filetransfer 与 Probe FileManager；Phase 2 已增加 internal/device；Phase 3 已增加 internal/repository 与 internal/management。示意中的其他模块尚未创建或实现。
 
 ## 已确认的架构约束
 
@@ -226,7 +226,7 @@ Device/Session 生命周期、历史保留、进程内存储与 Gateway 边界�
 - Tunnel 数据面协议、Relay 部署拓扑、访问控制和租约模型。
 - Probe 自身重启后的 task_id 缓存、未上报结果和任务恢复策略。
 - Server 重启后的任务与会话恢复策略。
-- 文件与工具仓库的存储、版本、兼容性和清理策略。
+- Repository 之外的长期存储、在线备份/迁移、物理 GC 与跨平台实机兼容矩阵仍待后续阶段；Phase 3 范围已由 Accepted ADR-019 决定。真实 Probe 目前省略 libc/kernel/model，兼容判断不能假定这些资料已知。
 - Management Server 的配置格式、日志、指标和运维接口。
 - API 的资源模型、认证、错误格式和实时事件协议。
 - 各前端的实现顺序和技术栈。
@@ -254,3 +254,16 @@ Device/Session 生命周期、历史保留、进程内存储与 Gateway 边界�
 - online/offline 是设备业务状态。Session replaced 时直接结束旧 Session 并发布新 Session，设备保持 online；LastOnlineAt 更新为新发布时刻，LastOfflineAt 保持原值。设备真正下线才更新 LastOfflineAt；未经历离线时为零值。
 - 当前 Session 之外，默认保留最近 64 个已结束 Session 及对应注册快照；按结束操作顺序淘汰并暴露计数。离线设备、首次/最近时间和累计数保留至 Server 进程结束，设备数量无自动淘汰。只记录 Session 状态历史，不存心跳时序或审计事件流。
 - `Server.Devices()` 暴露 `device.Query`，返回独立查询副本；当前/最近 Session、时间、历史容量与字段语义见 API.md。Task/File 规格、派发关联、幂等和提交事实仍属于原 Service；Device 历史淘汰不影响这些记录。
+
+## Phase 3 实际模块职责
+
+- `internal/repository.Store` 拥有持久目录、文件系统锁、schema_version=1 JSON 目录和资产/工具引用的一致提交；FileService 管理不可变字节、资产身份、查询与归档，ToolService 管理工具、版本、产物、约束与归档。稳定 UUID tool_id/asset_id/artifact_id 不因归档、去重或存储路径改变而重用，artifact_id 全仓库唯一。
+- `internal/management.Service` 组合 Repository、device.Query 和 FileTasks 接口，实现兼容查询、资产上传、工具投放、下载暂存与显式导入、Operation 关联。它不编码 wire、不访问连接表；现有 gateway.Server 实现 FileTasks，所有传输仍由 internal/filetransfer 与 Task Service 执行。
+- 程序入口改由 management.Server 组合持久 Store 与 Gateway。`-repository-dir` 默认 `./data/repository`，相对启动工作目录解析并记录绝对路径；创建目录或锁定失败即启动失败。Close 先停止 Gateway/传输，再关闭仓库。基础部署无新增外部服务或 Go 第三方依赖。
+- 目录为 `blobs/sha256/<两位>/<摘要>`、`metadata/catalog.json`、`staging/` 和 `repository.lock`。资产名称只作标签，不参与路径；相同 SHA-256 的多个资产共用一个完整 blob。blob 先完整发布、再发布元数据；失败可能留下未引用的完整 blob，但不能留下可用资产指向半文件。
+- Linux 使用 flock，Windows 使用 LockFileEx 锁定整个 Store 生命周期，进程退出由 OS 释放；锁文件保留初始化标记，防止仅有工具元数据的目录在 catalog 丢失后被静默初始化为空。目录移动后所有 blob 路径重新由摘要解析，ID 保持。
+- 元数据提交在仓库互斥锁内复制当前目录、写同目录临时文件、Sync/Close 后发布；Linux rename，Windows MoveFileExW(REPLACE_EXISTING | WRITE_THROUGH)。失败不发布内存状态；成功重开可读。启动拒绝损坏格式、重复身份/JSON key、未知 schema、非法引用或缺失/大小不符 blob；使用或去重复用内容时重新验证摘要。该边界不承诺所有文件系统/突然断电下完整恢复。
+- 管理端以设备注册快照执行兼容规则，缺失受限字段为 unknown，仅 compatible 可投放；实际传输派发前执行通用 Session 检查。版本/资产解析后，以仓库读锁准入文件准备与派发，归档/Store Close 等待此段完成；不把仓库锁扩大为 Gateway/Device 锁。派发检查在 writer 内短暂获取 Gateway 锁、核对当前连接并记录 Task 派发，锁释放后写帧；后续替换不改变已准入任务的原目标。
+- `internal/filetransfer` 只增加可选 Expected 内容校验及 Released 句柄释放事实；Gateway 只增加可选 Session 前置条件。没有第二套文件传输、Repository wire 字段或 Probe 变化。下载按 Committed + Released 导入，Task RESULT 单独呈现，ACK 丢失不回滚已完整提交文件。
+- 归档保留全部元数据与 blob，阻止新引用/投放而不取消已派发任务；版本标签不重用。崩溃遗留暂存、未引用 blob 和元数据临时文件只报告，不自动 GC。当前进程可以清理自己已释放的下载暂存，已提交文件须先导入。停服后备份整个目录；在线备份和迁移工具未实现。
+- Repository 是进程内目录索引加单写者 JSON 快照，面向小规模仓库；内容流式处理，但元数据整体读写，资产/工具/版本数量和磁盘使用无自动淘汰。Operation/Task/transfer/Device/Session 仍为进程内状态，重启不恢复或自动重发任务。当前平台适配只实现 Linux/Windows；不扩展 Tunnel 或外部 Adapter。
