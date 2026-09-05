@@ -13,16 +13,18 @@ import (
 	"sync"
 	"time"
 
+	"routerprobe/internal/device"
 	"routerprobe/internal/filetransfer"
 	"routerprobe/internal/protocol"
 	"routerprobe/internal/task"
 )
 
 type Config struct {
-	HeartbeatInterval time.Duration
-	MaxControlPayload uint32
-	FileChunkSize     uint32
-	Logger            *log.Logger
+	HeartbeatInterval  time.Duration
+	MaxControlPayload  uint32
+	FileChunkSize      uint32
+	Logger             *log.Logger
+	DeviceHistoryLimit int // ended sessions per device; zero selects 64
 }
 
 func (c Config) withDefaults() (Config, error) {
@@ -76,7 +78,8 @@ type connectionWriter struct {
 	mu                sync.Mutex
 	nextOutgoingID    uint64
 	maxControlPayload uint32
-	failed            error // guarded by mu; a failed byte stream must never be reused
+	failed            error  // guarded by mu; a failed byte stream must never be reused
+	onFailure         func() // installed before publication; does not acquire writer locks
 }
 
 // ErrDispatchUncertain means TASK bytes may have reached the Probe. CreateExec
@@ -95,11 +98,16 @@ type Server struct {
 	events      chan SessionEvent
 	tasks       *task.Service
 	files       *filetransfer.Service
+	devices     *device.Service
 	wg          sync.WaitGroup
 }
 
 func New(config Config) (*Server, error) {
 	normalized, err := config.withDefaults()
+	if err != nil {
+		return nil, err
+	}
+	devices, err := device.New(normalized.DeviceHistoryLimit)
 	if err != nil {
 		return nil, err
 	}
@@ -109,6 +117,7 @@ func New(config Config) (*Server, error) {
 		connections: make(map[net.Conn]struct{}),
 		events:      make(chan SessionEvent, 128),
 		tasks:       task.NewService(),
+		devices:     devices,
 	}
 	server.files = filetransfer.New(server.tasks)
 	return server, nil
@@ -116,6 +125,47 @@ func New(config Config) (*Server, error) {
 
 func (s *Server) Events() <-chan SessionEvent {
 	return s.events
+}
+
+// Devices exposes the Device Service query surface, independent of Gateway's
+// transport registry and best-effort Events notifications.
+func (s *Server) Devices() device.Query { return s.devices }
+
+// Caller holds s.mu. The lock order is Gateway -> Device; Device never calls
+// Gateway. Neither lock spans socket Close, writer acquisition, or file I/O.
+func (s *Server) endSessionLocked(active *session, reason device.EndReason) bool {
+	if s.sessions[active.deviceID] != active {
+		return false
+	}
+	if s.closed {
+		reason = device.ServerClosed
+	}
+	delete(s.sessions, active.deviceID)
+	s.devices.End(active.deviceID, active.sessionID, reason, time.Now())
+	s.emit(SessionEvent{Type: EventDisconnected, DeviceID: active.deviceID, SessionID: active.sessionID})
+	return true
+}
+
+func (s *Server) endSession(active *session, reason device.EndReason) {
+	s.mu.Lock()
+	ended := s.endSessionLocked(active, reason)
+	s.mu.Unlock()
+	if ended {
+		s.config.Logger.Printf("state=DISCONNECTED device_id=%s session_id=%s", active.deviceID, active.sessionID)
+	}
+}
+
+// Timestamp activity in the same order as publication/end. In particular an
+// old Reader must not record activity after a replacement's end timestamp was
+// chosen but before the Device Service applies that replacement.
+func (s *Server) recordActivity(active *session) time.Time {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	at := time.Now()
+	if s.sessions[active.deviceID] == active {
+		s.devices.Seen(active.deviceID, active.sessionID, at)
+	}
+	return at
 }
 
 func (s *Server) Serve(listener net.Listener) error {
@@ -170,6 +220,9 @@ func (s *Server) Close() error {
 		return nil
 	}
 	s.closed = true
+	for _, active := range s.sessions {
+		s.endSessionLocked(active, device.ServerClosed)
+	}
 	listener := s.listener
 	connections := make([]net.Conn, 0, len(s.connections))
 	for conn := range s.connections {
@@ -191,6 +244,9 @@ func (s *Server) Close() error {
 func (s *Server) Disconnect(deviceID string) bool {
 	s.mu.Lock()
 	active := s.sessions[deviceID]
+	if active != nil {
+		s.endSessionLocked(active, device.RequestedDisconnect)
+	}
 	s.mu.Unlock()
 	if active == nil {
 		return false
@@ -374,6 +430,9 @@ func (w *connectionWriter) sendJSON(messageType uint8, flags uint16, value inter
 
 func (w *connectionWriter) failLocked(err error) error {
 	w.failed = err
+	if w.onFailure != nil {
+		w.onFailure()
+	}
 	_ = w.conn.Close()
 	return err
 }
@@ -392,20 +451,13 @@ func (s *Server) handleConnection(conn net.Conn) {
 	registered := false
 	nextIncomingID := uint64(1)
 	lastSeen := time.Now()
+	endReason := device.ProtocolError
 
 	defer func() {
 		if active == nil {
 			return
 		}
-		s.mu.Lock()
-		if s.sessions[active.deviceID] == active {
-			delete(s.sessions, active.deviceID)
-			s.mu.Unlock()
-			s.emit(SessionEvent{Type: EventDisconnected, DeviceID: active.deviceID, SessionID: active.sessionID})
-			s.config.Logger.Printf("state=DISCONNECTED device_id=%s session_id=%s", active.deviceID, active.sessionID)
-			return
-		}
-		s.mu.Unlock()
+		s.endSession(active, endReason)
 	}()
 
 	for {
@@ -450,6 +502,7 @@ func (s *Server) handleConnection(conn net.Conn) {
 						return
 					}
 					candidate := &session{deviceID: register.DeviceID, sessionID: sessionID, transport: writer, done: done}
+					writer.onFailure = func() { s.endSession(candidate, device.WriteError) }
 					ack := registerAckSuccess{
 						ReplyTo: frame.Header.MessageID, Success: true, SessionID: sessionID,
 						HeartbeatInterval: int64(s.config.HeartbeatInterval / time.Second),
@@ -472,6 +525,7 @@ func (s *Server) handleConnection(conn net.Conn) {
 					active = candidate
 					registered = true
 					lastSeen = time.Now()
+					s.devices.Publish(device.Registration(register), sessionID, lastSeen)
 					s.emit(SessionEvent{Type: EventOnline, DeviceID: active.deviceID, SessionID: active.sessionID})
 					s.mu.Unlock()
 					if previous != nil {
@@ -491,7 +545,7 @@ func (s *Server) handleConnection(conn net.Conn) {
 						_ = s.sendError(writer, frame.Header.MessageID, "INVALID_PAYLOAD", err.Error())
 						return
 					}
-					lastSeen = time.Now()
+					lastSeen = s.recordActivity(active)
 					ack := heartbeatAck{ReplyTo: frame.Header.MessageID, ServerTime: time.Now().Unix()}
 					if _, err := writer.sendJSON(protocol.TypeHeartbeatAck, protocol.FlagResponse, ack, nil); err != nil {
 						return
@@ -510,7 +564,7 @@ func (s *Server) handleConnection(conn net.Conn) {
 						_ = s.sendError(writer, frame.Header.MessageID, "INVALID_PAYLOAD", err.Error())
 						return
 					}
-					lastSeen = time.Now()
+					lastSeen = s.recordActivity(active)
 					s.config.Logger.Printf("received=TASK_ACK device_id=%s task_id=%s accepted=%t", active.deviceID, ack.TaskID, ack.Accepted)
 					if err := s.files.OnAck(active.sessionID, ack); err != nil {
 						return
@@ -520,7 +574,7 @@ func (s *Server) handleConnection(conn net.Conn) {
 						_ = s.sendError(writer, frame.Header.MessageID, "TRANSFER_ERROR", err.Error())
 						return
 					}
-					lastSeen = time.Now()
+					lastSeen = s.recordActivity(active)
 				case protocol.TypeTaskResult:
 					if frame.Header.Flags != 0 {
 						_ = s.sendError(writer, frame.Header.MessageID, "INVALID_PAYLOAD", "TASK_RESULT flags must be zero")
@@ -539,7 +593,7 @@ func (s *Server) handleConnection(conn net.Conn) {
 						_ = s.sendError(writer, frame.Header.MessageID, "INVALID_PAYLOAD", err.Error())
 						return
 					}
-					lastSeen = time.Now()
+					lastSeen = s.recordActivity(active)
 					s.config.Logger.Printf("received=TASK_RESULT device_id=%s task_id=%s status=%s exit_code=%d", active.deviceID, result.TaskID, result.Status, result.ExitCode)
 				default:
 					_ = s.sendError(writer, frame.Header.MessageID, "UNSUPPORTED_TYPE", fmt.Sprintf("message type 0x%02X is not supported", frame.Header.Type))
@@ -556,6 +610,11 @@ func (s *Server) handleConnection(conn net.Conn) {
 			}
 		}
 		if readErr != nil {
+			endReason = device.Disconnected
+			var timeout net.Error
+			if errors.As(readErr, &timeout) && timeout.Timeout() {
+				endReason = device.HeartbeatTimeout
+			}
 			return
 		}
 	}

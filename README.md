@@ -2,7 +2,7 @@
 
 本项目用于建设一套由 Management Server 和路由器端 Probe 组成的远程运维平台。Management Server 统一承载设备、任务、文件与工具、Tunnel 和对外 API 等核心能力；Probe 主动连接 Server，并向上提供轻量、通用的设备控制原语。
 
-Phase 0 设计与 Git baseline、Phase 1A～1D 实现及 Phase 1E 整体验收均已完成。当前可运行 TCP 注册/心跳/重连、并发 exec、进程内 task_id 幂等与结果补报，以及流式双向文件传输。完整 C++/Go/race/vet、真实 Probe、C++ sanitizers 与 Windows Server 适用验证通过；验收证据见 [PHASE1_VERIFICATION](docs/PHASE1_VERIFICATION.md)，最新事实见 [PROJECT_STATUS](docs/PROJECT_STATUS.md)。Phase 2 尚未开始，当前停止等待用户验收。
+Phase 0、Phase 1A～1E 与 Phase 2 已完成验收。当前可运行 TCP 注册/心跳/重连、并发 exec、进程内 task_id 幂等与结果补报、流式双向文件传输，以及设备 Inventory、状态、capabilities 和有界 Session 历史内部查询。本次 Phase 2 交付后停止等待用户验收，不进入 Phase 3。最新事实见 [PROJECT_STATUS](docs/PROJECT_STATUS.md)，验证记录见 [Phase 1](docs/PHASE1_VERIFICATION.md) 与 [Phase 2](docs/PHASE2_VERIFICATION.md)。
 
 ## 系统关系
 
@@ -24,6 +24,7 @@ Server 与 Probe 之间使用 Probe 主动发起的 TCP 长连接。该连接负
 
 ## 当前状态
 
+- Device Service 以稳定 device_id 保存最近 REGISTER 资料、当前/最近 Session 与在线状态。内部 `Server.Devices().List/Get/Sessions` 返回查询副本；默认每设备保留最近 64 条已结束 Session，Server 重启后清空。
 - 已建立项目入口、架构、协议、API 基线、路线图、状态快照、接管手册、决策记录和变更记录。
 - 已将 Word 设计输入中的 TCP 协议整理为可维护的 Markdown 基线。
 - 当前可构建并运行 Go Management Server 与 C++11 Probe。

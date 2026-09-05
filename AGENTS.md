@@ -52,9 +52,11 @@ Phase 0 完成后，仓库内 Markdown 文档成为项目持续维护的当前�
 
 ## 当前阶段限制
 
-Phase 0 baseline 与 Phase 1A～1D 已形成提交，Phase 1E 已通过完整验收。用户本次授权 Phase 1E Verification：以 main 实际代码为基础，对 Protocol v1 与 Server/Probe 的 Phase 1A～1D 做完整收口验收，不新增后续功能。明确 bug 可直接修复并补测试；需要改变 Protocol v1 互操作语义的新设计缺口，先记录并汇报，等待明确确认。遵守 ADR-009～017 的已确认契约。
+Phase 0 baseline 与 Phase 1A～1E 已形成提交，Phase 1 已通过完整验收。用户本次明确授权 Phase 2 Device Management：以 main 实际代码为基础，完成设备清单、状态与能力模型，Device Session/连接状态管理，以及设备信息查询与历史状态的最小可用闭环。建立正式 Device Service / Inventory，Gateway 只负责 TCP 连接与协议适配。遵守 ADR-009～017，保留 Phase 1 连接、任务、文件和幂等行为。
 
-完成 C++、Go、race、vet、真实 Probe 集成与 Windows Server 适用验证后，同步必要文档；只有实际验收通过才能将 Phase 1 标记为完成。创建独立 Phase 1E / Verification commit 并推送 GitHub，然后停止等待验收。不得进入 Phase 2；不实现 resume、专用文件数据连接、File/Tool Repository、Process Manager、Tunnel、HTTP/WebSocket API、数据库、UI、MCP、AI Agent、TASK_CANCEL、Probe/Server 进程重启恢复或后续安全体系。
+device_id 继续为稳定主键。具体领域模型、并发结构、数据结构和内部接口可按现有架构设计；涉及 Device/Session 身份或生命周期、历史状态保留边界、持久化模型、与 Gateway/Task/File Service 职责冲突的长期设计缺口，先记录问题、原因、影响与推荐方案并汇报，等待明确确认。ADR-018 D1～D4 已获用户明确确认，状态为 Accepted；LastOnlineAt 为最近一次成功发布 Session 的时间，LastOfflineAt 只在设备整体 online → offline 时更新，replaced 不更新 LastOfflineAt。
+
+完成单元测试、真实 Probe 集成、Phase 1 全量回归，以及 C++、Go、race、vet 和 Windows Server 适用验证后同步必要文档。只有实际验收通过才能将 Phase 2 标记完成。创建独立 Phase 2 commit 并推送 GitHub，然后停止等待验收。不得进入 Phase 3；不实现 File/Tool Repository、Tunnel、HTTP/WebSocket API、UI、MCP、AI Agent 或与 Device Management 无关的 Protocol v1 扩展。
 
 ## 任务执行要求
 

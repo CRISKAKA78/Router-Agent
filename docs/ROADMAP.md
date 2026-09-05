@@ -116,11 +116,13 @@ Protocol v1 的 14 项验收基线已映射至可运行测试，完整结果见 
 
 ## Phase 2 Device Management
 
-状态：未开始
+状态：已完成，Accepted ADR-018 与时间语义已实现，Phase 1/2 全量验收通过；独立 Phase 2 commit 交付后停止等待用户验收。
 
-- [ ] 设备清单、状态与能力模型。
-- [ ] 设备会话和连接状态管理。
-- [ ] 设备信息查询与历史状态的最小可用闭环。
+- [x] 设备清单、状态与能力模型。
+- [x] 设备会话和连接状态管理。
+- [x] 设备信息查询与历史状态的最小可用闭环。
+
+正式 Device Service / Inventory 与内部 List/Get/Sessions；默认当前 Session 加最近 64 条已结束历史，进程内保留。LastOnlineAt 为最近发布时刻，LastOfflineAt 只在整体下线时更新，replaced 不更新。单元、真实 Probe、Phase 1 全量回归、Go race/vet、C++ sanitizers 与 Windows 适用验证均通过，见 [PHASE2_VERIFICATION.md](PHASE2_VERIFICATION.md)。未引入数据库、外部 API 或 Phase 3 能力。
 
 ## Phase 3 File and Tool Repository
 

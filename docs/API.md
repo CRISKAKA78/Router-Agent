@@ -1,6 +1,6 @@
 # Management Server API 设计基线
 
-当前阶段尚未实现任何 HTTP API 或 WebSocket。本文件只固定 API First、职责边界和能力分类；字段、认证模型和具体接口行为在后续 API 设计阶段确定。
+当前阶段尚未实现任何 HTTP API 或 WebSocket。本文件维护 API First、职责边界、能力分类和已实现的内部 Go Service 查询/操作契约；外部字段、认证模型和具体 endpoint 行为在后续 API 设计阶段确定。
 
 ## API First
 
@@ -45,8 +45,8 @@ WebSocket 或等价实时接口负责向客户端推送：
 
 | 分类 | 预期职责 | 当前状态 |
 | --- | --- | --- |
-| devices | 设备清单、详情、在线状态和能力 | 未设计 |
-| sessions | Probe 会话与连接状态查询 | 未设计 |
+| devices | 设备清单、详情、在线状态和能力 | Phase 2 内部 Service 已实现；HTTP 未设计 |
+| sessions | Probe 会话与连接状态查询 | Phase 2 内部 Service 已实现；HTTP 未设计 |
 | tasks | 创建、查询、取消任务及读取结果 | 未设计 |
 | files | 文件资产、上传、下载与传输状态 | 未设计 |
 | tools | 工具元数据、版本、兼容性与投放 | 未设计 |
@@ -118,3 +118,30 @@ Protocol v1 的 Phase 1 不实现 TASK_CANCEL。未来 API 是否提供任务取
 - ResendTask 对文件使用原 type/timeout/params，只查询或补报原任务；不会再次打开或发布文件。中断后重新传输必须创建新任务及 transfer_id。
 - WaitTaskResult/TaskSnapshot 沿用任务接口。FileSnapshot 返回 TaskID、TransferID、LocalPath、Committed、Size、SHA256、Error；Committed/Size/SHA256 仅描述 Server 下载接收端已校验发布的事实。它不是 TASK_RESULT 的替代：done ACK 丢失时 Committed=true 可以与最终 failed 并存。
 - 所有接口均为内部 Go 能力，没有新增 HTTP、WebSocket、CLI、UI、MCP 或 AI Adapter；Server/Probe 重启恢复不在本阶段实现。
+
+## Phase 2 内部设备查询接口
+
+`gateway.Server.Devices() device.Query` 返回 `internal/device` 的只读查询接口；调用方通过此 Service 查询，不访问 Gateway 连接表或订阅 Events 重建设备状态。
+
+| 方法 | 返回与语义 |
+| --- | --- |
+| `List() []device.Snapshot` | 全部已知设备，包括离线设备；按 device_id 升序，空 Inventory 返回空切片 |
+| `Get(deviceID) (device.Snapshot, error)` | 设备最近注册资料、在线状态、首次/最近时间、当前及最近 Session、累计 Session 数及已淘汰数量；未知 ID 返回 `device.ErrNotFound` |
+| `Sessions(deviceID) (device.SessionHistory, error)` | 当前 Session 与保留的已结束历史；Ended 按结束操作顺序从旧到新，另返回 Limit、TotalSessions、EvictedSessions；未知 ID 返回 `device.ErrNotFound` |
+
+`Snapshot.Registration` 保存 device_id、serial、model、firmware、probe_version、hostname、arch、kernel、libc、boot_id 和 capabilities。每次成功注册整体替换，可选字符串省略与空值统一为未知，不沿用旧值。capabilities 保留未知 token，表示 Probe 声明，不能据此推断 Server 实现了该功能；本阶段不新增任务能力准入规则。
+
+`Snapshot.Status` 为 online/offline。CurrentSession 在线时非 nil，离线时 nil；LatestSession 在线时为当前 Session，离线时为最近结束的 Session。Session 包含 ID、对应 Registration、StartedAt、LastSeenAt、EndedAt、EndReason；当前会话 EndedAt 为 Go time.Time 零值、EndReason 为空。
+
+时间使用 Server 观测的 `time.Time`，不使用 Probe 时钟或 boot_id 推断状态；外部 JSON 时间格式尚未设计：
+
+- FirstSeenAt：本 Service 生命周期内首次成功发布注册的时间，历史淘汰不改变它。
+- LastSeenAt：最近 Session 的最后合法活动时间，离线后保留；单 Session 内迟到时间不会使它倒退。
+- LastOnlineAt：最近一次成功发布当前 Session 的时间，replaced 也更新。
+- LastOfflineAt：只在设备整体 online → offline 时更新；replaced 保持 online，不更新此值。尚未发生离线时为零值。
+
+结束原因是内部诊断值：replaced、disconnected（对端 EOF/读错误或其他连接关闭）、heartbeat_timeout、write_error、protocol_error、server_closed、requested_disconnect。首次结束转换决定该历史记录；旧 Session 后续活动/清理不能改写历史或当前设备状态。原因不增加 wire 消息，不用于推断 Task/File 终态。
+
+`gateway.Config.DeviceHistoryLimit` 为每设备已结束 Session 保留数：0 使用默认 64，正数自定义，负数使 New 返回错误；当前 Session 不占历史槽位。淘汰最旧历史时增加 EvictedSessions，Task/File 记录不受影响。设备清单本身不自动淘汰，没有持久化，Server 重启后为空。
+
+每次查询在 Device Service 的读锁内取得一致快照，所有嵌套 Session 和 capabilities 都是独立副本；调用方修改返回值不会改变 Service。多次查询之间可发生状态变化，不提供跨调用事务或可重放事件流。没有实现 HTTP/WebSocket、UI、MCP 或其他外部 Adapter。

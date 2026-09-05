@@ -1,6 +1,6 @@
 # 项目接管手册
 
-项目由跨平台 Go Management Server 与轻量 C++11 Probe 组成。Phase 0 与 Phase 1A～1E 已完成实现和验收；当前停止等待用户验收，不进入 Phase 2。
+项目由跨平台 Go Management Server 与轻量 C++11 Probe 组成。Phase 0、Phase 1A～1E 与 Phase 2 Device Management 已完成实现和验收；本次 Phase 2 独立提交交付后停止等待用户验收，不进入 Phase 3。
 
 ## 接管顺序与事实来源
 
@@ -15,7 +15,8 @@
 - Phase 1C：`71e5d1791224a4d952f468626e507c41fae9e502`
 - Phase 1D：`f1d9fa08d047f4f46a8bc27119565a2f6d217ecc`
 - Phase 1E 起点：`d61054543500fbf5a62c94cd2afe492637230b85`，启动时等于 origin/main，工作区干净。
-- Phase 1E：本次独立 `fix: complete Phase 1E verification` 提交，使用 `git log --format=fuller --grep="Phase 1E"` 获取实际 SHA；不在提交自身填入自引用 SHA。
+- Phase 1E / Phase 2 起点：`3de7924353d05261e6b01faa87cbca00a0a0d0a5`，Phase 2 启动时等于 origin/main，工作区干净。
+- Phase 2：本次独立 `feat: complete Phase 2 device management` commit；使用 `git log --format=fuller --grep="Phase 2"` 获取实际 SHA，不在提交自身填入自引用 SHA。
 
 ## 运行闭环与入口
 
@@ -24,6 +25,7 @@
 | cmd/server/main.go | TCP Server 程序；尚无外部任务 CLI/API |
 | internal/protocol | framing、Unicode 基础校验 |
 | internal/gateway | REGISTER/Session/心跳、消息路由、优先级串行 writer、内部任务与文件传输适配 |
+| internal/device | 设备 Inventory、注册资料、Session 业务状态与有界历史、内部查询 |
 | internal/task | 不可变任务规格、派发关联、ACK/RESULT 幂等、状态与等待 |
 | internal/filetransfer | 流式源/接收器、FILE wire、下载提交事实与传输 Service；终态释放文件接收邮箱 |
 | probe/src/client.cpp | 连接、注册、Reader/控制帧、心跳关联与缓存结果发送 |
@@ -33,6 +35,8 @@
 | tests/integration/phase1a_test.go～phase1e_test.go | 真实 Server/Probe、故障中继、并发/重复/重连、文件与非法协议验收 |
 
 Server 内部入口为 CreateExec、CreateUpload、CreateDownload、ResendTask、WaitTaskResult、TaskSnapshot、FileSnapshot，契约见 API.md。task_id 处理业务幂等，message_id/reply_to 只在单连接方向关联。每次重连重新注册并产生新 session_id。
+
+设备查询通过 `Server.Devices()` 返回的 `device.Query` 使用 List/Get/Sessions。Gateway 仅保留传输连接映射，注册发布、活动与关闭同步更新 Device Service；不能依赖 Events 重建设备状态。LastOnlineAt 为最近 Session 发布时间，LastOfflineAt 仅在整体 online → offline 更新，replaced 不更新。当前/最近 Session、快照副本、历史顺序和字段契约见 API.md，设计原因见 Accepted ADR-018。
 
 Probe 默认四个 exec workers；TCP 断线后 exec 继续执行，完成结果新会话补报。文件共用一个 active 和八个 FIFO 等待槽位；断线时 active/queued 文件全部终止，不 resume。重复 ID 不重新执行或重新发布。
 
@@ -46,4 +50,5 @@ Probe 默认四个 exec workers；TCP 断线后 exec 继续执行，完成结果
 - Probe 每连接最多 1024 未确认心跳；满后按既有重连流程处理，旧关联不在在线会话中被淘汰。
 - 控制优先只作用于帧边界，不抢占已写出的 TCP 字节、对端缓冲或不可中断内核 I/O；文件系统能力与恢复边界见 PROJECT_STATUS。
 - boot_id 不是 Probe 进程实例证明；Probe/Server 进程重启恢复、认证/TLS/权限和嵌入式 CPU/libc/内核实机矩阵仍待后续阶段。
-- Phase 2 未开始。用户另行授权后才开展 Device Management；不自行新增数据库、API、Tunnel、UI、MCP 或 AI 能力。
+- Device Inventory 只在 Server 进程内保存；默认当前 Session + 最近 64 条已结束历史，容量可配置，查询暴露截断计数。离线设备保留；历史淘汰不删除 Task/File 记录。Server 重启清空，没有数据库、心跳时序或审计重放。
+- Phase 2 与 Phase 1 全量回归均通过，证据见 [PHASE2_VERIFICATION.md](PHASE2_VERIFICATION.md)：最终普通集成 149.921 秒，Go race + TSan Probe 集成 156.221 秒；C++ 各 CTest、Linux/Windows 构建和 vet 均通过。本次提交推送后停止等待用户验收；不进入 Phase 3 或新增外部 API。

@@ -1,6 +1,6 @@
 # 路由器远程运维平台架构基线
 
-本文定义 Management Server、Probe、对外客户端和传输通道之间的长期边界。Phase 1A 已实现 TCP Session，Phase 1B 已实现 Task and Exec，Phase 1C 已实现并发、进程内幂等和跨 TCP 会话结果补报；其余模块仍是已经确认的架构约束和后续实现方向，不表示已经实现。
+本文定义 Management Server、Probe、对外客户端和传输通道之间的长期边界。Phase 1 已实现 TCP Session、并发 exec、进程内幂等、跨 TCP 结果补报与双向文件传输；Phase 2 已实现 Device Inventory 和内部查询，验证状态见 PROJECT_STATUS。其余模块仍是已经确认的架构约束和后续实现方向，不表示已经实现。
 
 ## 项目目标
 
@@ -201,7 +201,7 @@ repo/
 └─ CHANGELOG.md
 ~~~
 
-当前实际仓库已包含 `cmd/server`、`internal/protocol`、`internal/gateway`、`internal/task` 和 `probe`，实现了 Phase 1A 的 framing、注册、心跳与基础重连，以及 Phase 1B 的 TASK、TASK_ACK、TASK_RESULT、exec、timeout 和基础任务状态，Phase 1C 的并发、去重和跨连接补报；Phase 1D 已增加 internal/filetransfer 与 Probe FileManager；示意中的其他模块尚未创建或实现。
+当前实际仓库已包含 `cmd/server`、`internal/protocol`、`internal/gateway`、`internal/task` 和 `probe`，实现了 Phase 1A 的 framing、注册、心跳与基础重连，以及 Phase 1B 的 TASK、TASK_ACK、TASK_RESULT、exec、timeout 和基础任务状态，Phase 1C 的并发、去重和跨连接补报；Phase 1D 已增加 internal/filetransfer 与 Probe FileManager；Phase 2 已增加 internal/device；示意中的其他模块尚未创建或实现。
 
 ## 已确认的架构约束
 
@@ -217,6 +217,8 @@ repo/
 - 项目按阶段保持可构建、可运行和可测试，不用占位实现伪造进度。
 
 ## 待讨论
+
+Device/Session 生命周期、历史保留、进程内存储与 Gateway 边界已由 [ADR-018](DECISIONS.md#adr-018-phase-2-device-management) 确认；长期存储引擎、重启恢复、备份与迁移仍未决定。
 
 - Management Server 的内置持久化方案、数据模型、备份和迁移策略。
 - 平台认证、授权、设备认证、链路加密、密钥管理和审计策略。
@@ -242,3 +244,13 @@ repo/
 - C++ FileManager 为单 TCP Session 拥有一个文件 I/O worker、deadline watcher、有界 FIFO 和接收邮箱；Reader 登记 TASK/BEGIN 并路由控制帧，不执行磁盘读写。TaskManager 拥有跨 Session 的文件身份、transfer_id 绑定、状态和结果缓存。旧 FileManager 停止并收敛结果后才建立新会话。
 - 两端 writer 对完整帧串行化；等待中的控制发送优先于 CHUNK，文件 END 在此前数据全部写出后发送。发送缓冲目标为 64 KiB，避免大量提前排入的文件字节抵消控制优先级。
 - 临时文件在目标同目录创建，完成校验后 rename 或无覆盖 hard link 发布。Server FileSnapshot.Committed 表示下载本地提交事实，与 Probe 任务最终确认分开记录，支持 done ACK 丢失后保留完整文件但任务失败的已确认契约。
+
+## Phase 2 实际模块职责
+
+- `internal/device.Service` 拥有按稳定 device_id 索引的 Inventory、注册资料、当前 Session、在线状态、时间及有界历史。它使用 RWMutex，写操作 Publish/Seen/End 与只读 List/Get/Sessions 在内存中完成，不依赖 TCP、Task、File 或数据库。
+- Gateway 保留 `device_id -> *session` 的传输路由映射、socket、writer、连接 Reader 和协议心跳 deadline。它在完整 REGISTER_ACK 写出后，持 Gateway 锁按发布顺序安装连接并调用 Device.Publish；最新发布的 Session 替换旧 Session，旧 socket 在锁外关闭。注册失败及 ACK 写失败不创建 Inventory。
+- 连接结束、主动 Disconnect、writer 失效及 Server Close 撤下当前传输映射并同步调用 Device.End。Gateway 以当前连接指针保护清理，Device 再以 session_id 保护状态；旧回调不影响新 Session。合法 HEARTBEAT、TASK_ACK/RESULT 和既有 FILE 路由成功处同步 Seen；3 倍心跳 deadline 继续由连接适配层执行。
+- 锁顺序为 Gateway → Device，Device 不回调 Gateway。Device 锁和 Gateway 连接表锁均不跨网络/文件 I/O；writer 失败通知可取得 Gateway 锁，Gateway 不在连接表锁内取得 writer 锁。Device 状态不依赖现有容量 128 的可丢 Events 通知。
+- online/offline 是设备业务状态。Session replaced 时直接结束旧 Session 并发布新 Session，设备保持 online；LastOnlineAt 更新为新发布时刻，LastOfflineAt 保持原值。设备真正下线才更新 LastOfflineAt；未经历离线时为零值。
+- 当前 Session 之外，默认保留最近 64 个已结束 Session 及对应注册快照；按结束操作顺序淘汰并暴露计数。离线设备、首次/最近时间和累计数保留至 Server 进程结束，设备数量无自动淘汰。只记录 Session 状态历史，不存心跳时序或审计事件流。
+- `Server.Devices()` 暴露 `device.Query`，返回独立查询副本；当前/最近 Session、时间、历史容量与字段语义见 API.md。Task/File 规格、派发关联、幂等和提交事实仍属于原 Service；Device 历史淘汰不影响这些记录。

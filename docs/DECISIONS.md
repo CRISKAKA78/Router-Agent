@@ -122,6 +122,48 @@
 - 背景与原因：Phase 1A 的 Server 与 Probe 必须能够独立实现后稳定互操作，不能只依赖 JSON 示例推断字段语义。
 - 影响：REGISTER_ACK 成功与失败均使用 0x02 并设置 RESPONSE；失败后连接关闭且 Probe 不进入 ONLINE。heartbeat_interval 允许 10-300 秒，双方失联阈值统一为 3 倍 heartbeat_interval；默认 30 秒对应 90 秒。任何字段契约变化必须先更新 PROTOCOL.md 并形成正式评审。
 
+## ADR-018 Phase 2 Device Management
+
+- 状态：Accepted。用户明确确认 D1～D4，授权按方案实现 Phase 2；完成状态以 PROJECT_STATUS.md 为准。
+- 日期：2026-09-05。
+- 启动基线：main 与 fetch 后的 origin/main 均为 `3de7924353d05261e6b01faa87cbca00a0a0d0a5`，起始工作区干净。
+- 问题与原因：当前 Gateway 解析完整 REGISTER，却仅在活动连接中保存 device_id/session_id；断线删除连接记录，lastSeen 是 Reader 局部变量，Events 是容量 128 的可丢通知。已有规范没有定义设备资料更新、历史保留和设备持久化边界；直接扩展会把这些长期语义隐含在 Gateway 实现中。
+- 影响：Phase 2 的设备详情、当前在线状态与历史查询无法仅依赖现有连接表或 Events 实现；启动时先记录并汇报以下范围，用户随后明确确认；本 ADR 补充 Device 管理内部语义，不改变 ADR-009～017 或 Protocol v1 wire 契约。
+
+### D1 Device 与 Session 身份及生命周期
+
+决定：device_id 是唯一稳定设备主键；相同 ID 始终更新同一条 Inventory 记录。首次成功注册 ACK 完整写出并发布后才建设备及 Session；注册失败和 ACK 写失败不产生设备上线记录。并发注册沿用当前成功发布的串行顺序，最后发布者成为唯一当前 Session，随后关闭旧连接，不按 TCP accept 时间或 boot_id 选择胜者。
+
+每次注册使用新 session_id；设备记录 FirstSeenAt、LastSeenAt、LastOnlineAt、LastOfflineAt、当前/最近 Session 和 online/offline 状态。Session 记录开始时间、最后活动时间、结束时间及结束原因；在线替换时旧 Session 以 replaced 结束，设备保持 online，不伪造一次设备离线。旧 Session 的迟到活动和清理不能刷新或下线新 Session；当前 Session 断开、失联、写失败或 Server 关闭后才收敛为 offline。last_seen 使用 Server 接收并通过既有校验的消息时间，沿用 3 倍心跳失联规则；不得用 Probe 时间或 boot_id 推断进程连续性、重启或任务状态。
+
+用户补充确认的时间语义：LastOnlineAt 是最近一次成功发布当前 Session 的时间；LastOfflineAt 仅在设备整体从 online 转为 offline 时更新；Session replaced 时设备保持 online，不更新 LastOfflineAt。首次尚未离线时 LastOfflineAt 为空（Go time.Time 零值）。
+
+REGISTER 基础字段和 capabilities 作为最近成功注册的完整快照替换；新 REGISTER 省略的可选字段清空为未知，不混入旧会话资料。保留未知 capability token 供查询，但不将声明解释为 Server 已实现该能力，也不在本阶段新增任务能力准入规则。每个保留的 Session 保存对应注册资料快照，设备详情显示最近一次资料；无需新增 get_info 或任何 wire 字段。
+
+### D2 历史状态保留边界
+
+决定：每台设备保留一个当前 Session，加最近 64 个已结束 Session（容量为内部配置，可调整）；旧历史按结束顺序淘汰。每条 Session 的开始/结束、last_seen、结束原因和注册快照组成最小历史查询闭环。保留设备首次/最近时间、累计 Session 数和已淘汰数量，使调用者知道历史已截断；设备离线后不删除 Inventory 记录。当前 Session 不占历史槽位。
+
+不保存每次心跳、连续性能时序、全部协议帧或完整审计日志，不提供重放事件流。历史淘汰只影响 Device 查询，不删除 Task 派发/结果、File 身份/提交事实，也不改变 Probe 幂等缓存。设备数量在本进程内不设自动淘汰，因此总内存随设备数量增加；历史容量只限制每台设备的 Session 记录。
+
+### D3 本阶段持久化范围
+
+决定：Phase 2 使用进程内 Inventory，跨 TCP 断线与重连保留，Server 进程重启后清空；本阶段不引入数据库、磁盘快照或状态恢复。这样可完成当前运行周期内的设备与历史查询闭环，并保持现有 Task/File 的内存生命周期。
+
+该建议不是对长期存储引擎的选择。Management Server 的持久化、迁移和备份仍为 TBD，后续若要求重启后保留设备及历史，须单独确定磁盘模型和启动时在线状态收敛规则，不能把旧 online 状态直接恢复为在线。
+
+### D4 Device Service 与 Gateway / Task / File 职责
+
+决定：新增正式 internal/device Service，由它拥有设备业务模型、Session 元数据、状态转换、历史及并发安全的查询快照。Gateway 继续拥有 socket、writer、device_id 到当前连接的传输映射、消息校验和路由，不保存第二套设备业务模型。
+
+Gateway 在注册发布、合法活动、替换和关闭路径同步调用 Device Service，不从可丢 Events 异步重建状态；发布与清理按 session_id 校验并排序。Device Service 的锁不跨网络或磁盘 I/O，不调用 Task/File，不暴露 socket/内部 map；查询返回独立副本。内部能力为设备清单、设备详情、当前/最近 Session、保留 Session 历史查询，外部 Adapter 以后复用这些 Service 能力。
+
+Task Service 继续拥有任务规格、ACK/RESULT 关联与幂等；File Transfer Service 继续拥有传输和本地提交事实。本阶段不把 Task/File 业务移入 Device Service，也不改变已接受的断线任务与文件行为；不新增 HTTP/WebSocket/UI/MCP 或 Phase 3 功能。既有 Gateway 任务调用入口的更大范围 Application 层整理不纳入本阶段。
+
+### 验证与交付
+
+覆盖首次上线、资料/capabilities、失败注册、ACK 发布顺序、断线/重连、并发替换及迟到清理、合法活动、超时、Server Close、历史截断和查询副本隔离；真实 Probe 验证设备查询与重连历史，并运行 Phase 1 全量回归、Go race/vet、C++ 构建/CTest 和 Windows Server 适用验证。全部通过后更新事实文档，形成独立 Phase 2 commit 并推送 GitHub，停止等待验收。用户确认后开始实现，实际验证结果另记。
+
 ## 当前待决策主题
 
 以下主题尚未形成 Accepted ADR：

@@ -22,6 +22,9 @@
 
 ### Added
 
+- Phase 2 新增 Device Service / Inventory 内部 List/Get/Sessions 查询，保留 REGISTER 基础资料和 capabilities、设备在线状态、当前/最近 Session 及上线/离线/活动时间。
+- 设备重连与在线 Session 替换保留稳定 device_id；替换更新 LastOnlineAt，不更新 LastOfflineAt。默认每设备保留最近 64 个已结束 Session，查询包含历史截断计数；仅进程内存储，历史淘汰不影响 Task/File 幂等与结果。
+
 - Phase 1D 实现 upload/download、FILE_BEGIN/ACK/CHUNK/END，原始二进制分块、size/SHA-256 流式校验、同目录临时文件验证后发布和 upload.mode。
 - 文件任务使用一个 active 与有界 FIFO，支持同 task_id 幂等、断线失败结果补报；内部 CreateUpload/CreateDownload 与 FileSnapshot 暴露文件能力和下载提交事实。
 - 文件与控制发送在帧边界按优先级串行化，并限制内核发送缓冲目标；持续文件传输期间可处理心跳和并发 exec。
