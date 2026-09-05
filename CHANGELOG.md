@@ -19,6 +19,10 @@
 
 ### Added
 
+- Phase 1D 实现 upload/download、FILE_BEGIN/ACK/CHUNK/END，原始二进制分块、size/SHA-256 流式校验、同目录临时文件验证后发布和 upload.mode。
+- 文件任务使用一个 active 与有界 FIFO，支持同 task_id 幂等、断线失败结果补报；内部 CreateUpload/CreateDownload 与 FileSnapshot 暴露文件能力和下载提交事实。
+- 文件与控制发送在帧边界按优先级串行化，并限制内核发送缓冲目标；持续文件传输期间可处理心跳和并发 exec。
+
 - 实现 Phase 1C：Probe 默认 4 workers 并发 exec、乱序结果关联、进程生命周期 task_id 去重；TCP 断开时已接受任务继续执行，新会话补报缓存结果。
 - Server 增加内部 ResendTask，使用原 task_id 与规格重发，按 session_id/message_id/task_id 保存每次派发关联。
 - 增加实际并发执行、重复任务、参数冲突、容量、断线继续执行和中继丢弃 ACK/RESULT 后补报的自动化覆盖。
@@ -39,7 +43,7 @@
 
 - 按用户确认冻结 Phase 1C 互操作契约（ADR-015）：重复任务返回 queued/running/完成态 ACK，完成态随后返回原 RESULT；内容冲突使用 ERROR/INVALID_PAYLOAD，保留原任务。
 - Server 接受缺 ACK 的已派发任务结果，重复 RESULT 幂等，冲突不覆盖终态；Probe 缓存有界且不淘汰已接受身份与结果，容量满后拒绝新任务。
-- 更新阶段授权边界：本次 Phase 1C 独立提交并推送后停止等待验收，Phase 1D 尚未授权。
+- 更新阶段授权边界：Phase 1C 已独立提交推送，用户现已授权 Phase 1D；确认有界文件 FIFO、流式校验、同 task_id 不重复文件副作用和中断重传必须使用新 task_id/transfer_id（ADR-016）。P1-P5 已确认并写入 Accepted ADR-017：ready 省略 sha256_ok，done=true，failed=false；顺序 offset、失败收敛和最终发布/确认丢失语义为正式契约。Phase 1D 交付后停止，不进入 Phase 1E。
 
 - Server 每条 Probe 连接的 HEARTBEAT_ACK、TASK 和 ERROR 统一串行写入，并共用单连接 Server 发送方向的 message_id 序列。
 - Probe REGISTER capabilities 现在声明 `exec`；TASK_ACK 使用 RESPONSE/reply_to，TASK_RESULT 保持异步 task_id 关联且不设置 RESPONSE。

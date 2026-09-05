@@ -39,6 +39,7 @@ type ExecRequest struct {
 }
 
 type Spec struct {
+	Params    json.RawMessage
 	ID        string
 	DeviceID  string
 	Type      string
@@ -141,6 +142,22 @@ func (s *Service) NewExec(deviceID string, request ExecRequest) (Spec, error) {
 		snapshot: Snapshot{Spec: spec, State: StateReceived},
 		done:     make(chan struct{}),
 	}
+	s.mu.Unlock()
+	return spec, nil
+}
+
+// NewFile records immutable wire parameters; filesystem ownership stays in File Service.
+func (s *Service) NewFile(deviceID, kind string, timeout time.Duration, params json.RawMessage) (Spec, error) {
+	if deviceID == "" || (kind != "upload" && kind != "download") || timeout <= 0 || timeout%time.Second != 0 || timeout/time.Second > time.Duration(^uint32(0)) {
+		return Spec{}, errors.New("invalid file task")
+	}
+	id, err := newTaskID()
+	if err != nil {
+		return Spec{}, err
+	}
+	spec := Spec{ID: id, DeviceID: deviceID, Type: kind, CreatedAt: time.Now().Unix(), Timeout: uint32(timeout / time.Second), Params: append(json.RawMessage(nil), params...)}
+	s.mu.Lock()
+	s.records[id] = &record{snapshot: Snapshot{Spec: spec, State: StateReceived}, done: make(chan struct{})}
 	s.mu.Unlock()
 	return spec, nil
 }
@@ -345,6 +362,7 @@ func (s *Service) WaitResult(ctx context.Context, taskID string) (Result, error)
 
 func cloneSnapshot(input Snapshot) Snapshot {
 	output := input
+	output.Spec.Params = append(json.RawMessage(nil), input.Spec.Params...)
 	output.Dispatches = append([]Dispatch(nil), input.Dispatches...)
 	for i := range output.Dispatches {
 		if output.Dispatches[i].Ack != nil {

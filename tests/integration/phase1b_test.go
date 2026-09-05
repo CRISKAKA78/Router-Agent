@@ -259,7 +259,7 @@ func TestProbeRejectsUnsupportedTask(t *testing.T) {
 		t.Fatal(err)
 	}
 	unsupportedTask, err := encodedJSONFrame(protocol.TypeTask, 0, 2, map[string]interface{}{
-		"task_id": "unsupported-1", "type": "upload", "created_at": time.Now().Unix(), "timeout": 5,
+		"task_id": "unsupported-1", "type": "start_process", "created_at": time.Now().Unix(), "timeout": 5,
 		"params": map[string]interface{}{},
 	})
 	if err != nil {

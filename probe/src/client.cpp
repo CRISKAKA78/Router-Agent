@@ -1,3 +1,5 @@
+#include "rmp/file_manager.h"
+#include "rmp/priority_gate.h"
 #include "rmp/client.h"
 
 #include "rmp/frame.h"
@@ -67,16 +69,21 @@ bool SendAll(int socket_fd, const std::vector<std::uint8_t>& data) {
 class SessionWriter {
 public:
     explicit SessionWriter(int socket_fd)
-        : socket_fd_(socket_fd), next_message_id_(1) {}
+        : socket_fd_(socket_fd), next_message_id_(1), max_control_(1024*1024), failed_(false) {}
 
+    void SetLimit(std::uint32_t limit) {max_control_=limit;}
     bool Send(std::uint8_t type,
               std::uint16_t flags,
               const std::string& payload,
               std::uint64_t* message_id) {
+        PriorityGuard priority(priority_,type==kTypeFileChunk);
         std::lock_guard<std::mutex> lock(mutex_);
+        if(failed_) return false;
+        if(type!=kTypeFileChunk && payload.size()>max_control_) {failed_=true;shutdown(socket_fd_,SHUT_RDWR);return false;}
         if (next_message_id_ == 0 ||
             next_message_id_ == std::numeric_limits<std::uint64_t>::max()) {
             std::cerr << "state=PROTOCOL_ERROR detail=probe_message_id_exhausted" << std::endl;
+            failed_=true;
             shutdown(socket_fd_, SHUT_RDWR);
             return false;
         }
@@ -86,11 +93,13 @@ public:
         header.message_id = next_message_id_;
         try {
             if (!SendAll(socket_fd_, EncodeFrame(header, Bytes(payload)))) {
-                shutdown(socket_fd_, SHUT_RDWR);
+                failed_=true;
+            shutdown(socket_fd_, SHUT_RDWR);
                 return false;
             }
         } catch (const std::exception& exception) {
             std::cerr << "state=PROTOCOL_ERROR detail=" << exception.what() << std::endl;
+            failed_=true;
             shutdown(socket_fd_, SHUT_RDWR);
             return false;
         }
@@ -99,8 +108,11 @@ public:
     }
 
 private:
+    PriorityGate priority_;
     int socket_fd_;
     std::uint64_t next_message_id_;
+    std::uint32_t max_control_;
+    bool failed_;
     std::mutex mutex_;
 };
 
@@ -113,7 +125,7 @@ std::string RegisterPayload(const ClientConfig& config) {
     }
     output << ",\"arch\":" << EscapeJsonString(config.arch)
            << ",\"boot_id\":" << EscapeJsonString(config.boot_id)
-           << ",\"capabilities\":[\"exec\"]}";
+           << ",\"capabilities\":[\"exec\",\"file\"]}";
     return output.str();
 }
 
@@ -157,6 +169,9 @@ int Connect(const ClientConfig& config, std::string* error) {
             continue;
         }
         fork_lock.unlock();
+        // Keep kernel queued file bytes bounded so frame-boundary priority is useful on slow links.
+        const int send_buffer = 64 * 1024;
+        setsockopt(candidate, SOL_SOCKET, SO_SNDBUF, &send_buffer, sizeof(send_buffer));
         const int enabled = 1;
         setsockopt(candidate, SOL_SOCKET, SO_KEEPALIVE, &enabled, sizeof(enabled));
         struct timeval send_timeout;
@@ -262,17 +277,23 @@ bool HandleOnlineFrames(const std::vector<Frame>& frames,
                         std::set<std::uint64_t>* pending_heartbeats,
                         SessionWriter* writer,
                         TaskManager* task_worker,
+                        FileManager* files,
+                        std::uint32_t file_chunk_size,
                         std::uint32_t max_payload,
                         SteadyClock::time_point* last_seen,
                         std::string* error) {
     for (std::vector<Frame>::const_iterator frame = frames.begin(); frame != frames.end(); ++frame) {
         error->clear();
-        if (frame->payload.size() > max_payload) {
+        if (frame->payload.size() > (frame->header.type==kTypeFileChunk?28+file_chunk_size:max_payload)) {
             *error = "payload exceeds negotiated limit";
             return false;
         }
         if (!ValidateIncomingMessageID(*frame, expected_server_message_id, error)) {
             return false;
+        }
+        if (frame->header.type>=kTypeFileBegin && frame->header.type<=kTypeFileAck) {
+            if(!files->Feed(*frame,error)) return false;
+            *last_seen=SteadyClock::now();continue;
         }
         if (frame->header.type == kTypeHeartbeatAck) {
             if (frame->header.flags != kFlagResponse) {
@@ -304,7 +325,10 @@ bool HandleOnlineFrames(const std::vector<Frame>& frames,
             if (!parsed && (task.task_id.empty() || task.task_id.size() > 128)) {
                 return false;
             }
-            const std::string state = task_worker->Submit(task, parsed, frame->payload.size(), max_payload);
+            bool fresh=false;
+            const std::string state = task_worker->Submit(task, parsed, frame->payload.size(), max_payload,&fresh);
+            const bool file=task.type=="upload"||task.type=="download";
+            if(fresh&&file) files->Enqueue(task);
             std::uint64_t outgoing_id = 0;
             if (state == "conflict") {
                 const std::string payload = "{\"reply_to\":" + std::to_string(frame->header.message_id) +
@@ -314,10 +338,11 @@ bool HandleOnlineFrames(const std::vector<Frame>& frames,
                 const bool accepted = state != "rejected";
                 std::string reason;
                 if (!parsed) reason = "invalid task payload";
-                else if (task.type != "exec") reason = "unsupported task type";
+                else if (task.type != "exec" && !file) reason = "unsupported task type";
                 else if (!accepted) reason = "task capacity exhausted";
                 std::string ack = TaskAckPayload(frame->header.message_id, task.task_id, accepted, reason, state);
                 if (!writer->Send(kTypeTaskAck, kFlagResponse, ack, &outgoing_id)) return false;
+                if(fresh&&file) files->Enable(task.task_id);
                 std::cout << "sent=TASK_ACK message_id=" << outgoing_id << " task_id=" << task.task_id
                           << " state=" << state << std::endl;
                 if (state == "success" || state == "failed" || state == "timeout") {
@@ -401,7 +426,9 @@ SessionResult RunSession(int socket_fd, const ClientConfig& config, TaskManager&
               << " heartbeat_interval=" << register_ack.heartbeat_interval << std::endl;
 
     std::set<std::uint64_t> pending_heartbeats;
+    writer.SetLimit(register_ack.max_control_payload);
     task_worker.BeginSession();
+    FileManager files(task_worker,[&writer](std::uint8_t t,std::uint16_t f,const std::string&p,std::uint64_t*id){return writer.Send(t,f,p,id);},[socket_fd]{shutdown(socket_fd,SHUT_RDWR);},register_ack.file_chunk_size);
     const std::chrono::seconds heartbeat_interval(register_ack.heartbeat_interval);
     SteadyClock::time_point last_seen = SteadyClock::now();
     SteadyClock::time_point next_heartbeat = last_seen + heartbeat_interval;
@@ -409,7 +436,7 @@ SessionResult RunSession(int socket_fd, const ClientConfig& config, TaskManager&
     while (true) {
         if (!frames.empty()) {
             if (!HandleOnlineFrames(frames, &expected_server_message_id, &pending_heartbeats,
-                                    &writer, &task_worker, register_ack.max_control_payload, &last_seen, &validation_error)) {
+                                    &writer, &task_worker, &files, register_ack.file_chunk_size, register_ack.max_control_payload, &last_seen, &validation_error)) {
                 std::cerr << "state=PROTOCOL_ERROR detail=" << validation_error << std::endl;
                 return result;
             }
@@ -455,7 +482,7 @@ SessionResult RunSession(int socket_fd, const ClientConfig& config, TaskManager&
                 }
                 if (!frames.empty() &&
                     !HandleOnlineFrames(frames, &expected_server_message_id, &pending_heartbeats,
-                                        &writer, &task_worker, register_ack.max_control_payload, &last_seen, &validation_error)) {
+                                        &writer, &task_worker, &files, register_ack.file_chunk_size, register_ack.max_control_payload, &last_seen, &validation_error)) {
                     std::cerr << "state=PROTOCOL_ERROR detail=" << validation_error << std::endl;
                     return result;
                 }
@@ -463,6 +490,7 @@ SessionResult RunSession(int socket_fd, const ClientConfig& config, TaskManager&
             }
         }
 
+        files.Tick();
         std::string result_payload;
         if (task_worker.NextResult(register_ack.max_control_payload, &result_payload)) {
             std::uint64_t result_id = 0;
@@ -532,7 +560,7 @@ bool ParseServerAddress(const std::string& address,
 }
 
 int RunClient(const ClientConfig& config) {
-    TaskManager task_worker(config.task_workers, config.task_capacity, config.task_cache_bytes);
+    TaskManager task_worker(config.task_workers, config.task_capacity, config.task_cache_bytes, config.file_queue_capacity);
     const unsigned delays[] = {1, 2, 5, 10, 30};
     std::size_t backoff_index = 0;
     while (true) {

@@ -1,6 +1,7 @@
 #ifndef RMP_TASK_H
 #define RMP_TASK_H
 
+#include "rmp/file_wire.h"
 #include <atomic>
 #include <cstddef>
 #include <cstdint>
@@ -26,6 +27,7 @@ enum class TaskState {
 };
 
 struct ExecTask {
+    FileParams file;
     std::string task_id;
     std::string type;
     std::uint32_t timeout;

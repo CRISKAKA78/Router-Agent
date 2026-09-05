@@ -4,13 +4,36 @@
 
 ## 当前阶段
 
-Phase 0、Phase 1A、Phase 1B 与 Phase 1C 已完成实现和验证。Phase 1C 的三项互操作补充已由用户明确确认并写入 PROTOCOL.md / ADR-015。Phase 1C 实现提交已推送 GitHub main，当前停止等待验收；Phase 1D 未开始。
+Phase 0、Phase 1A/B/C 已交付。Phase 1D 文件闭环已实现，最终全量回归通过，独立提交推送后停止等待验收。P1-P5 与 FILE_ACK 的 sha256_ok 字段约束已由用户确认，见 Accepted ADR-016/017。Phase 1E 未开始，完成本阶段独立提交推送后停止等待验收。
 
 - baseline commit: `bc8d747dfc41a375c31698073005857c238ede51`
 - Phase 1A commit: `cd722b6f3fd6cfe5e8ccded256c5295828e4372f`
-- Phase 1B implementation commit: `6ed2434d646938617088f62030f3749a797616c0`
-- Phase 1A/B R1-R4 修复与启动检查记录 commit: `59e65b4`
-- Phase 1C implementation commit: `71e5d1791224a4d952f468626e507c41fae9e502`（已推送 origin/main）
+- Phase 1B commit: `6ed2434d646938617088f62030f3749a797616c0`
+- R1-R4 修复 commit: `59e65b4`
+- Phase 1C commit: `71e5d1791224a4d952f468626e507c41fae9e502`
+- Phase 1D 启动 main：`5030322b58fcbb07cae2f3256a71eb9a750a479a`（已核对 origin/main 相同）；本阶段 implementation commit: pending。
+
+## Phase 1D 当前能力与验证
+
+- 内部 CreateUpload/CreateDownload -> TASK/ACK -> FILE_BEGIN/ACK ready -> binary CHUNK -> END/ACK done -> RESULT 已形成真实 Server/Probe 闭环。没有外部 HTTP/CLI 入口。
+- File Service 持有流式源/接收器、会话传输关联及本地提交事实；Gateway 只适配协议和串行发送；Task Service 保留不可变文件参数与跨连接派发记录。
+- Probe 独立文件 worker 与 deadline watcher；共享进程 TaskManager 身份/结果缓存，文件默认一个 active + 八个 FIFO 等待槽位。exec 仍使用四个 workers。file_queue_capacity 属于 ClientConfig，不新增外部控制接口。
+- 接收数据邮箱最多 16 帧，文件流缓冲按 chunk_size 分配；SHA-256 增量处理，源文件预读摘要后在发送时再次校验。文件字节不进入任务缓存，不使用 Base64。
+- 接收端同目录独占临时文件，校验完整 size/SHA-256 后发布；不创建父目录。overwrite=false 通过硬链接发布保证不覆盖并发新建目标，overwrite=true 使用 rename 替换，失败保留原目标；Probe 应用 upload.mode。
+- 两端帧边界优先控制消息；每块重新参与优先级仲裁。TCP 发送缓冲目标设为 64 KiB，限制内核预先排入的文件字节；内核可调整实际容量。已发送的字节不可被抢占。
+- 断线终止本连接所有未完成文件任务，临时文件清理，缓存失败结果并在重连补报。已发布 upload 保留 success；download done 丢失时保留 Server 本地 Committed=true 与完整文件，Probe RESULT 可为 failed。相同任务不能重新传输或重复发布。
+- 自动化已覆盖空/单字节/块边界/大二进制双向往返、1024-byte JSON 上限与独立 CHUNK 上限、mode、重复任务、跨连接结果重放、混合 FIFO、队满拒绝、运行/排队冲突、中断、size/SHA-256/offset/flags 失败、timeout、最终 ACK 丢失及慢链路控制优先。
+
+最终全量验证（2026-09-05）全部通过：
+
+- Linux：`cmake --build build/phase1d-probe --parallel 2`；`ctest --test-dir build/phase1d-probe --output-on-failure`：3/3，4.70 秒。
+- Linux：`go build -o build/server/router-server ./cmd/server`。
+- Linux：`RMP_PROBE_BIN=/work/build/phase1d-probe/router-probe go test ./... -count=1`：全部通过，真实 Probe 集成 66.292 秒。
+- Linux：同一 Probe 的 `go test -race ./... -count=1`：全部通过，真实集成 67.881 秒；`go vet ./...` 通过。
+- Windows：原生 `go test ./... -count=1`、`go vet ./...`、Server 构建通过；Linux Probe 的运行由上述真实 Linux 集成覆盖。
+- `git diff --check` 通过。原 Phase 1A/B/C 测试保留；旧“upload 不支持”测试的任务类型换为仍不支持的 start_process，以保留原拒绝行为测试意图。
+
+Go race 验证 Go 并发；C++ 由 worker、任务竞争与真实 Probe 集成覆盖。此次交付不代表已完成 Phase 1E 的整个 Phase 1 验收。
 
 ## 当前可用能力
 
@@ -23,31 +46,18 @@ Phase 0、Phase 1A、Phase 1B 与 Phase 1C 已完成实现和验证。Phase 1C �
 - Server 按 device_id/task_id 接受缺 ACK 的已派发任务补报；重复结果幂等，冲突不覆盖原终态，rejected 不可被 RESULT 改写。迟到 ACK 不回退状态，完成态 ACK 不替代 RESULT。
 - fd 创建/close-on-exec 与 fork 同步，exec 不继承控制 socket；并发任务期间连接线程继续处理控制消息。
 
-## 本次完整构建与回归
-
-Linux x86_64：复用本地隔离 Alpine 构建镜像；工作区构建目录 `build/phase1c-probe`。
-
-全部通过：
-
-- `cmake -S probe -B build/phase1c-probe -DCMAKE_BUILD_TYPE=Release`
-- `cmake --build build/phase1c-probe --parallel 2`
-- `ctest --test-dir build/phase1c-probe --output-on-failure`：2/2 passed，4.70 秒。
-- `go build -o build/server/router-server ./cmd/server`
-- `RMP_PROBE_BIN=/work/build/phase1c-probe/router-probe go test ./... -count=1`：全部通过，真实 Probe 集成 21.958 秒。
-- `RMP_PROBE_BIN=/work/build/phase1c-probe/router-probe go test -race ./... -count=1`：全部通过，真实 Probe 集成 23.026 秒。
-- `go vet ./...`：通过。
-- Windows 原生 Server 构建、`go test ./... -count=1`、`go vet ./...`：通过；Windows 不运行 Linux Probe 集成，该部分由上面的 Linux 回归覆盖。
-
-Phase 1C 新增覆盖：三个不同任务在全部释放执行屏障之前同时运行，反序完成与结果关联；并发重发；同一 Probe 多次重连；queued/running/完成态去重；20 个线程同时投递同 ID；执行字段冲突及默认值/扩展字段归一；容量和结果预留；完成结果不淘汰；缓存帧不因较小协商值被改写；新旧 session 同值 message_id；缺 ACK、重复/冲突 RESULT 与 rejected 保护；真实中继分别丢弃 ACK/RESULT 并断开 TCP，验证重连补报且副作用计数仍为一次。原 Phase 1A/1B 及 R1-R4 自动化回归均保留并通过。Go race 验证 Go 代码；C++ 并发由实际 worker/登记竞争测试验证。
-
 ## 限制与遗留问题
+
+- 不实现 resume、逐块 ACK、sliding window、并行文件流或专用文件数据连接。必须重传时创建新 task_id/transfer_id。
+- 文件发布依赖目标文件系统的 rename/hard link 能力；无覆盖发布不支持 hard link 时失败。控制优先不能抢占已写出的 TCP 字节或不可中断内核 I/O；进程崩溃后的临时文件清理属于未实现的恢复范围。
+- 最终 done ACK 丢失可造成下载文件已提交而任务 failed；调用者应同时查看 FileSnapshot.Committed 和 TASK_RESULT。
 
 - Probe / Server 进程重启后的任务持久化、恢复和去重仍为 TBD。boot_id 不能证明 Probe 进程连续性。
 - 如新会话协商上限小于原缓存 RESULT，该结果保留并延后补报；恢复足够大的帧上限后可重放，不重新执行任务。重复 TASK 的该长度错误见 PROTOCOL.md。
-- 未实现 TASK_CANCEL、文件传输、Tunnel、Process Manager、HTTP/WebSocket API、数据库、UI、CLI、MCP、AI Agent、VPN、FRP、SSH/Telnet 通道。
+- 未实现 TASK_CANCEL、Tunnel、Process Manager、HTTP/WebSocket API、数据库、UI、CLI、MCP、AI Agent、VPN、FRP、SSH/Telnet 通道。
 - 主动 setsid 脱离原进程组的后代不受组 KILL 覆盖；其 pipe 有界排空。不可中断内核等待的直接子进程回收仍依赖内核。
 - 认证/TLS/权限、安全设计、跨 CPU/最低内核/libc 实机矩阵仍待后续阶段；更严格 JSON Unicode/类型校验及完整错误关闭矩阵保留在审查报告和专项文档中。
 
 ## 下一步
 
-Phase 1C 已独立提交并推送，停止等待用户验收。不得自动进入 Phase 1D。历史审查、R1-R4 修复和先前操作事故记录见 [PHASE1AB_REVIEW.md](PHASE1AB_REVIEW.md)。
+完成最终回归、文档同步、独立 Phase 1D commit 和 GitHub 推送后停止等待验收，不进入 Phase 1E。历史 R1-R4 审查与操作事故见 PHASE1AB_REVIEW.md。

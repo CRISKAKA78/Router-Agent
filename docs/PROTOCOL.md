@@ -3,7 +3,7 @@
 协议版本：Protocol v1  
 基线来源：v0.2 Word 设计输入  
 日期：2026-09-05  
-状态：已确认的互操作设计；Phase 1A、Phase 1B 与 Phase 1C 子集已实现
+状态：已确认的互操作设计；Phase 1A、Phase 1B、Phase 1C 与 Phase 1D 子集已实现
 
 本文是 [路由器探针_TCP长连接控制协议设计_v0.2.docx](../路由器探针_TCP长连接控制协议设计_v0.2.docx) 中 TCP 协议部分的仓库内维护版本，并包含 Phase 0 最终确认的 Protocol v1 互操作细化。这些规则不改变 TCP 长连接、20-byte Header、JSON Control 和 Binary FILE_CHUNK 的核心设计。
 
@@ -516,7 +516,7 @@ Probe  -> FILE_ACK done
 Probe  -> TASK_RESULT success
 ~~~
 
-如果 Probe 拒绝 FILE_BEGIN，应返回 FILE_ACK failed，随后返回 TASK_RESULT failed。文件传输中途断开时，旧 transfer_id 失败；第一版重新发起新的文件任务或新的 transfer，不实现 resume。
+如果 Probe 拒绝 FILE_BEGIN，应返回 FILE_ACK failed，随后返回 TASK_RESULT failed。文件传输中途断开时，旧 transfer_id 失败；第一版重新发起新的 task_id 和 transfer_id，不实现 resume。
 
 ### download 成功时序
 
@@ -562,12 +562,12 @@ Probe  -> TASK_RESULT success
 
 - 小文件可以直接走控制连接。
 - 大文件或持续 pcap 可以在后续版本扩展为专用文件数据连接，不改变 TASK 业务模型。
-- FILE_CHUNK 通过 offset 支持乱序校验和未来断点续传；第一版发送端仍建议顺序发送。
+- FILE_CHUNK 在 Phase 1 必须使用连续 offset；不接受乱序、重叠、重复块或空洞（ADR-017 取代原建议顺序发送的表述）。
 - download 与 upload 复用同一套 FILE 消息，方向相反。
 
 ### 文件并发与背压
 
-Protocol v1 Phase 1 规定一个 Probe 控制连接同时最多只有一个 active file transfer。其他文件任务可以排队，或者按后续明确策略拒绝；具体选择仍为 TBD。不得并行向同一控制连接写入多个文件流。
+Protocol v1 Phase 1 规定一个 Probe 控制连接同时最多只有一个 active file transfer。其他已接受文件任务采用有界 FIFO，队列容量属于实现配置，满时拒绝新文件任务（用户在 Phase 1D 启动时明确确认，见 ADR-016）。不得并行向同一控制连接写入多个文件流。队列晋升的规范性 wire 时序见本文末尾 P1-P5。
 
 文件传输期间，REGISTER、HEARTBEAT、TASK、TASK_ACK、TASK_RESULT、EVENT 和 ERROR 等控制消息必须具有高于 FILE_CHUNK 的发送优先级。
 
@@ -599,7 +599,7 @@ Tunnel TCP : actual remote interactive traffic
 | TCP 短暂断开 | 关闭旧 socket，进入退避重连；同一 Probe 进程内继续维护已接受 task_id 的状态和去重 | 将旧 session 标记 disconnected，等待新 REGISTER |
 | 重连成功 | 重新 REGISTER，获得新 session_id；上报 running_tasks 摘要 | 将新连接绑定到同一 device_id |
 | 一次性 exec 正在运行 | 同一 Probe 进程内继续执行并缓存结果，连接恢复后补报 RESULT | 按 task_id 接受迟到结果 |
-| 文件传输中断 | 第一版将旧 transfer_id 标记 failed，重新发起新的文件任务或 transfer | 结束旧 transfer_id；第一版不实现 resume |
+| 文件传输中断 | 第一版将旧 transfer_id 标记 failed，重新发起新的 task_id 和 transfer_id | 结束旧 transfer_id；第一版不实现 resume |
 | Tunnel 数据连接断开 | Tunnel Manager 单独重连或结束 Tunnel，不影响控制 TCP | 根据 Tunnel 状态决定是否重新创建 |
 | Probe 进程重启 | task_id 缓存、未上报结果和任务恢复规则仍为 TBD | 不得仅根据旧 TCP Session 推断任务状态 |
 
@@ -778,7 +778,6 @@ Phase 0 最终细化已经解决 message_id、reply_to 与 RESPONSE、BINARY 与
 | 用户与 Probe 身份认证、TLS、链路加密、权限、租户、密钥轮换和审计 | 本轮不设计；生产部署前必须形成正式安全设计 |
 | Probe 重启后的任务恢复 | task_id 缓存、未上报结果、运行中任务和文件状态是否持久化尚未决定 |
 | Server 重启后的任务恢复 | 任务、Session 和传输状态的恢复策略尚未决定 |
-| 等待中的文件任务 | 一个连接只允许一个 active file transfer；其他文件任务排队还是拒绝尚未决定 |
 | BINARY/type 不一致等协议错误的严重程度 | 返回 ERROR 还是直接关闭连接的逐错误矩阵尚未决定 |
 | Probe 进程重启后的缓存 | Phase 1C 进程内有界且不淘汰；跨进程持久化仍未决定 |
 
@@ -814,3 +813,87 @@ Server 按 device_id/task_id 接受已派发任务的迟到结果，包括缺少
 当前默认 4 workers、最多 128 个已接受任务、8 MiB 身份/结果计费预算。接受时为结果预留当前协商 max_control_payload，并按两倍输入字节计费身份；完成后释放未使用的结果预留。该预算不包含线程栈、容器节点及运行时临时输出，不是进程 RSS 上限。
 
 缓存 RESULT 按任务接受时的协商上限编码一次。后续会话若把 max_control_payload 降至该缓存帧以下，Probe 保留原结果并延后补报，不改写或发送超限帧；收到该任务的重复 TASK 时在完成态 ACK 后返回 ERROR/PAYLOAD_TOO_LARGE。恢复足够大的协商上限后继续补报。这个长度限制不能被解释为可以重新执行任务。Probe / Server 进程重启后的恢复与持久化仍为 TBD。
+
+### Phase 1D 文件互操作规范（2026-09-05）
+
+**P1-P5 已由用户明确确认，为规范性契约（Accepted ADR-017）。** 用户另明确：ready 必须省略 sha256_ok，done 固定 true，failed 固定 false。启动检查基线为 main `5030322b58fcbb07cae2f3256a71eb9a750a479a`。以下问题说明保留设计原因，决定正文具有规范效力。
+
+#### P1：FIFO 的归属、晋升与握手
+
+问题：TASK_ACK accepted/queued 仅表达接收，未说明 upload 何时可 BEGIN、queued upload 如何获知轮到自己。现有 Task Service 拒绝同一派发的冲突 ACK，不能额外发送 running ACK 来暗示晋升。
+
+决定：Probe 按首次接受文件 TASK 的顺序维护 upload/download 共用的有界 FIFO。重复任务不占新槽位；队列满只拒绝新任务；正在执行的文件任务不占等待槽位。不同 exec 不受该 FIFO 限制。
+
+- upload：Server 收到首次 accepted ACK 后可发送一次 FILE_BEGIN；Probe 对排队任务仅登记并验证有界元数据，不打开目标、不发送 ready。成为队首 active 后才准备临时文件并回复 FILE_ACK ready，其 reply_to 引用原 FILE_BEGIN。未收到 ready，Server 不发送 CHUNK/END。
+- download：Probe 仅在任务成为队首 active 后准备源文件、计算元数据并发送 FILE_BEGIN；Server 回复 ready 后才发送 CHUNK/END。
+- active 从队首任务开始准备文件时算起，包括等待 BEGIN/ACK、计算摘要、传输和最终确认。Probe 排入当前任务终态 RESULT 后，才晋升下一文件任务。各方向 writer 保持该终态通知和后续文件控制消息的因果顺序。
+- TASK 的每次派发仍只返回一个 ACK；查询状态用既有同 task_id 重发，不新增晋升消息。未在相同连接接受的任务不能靠 FILE_BEGIN 创建任务；重复 BEGIN 不是重传或重开文件入口。
+
+影响：沿用既有成功时序和消息号；明确 queued BEGIN 不等于 active transfer，不需要同一 TASK 的第二个 ACK。
+
+#### P2：正式字段、单位与校验口径
+
+问题：download TASK、ready/failed ACK 缺少字段表；file_chunk_size 是否包含 28-byte 前缀及其与 max_control_payload 的关系尚不明确。
+
+共同字段规则：transfer_id 为小写 canonical UUID；size/received 为 0..INT64_MAX 的 JSON integer；sha256 为 64 个小写十六进制字符；字符串遵循现有 UTF-8/NUL 校验。remote_path 为非空绝对路径，最长 4096 UTF-8 bytes；name/result_name 为 1..255 bytes 的文件名标签，不含斜杠、反斜杠、NUL，且不等于 `.` 或 `..`。名称不用于让 Probe 推导 Server 本地路径。
+
+| 消息 | 必选字段与含义 |
+| --- | --- |
+| upload TASK.params | transfer_id、remote_path、size、sha256、mode、overwrite；mode 固定四位八进制 `0[0-7]{3}`，overwrite 为 boolean，不给省略值隐式默认 |
+| download TASK.params | transfer_id、remote_path、result_name；不含 Server 本地目标路径 |
+| FILE_BEGIN 共用字段 | transfer_id、task_id、direction、name、remote_path、size、sha256、chunk_size |
+| upload FILE_BEGIN | direction=server_to_device，另须 mode/overwrite；与 TASK 重复字段值完全一致 |
+| download FILE_BEGIN | direction=device_to_server；name=TASK.result_name，remote_path 与 TASK 一致；size/sha256 由 Probe 流式预读源文件获得；不携带 mode/overwrite |
+| FILE_END | transfer_id、size、sha256；与 BEGIN 完全一致 |
+| FILE_ACK ready | reply_to、transfer_id、status=ready、received=0；回复 BEGIN，必须省略 sha256_ok（包括 false/null 也不得出现） |
+| FILE_ACK done | reply_to、transfer_id、status=done、received、sha256_ok=true；回复 END，received=size，仅在接收文件校验并发布后发送 |
+| FILE_ACK failed | reply_to、transfer_id、status=failed、received、sha256_ok=false；可附 0..512 bytes message，诊断文字不作为分支条件 |
+
+FILE_BEGIN/END flags=0；ACK 仅 RESPONSE；CHUNK 仅 BINARY。file_chunk_size、BEGIN.chunk_size 与 512 KiB 上限均指原始 data 字节数，CHUNK.payload_len=28+data_len；BEGIN.chunk_size 为 1..协商 file_chunk_size。JSON 受 max_control_payload 限制，CHUNK 独立受 28+file_chunk_size 限制。
+
+文件 TASK_RESULT 保留现有全部通用字段：success 时 exit_code=0，failed/timeout 时 exit_code=-1；stdout 为空，stderr 可为有界诊断文字，truncated=false。result 必含 transfer_id；成功时另含校验过的 size、sha256。started_at 为晋升 active 时间；未晋升即因断线失败时 started_at=finished_at（终止时间）。终态编码一次缓存并按 ADR-015 重放。
+
+影响：两端可独立校验；允许空文件；既有 JSON 帧上限不会错误限制二进制文件块。download 源文件预读摘要仍使用固定大小缓冲，不整文件入内存；发送期间再次流式计算摘要，源内容变化时失败。
+
+#### P3：offset 与传输阶段失败
+
+问题：当前“建议顺序发送”不能决定接收端是否必须实现随机写、空洞、重叠和重复块。中途磁盘失败、发送方读取失败没有确定的通知和收敛方式。
+
+决定：Phase 1 强制 offset 等于已连续收到的字节数，data_len>0，精确匹配 payload 剩余长度，不超过 chunk_size 或剩余 size。空文件不发送 CHUNK。不接受乱序、重叠、重复块或空洞。
+
+- 可关联且格式正确的 BEGIN 被业务拒绝：FILE_ACK failed 回复 BEGIN，Probe 形成 TASK_RESULT failed。END 的 size/摘要校验失败：FILE_ACK failed 回复 END，清理临时文件并形成失败任务。
+- CHUNK 阶段出现非法 offset、写失败、发送端读失败、错误 transfer_id、非法 FILE 状态/格式或传输超时：可关联触发帧时尽力发送 RESPONSE ERROR（INVALID_PAYLOAD 或 TRANSFER_ERROR，reply_to 引用触发帧）；无触发帧的本地错误发送无 RESPONSE 的 ERROR/TRANSFER_ERROR；随后关闭当前 TCP，按 P5 统一失败收敛。不依赖 ERROR 一定送达。
+- 不为成功 CHUNK 发送 ACK；不新增 abort 消息；中途错误不在原连接继续发送下一文件，避免在途 CHUNK 与下一传输交错。保持原 Phase 1A/B/C 的错误处理分支不变。
+
+影响：已确认的严格顺序限制取代本文件旧的宽松 offset 表述。以断连处理传输中途失败会使排队文件任务一并失败，但 exec 保持 Phase 1C 的跨 TCP 执行与补报行为。
+
+#### P4：文件身份与重复副作用
+
+问题：ADR-015 身份比较仅列 exec 字段，未包含文件元数据；不同 task_id 重用同一 transfer_id 也未定义。
+
+决定：文件身份比较已解析的 type、timeout 和 P2 对应 TASK.params 全部字段；created_at 和未知扩展字段不参与比较。省略必选文件字段是无效请求。旧 ID 同内容沿用 queued/running/终态 ACK 与缓存 RESULT，不再次 BEGIN、不重开源或目标；同 ID 不同内容返回 ERROR/INVALID_PAYLOAD，保留旧身份。
+
+同一 Probe 进程内已接受的 transfer_id 不得绑定另一个 task_id；新任务如此重用时 TASK_ACK rejected，原任务不变。身份/终态和 transfer_id 绑定均有界保留、不淘汰，满后拒绝新任务。Server 的同 ID 重发同样不得重新覆盖已提交的下载文件。
+
+影响：扩展 ADR-015 的文件任务比较字段，保持其 exec 比较及结果重放语义；不会因本地源文件后来改变而重新执行旧任务。
+
+#### P5：排队断线、timeout 与最终发布边界
+
+问题：旧协议仅提“当前 transfer 失败”，没有说明已接受但排队中的任务是否跨连接继续；文件已发布但 done ACK 丢失时，不能简单把“failed”解释为目标文件一定不存在。
+
+决定：文件 TASK.timeout 是晋升 active 起的总时限，包括源摘要预读、等待 BEGIN/ACK、收发、校验和发布，排队时间不计入。Probe 掌握业务 timeout；Server 可有独立的本地 I/O 等待上限，到期断连，不能伪造 Probe RESULT。
+
+- TCP 断开时，同连接已接受、尚未形成终态的 active 与 queued 文件任务全部终止。active 超过任务时限记 timeout；其余因断线终止记 failed。Probe 保留身份与 RESULT，在新会话按 ADR-015 补报；同 task_id 重发只查询原任务，重新传文件须使用新 task_id 和 transfer_id。
+- 接收端先写目标同目录的独占临时文件，校验 size/SHA-256 后才发布。upload 应用指定 mode；overwrite=false 时目标已存在必须失败，发布不得覆盖并发新建的目标；overwrite=true 只在完整校验后替换目标。不自动创建父目录。download 的 Server 目标路径与覆盖策略是本地 Service 参数，不传给 Probe。
+- 上传以 Probe 成功发布为不可逆提交点：在同一本地完成流程中记录 success，再通知 FILE_ACK done 和缓存 TASK_RESULT。发布后网络发送失败仍保留成功结果，重连补报；不删除完整目标，不重新执行。
+- 下载以 Server 成功发布为本地提交点；Probe 收到 done 后形成 success。若 Server 已提交，但 done 丢失导致连接断开，Probe 缓存 failed，Server 保留已校验的完整文件和本地提交事实，接受 failed RESULT；不能把它伪造成 success，也不能回滚/重复下载。文件完整性成功与任务确认失败必须可区分。
+
+影响：明确 no-resume 的排队范围和失败副作用边界；不引入两阶段提交、RESULT_ACK、持久化或进程重启恢复。控制优先在完整帧边界生效，已经写出的 CHUNK 字节不能被后来到达的控制帧抢占；每块后重查控制队列，Reader 与文件 I/O 分离。
+
+### Phase 1D 当前实现配置
+
+Probe ClientConfig.file_queue_capacity 默认 8（等待槽位，不含一个 active），并继续受 TaskManager 全局 128 身份、8 MiB 计费预算限制。较大缓存 RESULT 仍按 Phase 1C 规则延后补报。文件任务接受时检查终态元数据可装入协商 JSON 上限；文件内容不计入身份缓存。
+
+文件 I/O 在独立 worker 执行；每条连接接收文件邮箱最多 16 帧。chunk_size 默认 64 KiB，硬上限 512 KiB（不含 28-byte 前缀）。两端发送缓冲目标 64 KiB，OS 可调整实际容量；控制优先只在完整帧边界生效，不承诺抢占 TCP 已排入字节或不可中断的内核 I/O。Probe deadline watcher 负责超时断开 socket。
+
+无覆盖发布要求目标文件系统支持同目录 hard link；不支持时任务失败，不退化为覆盖或复制不完整文件。Windows Server 使用本地路径，Probe remote_path 使用 Linux 绝对路径。进程崩溃后的临时文件清理、状态恢复与持久化仍未实现。

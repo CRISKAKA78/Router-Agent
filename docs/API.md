@@ -109,3 +109,12 @@ Protocol v1 的 Phase 1 不实现 TASK_CANCEL。未来 API 是否提供任务取
 - `TaskSnapshot` 包含 Dispatches，每项记录 SessionID、MessageID、对应 Ack；旧 MessageID 字段表示最近一次派发编号，不能单独用于跨会话关联。Snapshot 返回副本。
 - `WaitTaskResult` 等待真正 RESULT 或最终拒绝；即使 ACK.state 为完成态，也继续等待 RESULT。缺 ACK 的已派发结果可完成等待；重复 ACK/RESULT 不重复完成或回退状态。具体 wire 契约以 PROTOCOL.md / ADR-015 为准。
 - Server 只在内存中保留这些状态；进程重启后的恢复仍未实现。此处均为 Go 内部能力，没有新增 HTTP、WebSocket、CLI、MCP 或 AI Adapter。
+
+## Phase 1D 内部文件接口
+
+- gateway.Server.CreateUpload(ctx, deviceID, filetransfer.UploadRequest) 返回 (taskID,error)。参数为 SourcePath、RemotePath、Mode（必填四位八进制）、Overwrite、Timeout。File Service 在调用者协程流式准备源元数据，不阻塞连接 Reader。
+- CreateDownload(ctx, deviceID, filetransfer.DownloadRequest) 返回 (taskID,error)。参数为 RemotePath、ResultName、TargetPath（Server 本地绝对路径）、Overwrite、Timeout。本地路径与覆盖策略不传给 Probe。
+- 创建、派发失败与 ErrDispatchUncertain 的返回规则沿用 CreateExec。非空 taskID 必须保存；不得因 error 自动创建替代文件任务。创建上下文只约束准备与派发，不表示 TASK_CANCEL；业务 timeout 从 Probe 晋升 active 起计算。
+- ResendTask 对文件使用原 type/timeout/params，只查询或补报原任务；不会再次打开或发布文件。中断后重新传输必须创建新任务及 transfer_id。
+- WaitTaskResult/TaskSnapshot 沿用任务接口。FileSnapshot 返回 TaskID、TransferID、LocalPath、Committed、Size、SHA256、Error；Committed/Size/SHA256 仅描述 Server 下载接收端已校验发布的事实。它不是 TASK_RESULT 的替代：done ACK 丢失时 Committed=true 可以与最终 failed 并存。
+- 所有接口均为内部 Go 能力，没有新增 HTTP、WebSocket、CLI、UI、MCP 或 AI Adapter；Server/Probe 重启恢复不在本阶段实现。

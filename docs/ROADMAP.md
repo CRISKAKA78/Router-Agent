@@ -73,7 +73,7 @@ Management Server 使用 Go 的 Accepted 决策保持不变。Phase 0 Git baseli
 
 ### Phase 1C Concurrency Idempotency and Reconnect
 
-状态：已完成实现与验证，独立提交 `71e5d17` 已推送 GitHub main，停止等待用户验收。用户已明确确认三项互操作契约，见 PROTOCOL.md / ADR-015；R1-R4 前置修复已单独提交为 `59e65b4`。
+状态：已完成实现与验证，独立提交 `71e5d17` 已推送 GitHub main；用户现已授权启动 Phase 1D。用户已明确确认三项互操作契约，见 PROTOCOL.md / ADR-015；R1-R4 前置修复已单独提交为 `59e65b4`。
 
 - [x] 多任务并发。
 - [x] 乱序结果。
@@ -86,17 +86,17 @@ Management Server 使用 Go 的 Accepted 决策保持不变。Phase 0 Git baseli
 
 ### Phase 1D File Transfer
 
-状态：未开始
+状态：已完成实现与全量验证，独立提交推送后停止等待验收。P1-P5 与 sha256_ok 补充已确认，正式契约见 ADR-016/017。
 
-- [ ] upload。
-- [ ] download。
-- [ ] FILE_BEGIN。
-- [ ] FILE_ACK。
-- [ ] FILE_CHUNK。
-- [ ] FILE_END。
-- [ ] size 和 sha256 校验。
-- [ ] 文件传输期间控制消息不被饿死。
-- [ ] 形成 Phase 1D 可构建、可运行、可测试闭环。
+- [x] upload。
+- [x] download。
+- [x] FILE_BEGIN。
+- [x] FILE_ACK。
+- [x] FILE_CHUNK。
+- [x] FILE_END。
+- [x] size 和 sha256 校验。
+- [x] 文件传输期间控制消息不被饿死。
+- [x] 形成 Phase 1D 可构建、可运行、可测试闭环。
 
 ### Phase 1E Verification
 
@@ -112,7 +112,7 @@ Management Server 使用 Go 的 Accepted 决策保持不变。Phase 0 Git baseli
 - [ ] 文件中断。
 - [ ] Phase 1 完整验收。
 
-Phase 1 必须满足 [PROTOCOL.md](PROTOCOL.md) 的规则和验收基线。Phase 0、Phase 1A、Phase 1B 已形成里程碑提交，Phase 1C 实现及自动化回归已完成；本次已提交推送，停止等待用户验收。未进入 Phase 1D/1E，不将已有阶段测试视为整个 Phase 1 验收完成。
+Phase 1 必须满足 [PROTOCOL.md](PROTOCOL.md) 的规则和验收基线。Phase 0、Phase 1A、Phase 1B、Phase 1C 已形成里程碑提交。当前仅授权 Phase 1D，按已确认互操作规范完成文件传输实现、测试、文档与独立提交推送，然后停止等待验收。Phase 1E 未开始，不将已有阶段测试视为整个 Phase 1 验收完成。
 
 ## Phase 2 Device Management
 

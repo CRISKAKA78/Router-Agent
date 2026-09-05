@@ -2,7 +2,7 @@
 
 本项目用于建设一套由 Management Server 和路由器端 Probe 组成的远程运维平台。Management Server 统一承载设备、任务、文件与工具、Tunnel 和对外 API 等核心能力；Probe 主动连接 Server，并向上提供轻量、通用的设备控制原语。
 
-Phase 0 设计已经完成最终复核并形成 Git baseline。Phase 1A TCP Session、Phase 1B Task and Exec 与 Phase 1C 并发/幂等/重连任务关联已实现并通过 Linux x86_64 构建与测试；当前完成 Phase 1C 后停止等待验收，未进入 Phase 1D。
+Phase 0 设计已经完成最终复核并形成 Git baseline。Phase 1A TCP Session、Phase 1B Task and Exec 与 Phase 1C 并发/幂等/重连任务关联已实现并通过 Linux x86_64 构建与测试；Phase 1D 已实现流式双向文件传输，全量回归通过，完成独立提交推送后停止等待验收。最新进度见 PROJECT_STATUS，正式文件契约见 PROTOCOL 与 Accepted ADR-017。
 
 ## 系统关系
 
@@ -37,9 +37,11 @@ Server 与 Probe 之间使用 Probe 主动发起的 TCP 长连接。该连接负
 - Probe 技术栈为 C++11 + CMake；Phase 1A 已在 Linux x86_64 完成首轮验证。
 - REGISTER / HEARTBEAT 字段契约已冻结，当前实现符合该契约。
 
+- 内部 CreateUpload/CreateDownload 实现二进制分块文件传输与 size/SHA-256 校验；同目录临时文件完成校验后才发布。一个 active transfer 加有界 FIFO，控制消息优先，重复 task_id 不重复文件副作用。
+
 ## 当前不能做什么
 
-仓库目前不支持 Probe/Server 进程重启后的任务恢复、文件传输、Process Manager 或 Tunnel，也不提供 HTTP API、WebSocket、数据库、任何 UI、CLI、MCP 或 AI Agent。exec 当前仅通过 Go 内部接口和测试调用，没有外部 CLI 或 API 入口。
+仓库目前不支持 Probe/Server 进程重启后的任务恢复、Process Manager 或 Tunnel，也不提供 HTTP API、WebSocket、数据库、任何 UI、CLI、MCP 或 AI Agent。exec 当前仅通过 Go 内部接口和测试调用，没有外部 CLI 或 API 入口。
 
 ## 文档导航
 

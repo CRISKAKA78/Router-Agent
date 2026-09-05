@@ -268,9 +268,11 @@ bool ParseTask(const std::string& input, ExecTask* task, std::string* error) {
         }
         return false;
     }
-    if (task->type != "exec") {
-        return true;
+    if (task->type == "upload" || task->type == "download") {
+        if (task->timeout == 0) { *error="file timeout must be positive"; return false; }
+        return ParseFileParams(value->raw_value,task->type,&task->file,error);
     }
+    if (task->type != "exec") { return true; }
 
     JsonObject params;
     if (!ParseJsonObject(value->raw_value, &params, error)) {

@@ -1,4 +1,5 @@
 #include "rmp/task_manager.h"
+#include "rmp/json.h"
 #include <iostream>
 #include <stdexcept>
 
@@ -6,12 +7,12 @@ namespace rmp {
 namespace {
 bool SameTask(const ExecTask& a, const ExecTask& b) {
     return a.type == b.type && a.timeout == b.timeout && a.command == b.command &&
-           a.cwd == b.cwd && a.env == b.env;
+           a.cwd == b.cwd && a.env == b.env && a.file == b.file;
 }
 }
 
-TaskManager::TaskManager(unsigned workers, std::size_t capacity, std::size_t byte_capacity)
-    : stop_(false), running_(0), capacity_(capacity), byte_capacity_(byte_capacity),
+TaskManager::TaskManager(unsigned workers, std::size_t capacity, std::size_t byte_capacity, std::size_t file_capacity)
+    : stop_(false), running_(0), file_capacity_(file_capacity), file_count_(0), capacity_(capacity), byte_capacity_(byte_capacity),
       reserved_bytes_(0) {
     if (workers == 0 || workers > 64 || capacity == 0) {
         throw std::invalid_argument("invalid task manager limits");
@@ -33,7 +34,8 @@ TaskManager::~TaskManager() {
 }
 
 std::string TaskManager::Submit(const ExecTask& task, bool valid,
-                                std::size_t input_size, std::uint32_t max_payload) {
+                                std::size_t input_size, std::uint32_t max_payload, bool* fresh) {
+    if (fresh) *fresh=false;
     std::lock_guard<std::mutex> lock(mutex_);
     std::map<std::string, Entry>::iterator existing = entries_.find(task.task_id);
     if (existing != entries_.end()) {
@@ -43,7 +45,15 @@ std::string TaskManager::Submit(const ExecTask& task, bool valid,
     // Reserve the maximum encoded result at admission, including while offline.
     // Two input copies worth of room cover decoded strings and identity storage.
     const std::size_t reservation = input_size * 2 + max_payload;
-    if (!valid || task.type != "exec" || entries_.size() >= capacity_ ||
+    const bool file=task.type=="upload" || task.type=="download";
+    if (file) {
+        // Reserve enough for immutable file terminal metadata even for escaped IDs.
+        if (EscapeJsonString(task.task_id).size()+420 > max_payload) return "rejected";
+        if(file_count_>=file_capacity_+1) return "rejected";
+        for(std::map<std::string,Entry>::const_iterator i=entries_.begin();i!=entries_.end();++i)
+            if(i->second.task.file.transfer_id==task.file.transfer_id) return "rejected";
+    }
+    if (!valid || (task.type != "exec" && !file) || entries_.size() >= capacity_ ||
         reservation > byte_capacity_ - reserved_bytes_) return "rejected";
     Entry entry;
     entry.task = task;
@@ -51,9 +61,22 @@ std::string TaskManager::Submit(const ExecTask& task, bool valid,
     entry.max_payload = max_payload;
     entries_.insert(std::make_pair(task.task_id, entry));
     reserved_bytes_ += reservation;
-    queue_.push_back(task.task_id);
+    if (fresh) *fresh=true;
+    if (file) ++file_count_; else queue_.push_back(task.task_id);
     condition_.notify_one();
     return "queued";
+}
+
+void TaskManager::FileRunning(const std::string& id) {
+    std::lock_guard<std::mutex> lock(mutex_);entries_.at(id).state="running";running_.fetch_add(1);
+}
+void TaskManager::FileComplete(const std::string& id,const std::string& status,const std::string& payload) {
+    std::lock_guard<std::mutex> lock(mutex_);Entry& e=entries_.at(id);
+    if(!e.payload.empty()) return;
+    if(payload.size()>e.max_payload) throw std::length_error("file result exceeds reservation");
+    if(e.state=="running") running_.fetch_sub(1);
+    e.state=status;e.payload=payload;e.sent=true; // file worker sends in causal order; reconnect replays.
+    reserved_bytes_-=e.max_payload-payload.size();--file_count_;
 }
 
 void TaskManager::BeginSession() {

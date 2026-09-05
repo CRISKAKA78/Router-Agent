@@ -201,7 +201,7 @@ repo/
 └─ CHANGELOG.md
 ~~~
 
-当前实际仓库已包含 `cmd/server`、`internal/protocol`、`internal/gateway`、`internal/task` 和 `probe`，实现了 Phase 1A 的 framing、注册、心跳与基础重连，以及 Phase 1B 的 TASK、TASK_ACK、TASK_RESULT、exec、timeout 和基础任务状态，Phase 1C 的并发、去重和跨连接补报；示意中的其他模块尚未创建或实现。
+当前实际仓库已包含 `cmd/server`、`internal/protocol`、`internal/gateway`、`internal/task` 和 `probe`，实现了 Phase 1A 的 framing、注册、心跳与基础重连，以及 Phase 1B 的 TASK、TASK_ACK、TASK_RESULT、exec、timeout 和基础任务状态，Phase 1C 的并发、去重和跨连接补报；Phase 1D 已增加 internal/filetransfer 与 Probe FileManager；示意中的其他模块尚未创建或实现。
 
 ## 已确认的架构约束
 
@@ -235,3 +235,10 @@ repo/
 - Connection / Message Router 负责 ACK、冲突 ERROR、心跳和缓存结果发送；同一网络线程串行发送帧。在线 poll 最多等待 50 ms，每轮发送一个待补报 RESULT 并继续处理控制消息。
 - TaskManager 的登记、状态和缓存共用互斥锁；执行和网络写不持有该锁。新连接开始新的补报轮次，不清空任务身份。默认并发数和缓存计费见 PROTOCOL.md。
 - Server Task Service 保存任务及各次 session_id/message_id 派发记录，处理 ACK、RESULT 幂等和等待；Gateway 适配 CreateExec / ResendTask / WaitTaskResult / TaskSnapshot，不引入外部 API。
+
+## Phase 1D 实际模块职责
+
+- Go internal/filetransfer 负责文件任务准备、流式源/接收器、FILE 字段校验、会话传输状态和本地提交事实；不实现 File/Tool Repository。internal/task 保存不可变文件参数和业务结果。Gateway 的 CreateUpload/CreateDownload 为内部用例入口，路由 FILE 帧并提供优先级串行发送适配。
+- C++ FileManager 为单 TCP Session 拥有一个文件 I/O worker、deadline watcher、有界 FIFO 和接收邮箱；Reader 登记 TASK/BEGIN 并路由控制帧，不执行磁盘读写。TaskManager 拥有跨 Session 的文件身份、transfer_id 绑定、状态和结果缓存。旧 FileManager 停止并收敛结果后才建立新会话。
+- 两端 writer 对完整帧串行化；等待中的控制发送优先于 CHUNK，文件 END 在此前数据全部写出后发送。发送缓冲目标为 64 KiB，避免大量提前排入的文件字节抵消控制优先级。
+- 临时文件在目标同目录创建，完成校验后 rename 或无覆盖 hard link 发布。Server FileSnapshot.Committed 表示下载本地提交事实，与 Probe 任务最终确认分开记录，支持 done ACK 丢失后保留完整文件但任务失败的已确认契约。

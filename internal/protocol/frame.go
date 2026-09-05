@@ -18,6 +18,10 @@ const (
 	TypeTask         uint8 = 0x10
 	TypeTaskAck      uint8 = 0x11
 	TypeTaskResult   uint8 = 0x12
+	TypeFileBegin    uint8 = 0x30
+	TypeFileChunk    uint8 = 0x31
+	TypeFileEnd      uint8 = 0x32
+	TypeFileAck      uint8 = 0x33
 	TypeError        uint8 = 0xFE
 
 	FlagResponse uint16 = 1 << 0
@@ -85,6 +89,9 @@ func DecodeHeader(data []byte, maxPayload uint32) (Header, error) {
 	}
 	if maxPayload == 0 {
 		maxPayload = MaxControlPayload
+	}
+	if h.Type == TypeFileChunk {
+		maxPayload = 28 + 512*1024
 	}
 	if h.PayloadLen > maxPayload {
 		return h, &FrameError{Code: "PAYLOAD_TOO_LARGE", Header: &h, Detail: fmt.Sprintf("payload_len %d exceeds %d", h.PayloadLen, maxPayload)}

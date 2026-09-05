@@ -131,7 +131,6 @@
 - Tunnel 数据面协议和 Relay 拓扑。
 - Probe 重启后的 task_id 缓存、未上报结果和任务恢复策略。
 - Server 重启后的任务、Session 和传输恢复策略。
-- 等待中的文件任务采用排队还是拒绝。
 - Protocol 错误严重程度与关闭连接矩阵。
 - API 的正式资源模型、错误、认证和实时事件协议。
 
@@ -152,3 +151,28 @@
 - 结果恢复：每次成功 REGISTER 后重放缓存完成结果，包括旧连接上写成功的结果；运行中 exec 继续执行，完成后通过可用连接发送。不得伪造旧 ACK，不新增 RESULT_ACK。Server 对同 device_id 的已派发 task_id 可以在缺 ACK 时接受结果。
 - 幂等终态：已定义结果业务字段完全相同才是重复 RESULT；幂等成功，冲突返回 ERROR/INVALID_PAYLOAD 且不覆盖首个终态；rejected 不可被结果改写。ACK 必须匹配 session_id/message_id/task_id 派发记录。
 - 资源边界：允许有界缓存，不淘汰已接受任务的身份与结果，容量不足时拒绝新任务。具体容量和 worker 数属于实现配置；Probe 与 Server 重启恢复仍为 TBD。
+
+## ADR-016 Phase 1D 授权与已确认文件传输约束
+
+- 状态：Accepted
+- 日期：2026-09-05
+- 确认依据：用户明确要求开始 Phase 1D，并列出十二项已确认规则及交付边界。
+- 性质：补充 ADR-011 原先未决定的等待策略；保留 ADR-009/010/011/015 的既有决定。
+- 决定：每个 Probe 控制连接最多一个 active file transfer；其他已接受文件任务使用有界 FIFO，容量是实现配置，满时拒绝新文件任务。
+- 编码：Server 创建 canonical UUID transfer_id，CHUNK 使用 RFC 4122 16 bytes；内容必须为 binary FILE_CHUNK 且设置 BINARY，其余 FILE 消息为 JSON。
+- 生命周期：upload/download 兼容 Phase 1C task_id 幂等，重复 ID 不重复文件副作用；中断的 transfer_id 失败，重传必须使用新的 task_id 和 transfer_id，不实现 resume。
+- 流与校验：流式读写，校验 size/SHA-256；不完整或校验失败的文件不可发布为最终文件；控制消息优先，每个 CHUNK 后重查控制队列。
+- 边界：不做逐块 ACK、sliding window、多文件并行流或专用数据连接；保留 Phase 1A/B/C 行为，不进入 Phase 1E 或用户明确排除的后续能力。
+- 交付：完整回归、Go race/vet、C++ 与真实 Probe 集成通过后，同步文档，独立提交 Phase 1D 并推送 GitHub，停止等待验收。该 ADR 接受时仅完成启动检查；后续实现与验证状态以 PROJECT_STATUS.md 为准。
+
+## ADR-017 Phase 1D 文件互操作补充
+
+- 状态：Accepted
+- 确认依据：用户明确回复“确认 P1～P5，按草案继续实现”，并要求 ready 省略 sha256_ok、done 固定 true、failed 固定 false。
+- 日期：2026-09-05
+- 基线：main `5030322b58fcbb07cae2f3256a71eb9a750a479a`。
+- 问题：现有 FILE 章节主要是示例；未定义有界 FIFO 晋升时的握手、全部必选字段、CHUNK 长度口径、传输阶段失败关联、排队任务断线处理和文件提交后确认丢失的结果边界。ADR-015 的执行身份字段只覆盖 exec。
+- 决定：采用 PROTOCOL.md 末尾 P1-P5 规范，复用既有消息号，不增加 ACK 类型、取消消息或恢复协议。
+- 影响：P1 明确 queued upload 可登记 FILE_BEGIN 但延后 ready；P2 冻结字段与帧长度口径；P3 将 Phase 1 接收限制为顺序 offset 并明确失败处理；P4 扩展文件任务执行身份；P5 固定超时、断线和提交确认边界。
+- 与历史决定关系：补充 ADR-011/015；P3 正式取代 PROTOCOL.md 原来“发送端建议顺序发送、offset 支持乱序校验”在 Phase 1 的宽松表述，改为强制连续 offset。ADR-009/010/011/015 原文保留。
+- 实施：按正式协议实现与测试 Phase 1D，全部验证后独立提交推送并停止等待验收。

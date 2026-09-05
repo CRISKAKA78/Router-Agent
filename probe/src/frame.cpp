@@ -112,6 +112,7 @@ bool DecodeHeader(const std::uint8_t* data,
         }
         return false;
     }
+    if (decoded.type == kTypeFileChunk) max_payload=28+512*1024;
     if (decoded.payload_len > max_payload) {
         if (error != NULL) {
             *error = FrameErrorCode::kPayloadTooLarge;

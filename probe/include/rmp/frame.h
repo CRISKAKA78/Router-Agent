@@ -19,6 +19,10 @@ static const std::uint8_t kTypeHeartbeatAck = 0x04;
 static const std::uint8_t kTypeTask = 0x10;
 static const std::uint8_t kTypeTaskAck = 0x11;
 static const std::uint8_t kTypeTaskResult = 0x12;
+static const std::uint8_t kTypeFileBegin=0x30;
+static const std::uint8_t kTypeFileChunk=0x31;
+static const std::uint8_t kTypeFileEnd=0x32;
+static const std::uint8_t kTypeFileAck=0x33;
 static const std::uint8_t kTypeError = 0xFE;
 
 static const std::uint16_t kFlagResponse = 1U << 0;

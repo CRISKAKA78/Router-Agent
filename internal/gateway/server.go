@@ -13,6 +13,7 @@ import (
 	"sync"
 	"time"
 
+	"routerprobe/internal/filetransfer"
 	"routerprobe/internal/protocol"
 	"routerprobe/internal/task"
 )
@@ -63,12 +64,14 @@ type SessionEvent struct {
 }
 
 type session struct {
+	done      chan struct{}
 	deviceID  string
 	sessionID string
 	transport *connectionWriter
 }
 
 type connectionWriter struct {
+	priority          priorityGate
 	conn              net.Conn
 	mu                sync.Mutex
 	nextOutgoingID    uint64
@@ -91,6 +94,7 @@ type Server struct {
 	closed      bool
 	events      chan SessionEvent
 	tasks       *task.Service
+	files       *filetransfer.Service
 	wg          sync.WaitGroup
 }
 
@@ -106,6 +110,7 @@ func New(config Config) (*Server, error) {
 		events:      make(chan SessionEvent, 128),
 		tasks:       task.NewService(),
 	}
+	server.files = filetransfer.New(server.tasks)
 	return server, nil
 }
 
@@ -179,6 +184,7 @@ func (s *Server) Close() error {
 		_ = conn.Close()
 	}
 	s.wg.Wait()
+	s.files.Close()
 	return nil
 }
 
@@ -241,9 +247,10 @@ func (s *Server) ResendTask(ctx context.Context, taskID string) error {
 }
 
 func (s *Server) dispatchExec(active *session, spec task.Spec) (uint64, error) {
-	wire := taskMessage{
-		TaskID: spec.ID, Type: spec.Type, CreatedAt: spec.CreatedAt, Timeout: spec.Timeout,
-		Params: execTaskParams{Command: spec.Command, Cwd: spec.Cwd, Env: spec.Env},
+	wireExec := taskMessage{TaskID: spec.ID, Type: spec.Type, CreatedAt: spec.CreatedAt, Timeout: spec.Timeout, Params: execTaskParams{Command: spec.Command, Cwd: spec.Cwd, Env: spec.Env}}
+	var wire interface{} = wireExec
+	if spec.Type != "exec" {
+		wire = map[string]interface{}{"task_id": spec.ID, "type": spec.Type, "created_at": spec.CreatedAt, "timeout": spec.Timeout, "params": spec.Params}
 	}
 	messageID, err := active.transport.sendJSON(protocol.TypeTask, 0, wire, func(messageID uint64) error {
 		return s.tasks.MarkDispatched(spec.ID, active.sessionID, messageID)
@@ -255,7 +262,7 @@ func (s *Server) dispatchExec(active *session, spec task.Spec) (uint64, error) {
 		}
 		return 0, fmt.Errorf("dispatch task: %w", err)
 	}
-	s.config.Logger.Printf("sent=TASK device_id=%s session_id=%s task_id=%s type=exec", spec.DeviceID, active.sessionID, spec.ID)
+	s.config.Logger.Printf("sent=TASK device_id=%s session_id=%s task_id=%s type=%s", spec.DeviceID, active.sessionID, spec.ID, spec.Type)
 	return messageID, nil
 }
 
@@ -333,6 +340,8 @@ func (w *connectionWriter) sendJSON(messageType uint8, flags uint16, value inter
 	if uint64(len(payload)) > uint64(w.maxControlPayload) {
 		return 0, fmt.Errorf("payload length %d exceeds %d", len(payload), w.maxControlPayload)
 	}
+	w.priority.lock(false)
+	defer w.priority.unlock()
 	w.mu.Lock()
 	defer w.mu.Unlock()
 	if w.failed != nil {
@@ -370,11 +379,16 @@ func (w *connectionWriter) failLocked(err error) error {
 }
 
 func (s *Server) handleConnection(conn net.Conn) {
+	if tcp, ok := conn.(*net.TCPConn); ok {
+		_ = tcp.SetWriteBuffer(64 * 1024)
+	}
 	defer conn.Close()
 	writer := &connectionWriter{conn: conn, nextOutgoingID: 1, maxControlPayload: s.config.MaxControlPayload}
 	decoder := protocol.NewDecoder(s.config.MaxControlPayload)
 	buffer := make([]byte, 32*1024)
 	var active *session
+	done := make(chan struct{})
+	defer close(done)
 	registered := false
 	nextIncomingID := uint64(1)
 	lastSeen := time.Now()
@@ -432,7 +446,7 @@ func (s *Server) handleConnection(conn net.Conn) {
 						s.config.Logger.Printf("session_id_error=%v", err)
 						return
 					}
-					candidate := &session{deviceID: register.DeviceID, sessionID: sessionID, transport: writer}
+					candidate := &session{deviceID: register.DeviceID, sessionID: sessionID, transport: writer, done: done}
 					ack := registerAckSuccess{
 						ReplyTo: frame.Header.MessageID, Success: true, SessionID: sessionID,
 						HeartbeatInterval: int64(s.config.HeartbeatInterval / time.Second),
@@ -495,6 +509,15 @@ func (s *Server) handleConnection(conn net.Conn) {
 					}
 					lastSeen = time.Now()
 					s.config.Logger.Printf("received=TASK_ACK device_id=%s task_id=%s accepted=%t", active.deviceID, ack.TaskID, ack.Accepted)
+					if err := s.files.OnAck(active.sessionID, ack); err != nil {
+						return
+					}
+				case protocol.TypeFileBegin, protocol.TypeFileChunk, protocol.TypeFileEnd, protocol.TypeFileAck:
+					if err := s.files.Route(active.sessionID, frame); err != nil {
+						_ = s.sendError(writer, frame.Header.MessageID, "TRANSFER_ERROR", err.Error())
+						return
+					}
+					lastSeen = time.Now()
 				case protocol.TypeTaskResult:
 					if frame.Header.Flags != 0 {
 						_ = s.sendError(writer, frame.Header.MessageID, "INVALID_PAYLOAD", "TASK_RESULT flags must be zero")
@@ -502,6 +525,10 @@ func (s *Server) handleConnection(conn net.Conn) {
 					}
 					result, err := parseTaskResult(frame.Payload)
 					if err != nil {
+						_ = s.sendError(writer, frame.Header.MessageID, "INVALID_PAYLOAD", err.Error())
+						return
+					}
+					if err := s.files.ValidateResult(result); err != nil {
 						_ = s.sendError(writer, frame.Header.MessageID, "INVALID_PAYLOAD", err.Error())
 						return
 					}

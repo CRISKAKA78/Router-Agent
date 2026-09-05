@@ -14,12 +14,14 @@ namespace rmp {
 class TaskManager {
 public:
     TaskManager(unsigned workers = 4, std::size_t capacity = 128,
-                std::size_t byte_capacity = 8U * 1024U * 1024U);
+                std::size_t byte_capacity = 8U * 1024U * 1024U, std::size_t file_capacity = 8);
     ~TaskManager();
     // Returns queued/running/terminal, rejected, or conflict. Admission occurs
     // before ACK transmission, so losing an ACK never loses an accepted task.
     std::string Submit(const ExecTask& task, bool valid, std::size_t input_size,
-                       std::uint32_t max_payload);
+                       std::uint32_t max_payload, bool* fresh = NULL);
+    void FileRunning(const std::string& id);
+    void FileComplete(const std::string& id,const std::string& status,const std::string& payload);
     void BeginSession();
     bool NextResult(std::uint32_t max_payload, std::string* payload);
     bool CachedResult(const std::string& id, std::uint32_t max_payload,
@@ -43,6 +45,7 @@ private:
     std::map<std::string, Entry> entries_;
     std::deque<std::string> queue_;
     std::vector<std::thread> workers_;
+    std::size_t file_capacity_, file_count_;
     std::size_t capacity_;
     std::size_t byte_capacity_;
     std::size_t reserved_bytes_;

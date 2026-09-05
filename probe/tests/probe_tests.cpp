@@ -172,8 +172,8 @@ void TestTaskParsingAndAck() {
 
     error.clear();
     Check(rmp::ParseTask(
-              "{\"task_id\":\"task-2\",\"type\":\"upload\",\"timeout\":5,\"params\":{}}",
-              &task, &error) && task.type == "upload",
+              "{\"task_id\":\"task-2\",\"type\":\"start_process\",\"timeout\":5,\"params\":{}}",
+              &task, &error) && task.type == "start_process",
           "unsupported TASK remains parseable for rejection");
 
     rmp::JsonObject ack;

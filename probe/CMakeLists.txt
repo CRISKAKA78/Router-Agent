@@ -12,6 +12,9 @@ add_library(rmp_probe_core STATIC
     src/frame.cpp
     src/json.cpp
     src/task.cpp
+    src/file_wire.cpp
+    src/file_manager.cpp
+    src/sha256.cpp
     src/task_manager.cpp
 )
 target_include_directories(rmp_probe_core PUBLIC include)
@@ -26,6 +29,10 @@ target_link_libraries(router-probe PRIVATE rmp_probe_core)
 
 include(CTest)
 if(BUILD_TESTING)
+    add_executable(file_tests tests/file_tests.cpp)
+    target_link_libraries(file_tests PRIVATE rmp_probe_core)
+    add_test(NAME file_tests COMMAND file_tests)
+    set_tests_properties(file_tests PROPERTIES TIMEOUT 30)
     add_executable(probe_tests tests/probe_tests.cpp)
     target_link_libraries(probe_tests PRIVATE rmp_probe_core)
     add_test(NAME probe_tests COMMAND probe_tests)

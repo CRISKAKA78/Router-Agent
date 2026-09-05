@@ -52,7 +52,7 @@ Phase 0 完成后，仓库内 Markdown 文档成为项目持续维护的当前�
 
 ## 当前阶段限制
 
-Phase 0 baseline、Phase 1A 和 Phase 1B 已形成提交。用户已明确授权 Phase 1C，并在启动检查后确认重复 TASK、内容冲突和跨连接结果补报契约（ADR-015）。本次范围仅含多任务并发、乱序结果关联、task_id 幂等、TCP 重连任务关联、Probe 进程生命周期去重及对应测试。完成后须独立提交 Phase 1C 并推送 GitHub，然后停止等待验收。未获后续阶段授权前，不得进入 Phase 1D 或实现文件传输、Tunnel、HTTP API、WebSocket、数据库、任何 UI、MCP、AI Agent、VPN、FRP、SSH 或 Telnet 通道。
+Phase 0 baseline、Phase 1A、Phase 1B 和 Phase 1C 已形成提交。用户已明确授权 Phase 1D File Transfer，仅实现 ROADMAP 中 upload/download、FILE_BEGIN/ACK/CHUNK/END、size/SHA-256 校验、控制消息优先级和对应自动化测试。遵守 ADR-016 已确认约束；用户已明确确认 P1-P5，遵守 PROTOCOL.md 规范与 Accepted ADR-017，ready 省略 sha256_ok、done 固定 true、failed 固定 false。完成后须独立提交 Phase 1D 并推送 GitHub，然后停止等待验收。不得进入 Phase 1E，不实现 resume、专用文件数据连接、File/Tool Repository、Process Manager、Tunnel、HTTP/WebSocket API、UI、MCP、AI Agent、TASK_CANCEL、Probe/Server 进程重启恢复或后续安全体系。
 
 ## 任务执行要求
 
