@@ -86,7 +86,7 @@ Management Server 使用 Go 的 Accepted 决策保持不变。Phase 0 Git baseli
 
 ### Phase 1D File Transfer
 
-状态：已完成实现与全量验证，独立提交推送后停止等待验收。P1-P5 与 sha256_ok 补充已确认，正式契约见 ADR-016/017。
+状态：已完成实现与全量验证，独立实现提交 `f1d9fa08d047f4f46a8bc27119565a2f6d217ecc` 已推送 GitHub main，停止等待验收。P1-P5 与 sha256_ok 补充已确认，正式契约见 ADR-016/017。
 
 - [x] upload。
 - [x] download。

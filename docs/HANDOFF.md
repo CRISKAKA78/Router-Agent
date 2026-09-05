@@ -16,7 +16,7 @@
 
 用户已在启动检查后明确确认重复 TASK、内容冲突和跨连接结果补报建议；正式契约位于 PROTOCOL.md 末尾与 Accepted ADR-015。ADR-009/010 未被静默改写。
 
-Phase 1D 启动 main 为 `5030322b58fcbb07cae2f3256a71eb9a750a479a`。ADR-016/017 为正式契约；implementation commit: pending，最终验证和限制以 PROJECT_STATUS.md 为准。
+Phase 1D 启动 main 为 `5030322b58fcbb07cae2f3256a71eb9a750a479a`。ADR-016/017 为正式契约；implementation commit: `f1d9fa08d047f4f46a8bc27119565a2f6d217ecc`（已推送 origin/main），最终验证和限制以 PROJECT_STATUS.md 为准。
 
 ## 当前运行闭环
 
@@ -52,4 +52,4 @@ exec 支持 cwd/env、独立 stdout/stderr、有界输出和 timeout 进程组�
 - 去重覆盖同一 Probe 进程，进程重启恢复与持久化仍 TBD；不要把 boot_id 当成 Probe 进程实例 ID。
 - 默认缓存容量、计费预算及降低协商帧上限时的结果延后补报限制见 PROTOCOL.md / PROJECT_STATUS.md。
 - R1-R4 已修复；剩余已知限制和历史操作事故保留在 [PHASE1AB_REVIEW.md](PHASE1AB_REVIEW.md)，不因本次 1C 删除历史证据。
-- 本次仅授权 Phase 1D；完成全部回归、独立提交推送后停止等待验收，不进入 Phase 1E。
+- 本次仅授权 Phase 1D；全部回归通过，独立实现提交已推送，停止等待验收，不进入 Phase 1E。

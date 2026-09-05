@@ -4,14 +4,14 @@
 
 ## 当前阶段
 
-Phase 0、Phase 1A/B/C 已交付。Phase 1D 文件闭环已实现，最终全量回归通过，独立提交推送后停止等待验收。P1-P5 与 FILE_ACK 的 sha256_ok 字段约束已由用户确认，见 Accepted ADR-016/017。Phase 1E 未开始，完成本阶段独立提交推送后停止等待验收。
+Phase 0、Phase 1A/B/C 已交付。Phase 1D 文件闭环已实现，最终全量回归通过，独立实现提交已推送 GitHub main，现停止等待验收。P1-P5 与 FILE_ACK 的 sha256_ok 字段约束已由用户确认，见 Accepted ADR-016/017。Phase 1E 未开始，完成本阶段独立提交推送后停止等待验收。
 
 - baseline commit: `bc8d747dfc41a375c31698073005857c238ede51`
 - Phase 1A commit: `cd722b6f3fd6cfe5e8ccded256c5295828e4372f`
 - Phase 1B commit: `6ed2434d646938617088f62030f3749a797616c0`
 - R1-R4 修复 commit: `59e65b4`
 - Phase 1C commit: `71e5d1791224a4d952f468626e507c41fae9e502`
-- Phase 1D 启动 main：`5030322b58fcbb07cae2f3256a71eb9a750a479a`（已核对 origin/main 相同）；本阶段 implementation commit: pending。
+- Phase 1D 启动 main：`5030322b58fcbb07cae2f3256a71eb9a750a479a`（已核对 origin/main 相同）；本阶段 implementation commit: `f1d9fa08d047f4f46a8bc27119565a2f6d217ecc`（已推送 origin/main）。
 
 ## Phase 1D 当前能力与验证
 
@@ -60,4 +60,4 @@ Go race 验证 Go 并发；C++ 由 worker、任务竞争与真实 Probe 集成�
 
 ## 下一步
 
-完成最终回归、文档同步、独立 Phase 1D commit 和 GitHub 推送后停止等待验收，不进入 Phase 1E。历史 R1-R4 审查与操作事故见 PHASE1AB_REVIEW.md。
+Phase 1D 实现、全量回归、文档同步与独立提交推送均已完成，现停止等待用户验收。具备申请进入 Phase 1E 的实现与回归基础，但 Phase 1E 未获授权、未开始。历史 R1-R4 审查与操作事故见 PHASE1AB_REVIEW.md。
