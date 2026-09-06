@@ -151,11 +151,12 @@ Protocol v1 的 14 项验收基线已映射至可运行测试，完整结果见 
 
 ## Phase 5 HTTP and WebSocket API
 
-状态：未开始
+状态：实现及全部规定自动化验证通过，待用户验收；用户明确授权基线b29aa46，采用Accepted ADR-023。独立commit推送main后停止，验证结果见PHASE5_VERIFICATION。
 
-- [ ] /api/v1 HTTP API。
-- [ ] 设备、任务、文件、工具、Tunnel 和会话能力。
-- [ ] 实时事件接口。
+- [x] /api/v1 HTTP API。
+- [x] 设备、Session、exec/Task、资产/文件传输、工具/版本/Artifact/兼容与Maintenance能力。
+- [x] 有界WebSocket状态通知、重连同步与慢消费者关闭。
+- [x] Phase 1～5全量回归、race/vet、C++ sanitizers及Windows/Linux适用验证。
 
 ## Phase 6 User Interfaces
 

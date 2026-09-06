@@ -52,13 +52,13 @@ Phase 0 完成后，仓库内 Markdown 文档成为项目持续维护的当前�
 
 ## 当前阶段限制
 
-Phase 0～3 已交付。Phase 4 首版提交为 `f92d73a0d6003835993967848f1f5fe009a0df89`，本轮从该 main 干净基线继续修正。当前范围以 Accepted ADR-021 / ADR-022、PROTOCOL.md、PHASE4_DESIGN.md 及用户指令为准。维护会话固定 Web/SSH/Telnet → 127.0.0.1:80/22/23，默认 240 分钟，可自定义正租期；数据使用独立 TCP，与创建时 Device Session 严格绑定。保持自研路线，不恢复 FRP/xfrpc。
+Phase 0～4已验收。用户于2026-09-06明确授权从main稳定基线 `b29aa46c81bea7f3b8f4780e9d657c1bba078897` 进入Phase 5：HTTP / WebSocket API；设计按Accepted ADR-023、API.md及PHASE5_DESIGN.md。本阶段Adapter仅复用Application/Service，不重写Device/Task/Repository/Maintenance状态机，不修改Tunnel数据面。
 
-端口本地释放后默认隔离24小时；控制发送由Gateway有界队列独立拥有，不得阻塞Maintenance本地释放；域名在Server解析，Probe仍只接收IP；Probe默认8条流、最大64，每流一线程；默认整连接idle24小时，租期优先。完整语义与有限端口隔离边界见ADR-022。正式历史必须在提交的仓库中，不依赖开发者本地临时保存项。
+保留Accepted ADR-009～022。Maintenance固定Web/SSH/Telnet → Probe 127.0.0.1:80/22/23，默认240分钟，自定义正租期；独立data TCP、创建Session绑定、24小时默认端口隔离、Gateway有界独立控制发送及Probe默认8条/最大64条流保持。资产持久化/身份/版本/匹配/归档/清理由Accepted ADR-019 R1～R6约束；artifact_id全Repository唯一，tool_id/asset_id/artifact_id不因归档、去重或存储路径变化重用。
 
-保留 Accepted ADR-009～018、Phase 1/2 的连接、设备、Session、任务、文件和幂等行为。具体资产模型、版本模型、目录结构和内部接口可自行设计；涉及资产持久化和存储目录、元数据持久化、版本唯一性与升级关系、arch/libc/kernel/model 匹配、去重/SHA-256/资产身份、删除/版本保留/清理的长期设计，先记录问题、原因、影响和推荐方案，等待用户明确确认。ADR-019 R1～R6 已获用户明确确认，状态为 Accepted。artifact_id 为全 Repository 唯一的不透明 UUID；tool_id、asset_id、artifact_id 均为稳定业务身份，不因归档、去重或存储路径变化重用。
+当前授权允许自行确定REST资源、WebSocket状态通知、JSON/错误/分页/输入校验/幂等/并发/关闭语义并补充ADR。认证、TLS、RBAC、租户和完整审计未获Accepted长期设计时，仅记录可信部署边界与后续设计点，不构建大型权限体系。HTTP不得暴露内部socket、message_id/reply_to或Tunnel token/connection_id/data私有细节。
 
-Phase 4 必须验证撤销全部入口与活动数据连接、一次性配对、half-close、背压、有界资源、Session 替换/断线、租约、端口释放复用，以及真实 HTTP/SSH/Telnet 与控制/文件流量隔离。运行 Phase 1～3 全量回归、Go race/vet、C++ CTest/sanitizers、Linux Probe 和 Windows/Linux Management Server 适用验证，更新全部必要文档后才能标记完成。形成独立 Phase 4 commit 推送 GitHub main 后停止等待验收，不进入 Phase 5、HTTP/WebSocket API、UI、MCP、AI Agent、任意目标端口或通用端口映射。
+必须完成Phase 1～5全量测试、HTTP/WebSocket集成、Go race/vet、C++ CTest/sanitizers、Linux Probe及Windows/Linux Server构建与适用验证，同步API/ARCHITECTURE/DECISIONS/PROJECT_STATUS/HANDOFF/ROADMAP/CHANGELOG和PHASE5_VERIFICATION。全部通过后独立Phase 5 commit推送GitHub main，停止等待验收，不进入Phase 6、UI、MCP、AI Agent、通用端口转发、新Tunnel数据面或任意目标端口。
 
 ## 任务执行要求
 

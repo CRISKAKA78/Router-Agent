@@ -4,43 +4,43 @@
 
 ## 当前阶段
 
-Phase 0～4已完成实现与规定验收。当前Phase 4修正采用Accepted ADR-021 / ADR-022，保留自研TCP Maintenance。修正基线为 `f92d73a0d6003835993967848f1f5fe009a0df89`；启动时fetch后HEAD/main/origin/main一致，工作区干净。
-
-修正提交标题：`fix: isolate Phase 4 ports and decouple maintenance revocation`；实际SHA和推送状态以Git记录为准。独立提交推送GitHub main后停止等待验收，不进入Phase 5。
+Phase 0～4已验收。Phase 5实现及全部规定自动化验证通过，等待用户验收；采用Accepted ADR-023，启动基线为 `b29aa46c81bea7f3b8f4780e9d657c1bba078897`，fetch后HEAD/main/origin/main一致、工作区干净。独立Phase 5提交推送main后停止等待验收，不进入Phase 6。提交与推送事实以Git记录为准。
 
 ## 当前可验证能力
 
-- `internal/tunnel.Service`一次创建web/ssh/telnet三个临时入口，固定Probe的127.0.0.1:80/22/23；默认240分钟，支持自定义正租期。
-- 每外部客户端独立Probe data TCP；128-bit Maintenance/connection身份、256-bit一次性token，RMT1精确握手后双向原始TCP Relay。Web多连接、三通道同时工作、多设备隔离、真实HTTP/SSH登录命令/Telnet交互通过。
-- Maintenance严格绑定创建时Device Session。关闭、到期、替换、失联先撤入口再终止pending/active流；Close幂等等待本地释放，不等待控制writer。Gateway每Session一发送worker和64项队列；data reset也能回收已读EOF的空闲Probe流。新Session与Server/Probe重启不继承旧Maintenance。
-- 端口本地释放后默认隔离24小时，Released与ReusableAfter分别表达释放和最早复用；隔离独立于关闭历史，满池拒绝提前复用。DataHost域名由Server在每次Create解析并固定IP，Probe无DNS逻辑。
-- 支持half-close/EOF排空、固定缓冲、背压；默认整连接idle24小时，租期优先。Probe默认8个worker、允许1～64，每流一线程，控制Session退出取消和join，C++11、无新增第三方运行依赖；Server每维护/设备默认8条流。
-- `management.Server.Maintenance()`暴露内部Create/Get/List/CloseMaintenance；Server的`-tunnel-*`与Probe的`--tunnel-connections`可配置。默认loopback绑定，部署者显式配置公网bind和可达地址。
-- Phase 1任务/文件幂等、控制优先、上传下载与提交/确认分离；Phase 2 Device/Session历史；Phase 3持久Repository、版本/兼容/归档及工具投放保持，全量回归通过。
+- `/api/v1` HTTP API覆盖在线/离线Device及Session、exec/任务/结果/重发、资产导入读取/归档、上传/下载/完成导入/清理、Tool/版本/Artifact/兼容与投放、Maintenance创建/列表/查询/主动关闭和三入口。
+- API只调用Management/Application和现有Service；不重写状态机。非空task_id和不确定派发保留；HTTP创建取消不撤销已成功业务对象，下载本地提交事实不伪装为最终成功。
+- 统一JSON/错误、分页/过滤、异步202、输入上限和进程内有界Idempotency-Key。HTTP DTO隐藏内部本地路径、传输关联及Tunnel token/connection_id/data地址。
+- WebSocket提供四类资源刷新通知，首次/重连要求HTTP同步；Device/Task/File/Repository变更计数与Maintenance有界快照驱动。多个客户端、固定队列、慢消费者断开和Server关闭join。
+- 默认HTTP127.0.0.1:8080，32并行请求、64 WebSocket、128 TCP连接、64KiB JSON、1GiB原始资产流、4096幂等记录。原Service历史政策保持，API新增创建/重发受账本限额控制。
+- Phase 4固定三入口、240分钟默认/正自定义租约、Session绑定、独立data TCP、half-close、背压、默认24小时端口隔离及独立撤销保持；Probe代码无变更。Phase 1～3任务/文件/Repository语义保持。
 
-## 验证结果
+## 验证
 
-完整映射、命令及环境见[PHASE4_VERIFICATION](PHASE4_VERIFICATION.md)。历史记录保留于PHASE1/2/3_VERIFICATION。
+详细命令、平台与测试映射见[PHASE5_VERIFICATION](PHASE5_VERIFICATION.md)。
 
-| 验证 | 结果 |
+| 验证 | 最终结果 |
 | --- | --- |
-| Linux Release C++11 / CTest | 通过，4/4，4.71秒 |
-| Linux完整Go与真实Probe Phase 1～4回归 | 通过，集成169.774秒 |
-| ASan/UBSan/LSan CTest | 通过，4/4，5.97秒 |
-| ASan真实Probe Phase 4 | 通过，14.905秒 |
-| TSan CTest | 通过，4/4，6.85秒 |
-| Go race + TSan真实Probe完整回归 | 通过，集成177.103秒 |
-| Windows原生测试 / vet / Server构建 | 通过；真实Linux Probe集成在Linux执行 |
-| Linux vet / Server构建 | 通过 |
+| Linux Release C++11 / CTest | 通过4/4，4.74秒 |
+| Linux Phase 1～5全部Go/真实Probe/HTTP-WebSocket | 全包通过，集成170.595秒 |
+| Go race + TSan真实Probe全量回归 | 全包通过，集成177.736秒，无报告 |
+| C++ TSan / ASan+UBSan+LSan CTest | 各4/4，7.12秒 / 5.97秒 |
+| ASan真实Probe Phase 4/5 | 通过，15.608秒 |
+| 最后HTTP校验/错误格式定向race | 通过，1.632秒 |
+| Windows原生测试/vet/build/实际HTTP启动 | 全部通过；Linux Probe用例在Linux实际执行 |
+| Linux vet/build/实际HTTP启动/SIGTERM | 全部通过，进程正常exit=0 |
+| go mod verify / git diff --check | 通过 |
+
 
 ## 已知边界
 
-- 仅固定TCP 80/22/23；无任意端口、UDP、SOCKS、VPN、P2P、HTTP反向代理/改写、TLS终止、多级映射或重启恢复。
-- ready表示Server入口已监听，本地目标在实际建流时验证；失败只影响本服务/本连接，后续可重试。Released无Probe跨网络释放ACK。原始TCP不识别外部客户端维护身份；隔离窗口后或Server重启后不保证旧地址永久隔离，永久隔离需不重叠池/地址。默认200端口池在隔离窗口内最多66次三入口创建，按频率配置容量。
-- API仍为内部Go Service，未实现HTTP/WebSocket、UI、外部操作CLI、MCP或AI Agent。认证、TLS、权限与完整审计仍为既有后续主题；data token仅用于流配对。
-- Probe保持Linux/C++11；mipsel/ARM/ARM64、uClibc/最低内核实机矩阵尚未覆盖，不能从Linux x86_64测试推断实机已验收。
-- Repository仍为本地单写者JSON目录与不可变blob；归档不回收磁盘，无在线备份/迁移或物理GC。仅Repository跨重启保留；Device/Task/File/Operation仍为进程内状态，原有限额、hard-link发布等限制不变。
+- HTTP仅用于可信本机/受保护管理网络；无内置认证、TLS、RBAC、租户或完整审计。远程部署须由部署层提供相应边界。Origin校验和Tunnel配对token都不是用户认证。
+- HTTP幂等账本默认4096、可配置、不淘汰，满后拒绝新键；同进程保留原响应，重启清空。WebSocket合并状态失效提示，没有历史重放或逐状态交付；客户端回查HTTP。没有实时stdout/stderr流。
+- 仅Repository元数据/字节持久化；Device/Task/File/Operation/Maintenance重启不恢复。Repository单写者、本地JSON目录、归档不回收空间，没有在线备份、迁移或物理GC。原Device Inventory及任务记录的保留边界不变。
+- Maintenance仅固定80/22/23，无任意端口、续租、UDP/SOCKS/VPN/P2P、HTTP改写或新数据面。ready表示入口已监听；Released是Server本地释放，端口隔离不保证超窗/重启后的永久旧地址隔离。
+- Probe仍以Linux x86_64验证；mipsel/ARM/ARM64、uClibc/老内核实机矩阵未覆盖。
+- 不提供UI、MCP、AI Agent、通用端口转发或大型权限体系。
 
 ## 下一步
 
-等待用户验收Phase 4；不得自行进入Phase 5。
+本轮规定验证已通过；独立提交标题 `feat: complete Phase 5 HTTP and WebSocket API`，提交SHA及main推送状态以Git记录为准。推送后等待Phase 5验收。不得自行进入Phase 6。

@@ -10,6 +10,7 @@ import (
 	"syscall"
 	"time"
 
+	"routerprobe/internal/api"
 	"routerprobe/internal/gateway"
 	"routerprobe/internal/management"
 	"routerprobe/internal/repository"
@@ -17,6 +18,13 @@ import (
 )
 
 func main() {
+	httpAddress := flag.String("http-listen", "127.0.0.1:8080", "trusted HTTP/WebSocket API listen address")
+	apiConfig := api.Config{}
+	flag.IntVar(&apiConfig.MaxRequests, "http-max-requests", 32, "maximum concurrent HTTP requests")
+	flag.IntVar(&apiConfig.MaxClients, "http-max-websockets", 64, "maximum WebSocket clients")
+	flag.IntVar(&apiConfig.IdempotencyCapacity, "http-idempotency-capacity", 4096, "retained mutation keys; full rejects new keys until process restart")
+	flag.Int64Var(&apiConfig.MaxAssetBytes, "http-max-asset-bytes", 1<<30, "maximum streamed asset import bytes")
+	flag.DurationVar(&apiConfig.RequestTimeout, "http-request-timeout", 30*time.Second, "HTTP request and creation preparation timeout")
 	listenAddress := flag.String("listen", ":9000", "TCP listen address")
 	heartbeatSeconds := flag.Int("heartbeat-interval", 30, "heartbeat interval in seconds (10-300)")
 	maxControlPayload := flag.Uint("max-control-payload", 1024*1024, "maximum JSON control payload in bytes")
@@ -50,12 +58,12 @@ func main() {
 	defer stop()
 
 	logger := log.New(os.Stdout, "server ", log.LstdFlags|log.Lmicroseconds)
-	err := management.Run(ctx, *listenAddress, management.Config{RepositoryDirectory: *repositoryDirectory, Tunnel: &tunnelConfig, Gateway: gateway.Config{
+	err := api.Run(ctx, *listenAddress, *httpAddress, management.Config{RepositoryDirectory: *repositoryDirectory, Tunnel: &tunnelConfig, Gateway: gateway.Config{
 		HeartbeatInterval: time.Duration(*heartbeatSeconds) * time.Second,
 		MaxControlPayload: uint32(*maxControlPayload),
 		FileChunkSize:     uint32(*fileChunkSize),
 		Logger:            logger,
-	}})
+	}}, apiConfig)
 	if err != nil {
 		logger.Printf("fatal=%v", err)
 		os.Exit(1)

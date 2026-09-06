@@ -787,7 +787,7 @@ Phase 0 最终细化已经解决 message_id、reply_to 与 RESPONSE、BINARY 与
 | BINARY/type 不一致等协议错误的严重程度 | 返回 ERROR 还是直接关闭连接的逐错误矩阵尚未决定 |
 | Probe 进程重启后的缓存 | Phase 1C 进程内有界且不淘汰；跨进程持久化仍未决定 |
 
-固定三服务Tunnel数据面由Phase 4章节和ADR-021定义；数据库存储、OpenAPI正式资源模型、WebSocket与通用Tunnel仍由ARCHITECTURE/API维护后续边界。
+固定三服务Tunnel数据面由Phase 4章节和ADR-021/022定义。Phase 5只增加外部HTTP/WebSocket Adapter（API.md/ADR-023），不新增或改变任何本文件wire字段和时序；HTTP事件不是Probe EVENT重放。数据库存储、OpenAPI生成流程与通用Tunnel仍为后续边界。
 
 ### Phase 1C 重复任务与跨连接结果契约（2026-09-05）
 
@@ -932,7 +932,7 @@ Server未配对握手默认5s；外部accept起pending总时限默认10s，包�
 
 主动关闭/租期/Session撤销先撤listener，再以reset终止data TCP，最后关闭外部TCP；正常EOF仍用半关闭。Probe读EOF后继续检查socket错误，确保CLOSE延迟或未送达时reset也能退出空闲worker。Gateway每Session一发送worker、64项队列，CONNECT写前复核context和Session；本地Released不等待控制writer。端口Released后还受默认24小时隔离约束，窗口及重启边界见API.md/ADR-022；wire身份和132-byte握手不变。
 
-服务状态ready表示Server入口已监听，本地可达性在建流时才确定；某次local_unavailable使该服务unavailable，其他服务保持原状态，后续配对成功恢复ready。关闭全部closed。错误data建流只失败本客户端，不关闭控制TCP或其他通道。配额、端口池及详细生命周期为内部API配置，见API.md；没有新增HTTP/WebSocket endpoint。
+服务状态ready表示Server入口已监听，本地可达性在建流时才确定；某次local_unavailable使该服务unavailable，其他服务保持原状态，后续配对成功恢复ready。关闭全部closed。错误data建流只失败本客户端，不关闭控制TCP或其他通道。配额、端口池及详细生命周期为内部API配置，见API.md；Phase 5公开Maintenance endpoint仅复用该Service，不改变本节数据面。
 
 ### Phase 1E 验收与本地资源配置
 

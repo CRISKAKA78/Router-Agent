@@ -1,8 +1,19 @@
 # 路由器远程运维平台架构基线
 
-本文定义 Management Server、Probe、对外客户端和传输通道之间的长期边界。Phase 1 已实现 TCP Session、并发 exec、进程内幂等、跨 TCP 结果补报与双向文件传输；Phase 2 已实现 Device Inventory 和内部查询；Phase 3 已实现持久 File/Tool Repository、兼容判断和管理端文件投放/下载导入，验证状态见 PROJECT_STATUS。其他模块仍是架构约束和后续实现方向，不表示已经实现。
+本文定义 Management Server、Probe、对外客户端和传输通道之间的长期边界。Phase 1 已实现 TCP Session、并发 exec、进程内幂等、跨 TCP 结果补报与双向文件传输；Phase 2 已实现 Device Inventory 和内部查询；Phase 3 已实现持久 File/Tool Repository、兼容判断和管理端文件投放/下载导入，验证状态见 PROJECT_STATUS。Phase 5已增加统一HTTP/WebSocket Adapter；其他未交付客户端仍是后续方向，实际验证以PROJECT_STATUS为准。
 
 Phase 4 新增 `internal/tunnel.Service` 与 C++11 `TunnelManager`，采用 Accepted ADR-021 / ADR-022 的极简 TCP Maintenance，不使用 FRP/xfrpc。验证状态以 PROJECT_STATUS 为准。
+
+## Phase 5 HTTP / WebSocket 模块与生命周期
+
+- `internal/api.Server`是HTTP/WebSocket Adapter，`api.Run`组合两个listener及management.Server；`cmd/server`提供独立http-listen及容量配置。HTTP路径、DTO、错误、分页、幂等账本及事件wire属于Adapter；不访问Gateway连接表、Task/File内部map或Repository存储表。
+- `management.Server`补齐CreateExec、Disconnect、Tasks和Revisions入口；任务摘要分页由Task Service查询，原Create/Resend/ACK/RESULT语义保持。Repository.ReadContent以reader回调提供流式内容，不把本地路径交给HTTP。
+- Device/Task/File/Repository以原子变更计数提供刷新提示。Device不对心跳Seen计数；File在提交/释放/失败计数；Repository只对成功目录提交计数。计数不记录状态、不回调Adapter、不持有订阅者，原锁序保持。Maintenance只读原Service有界List，数据面未改变（仅冲突错误增加稳定sentinel供HTTP映射）。
+- 一个250ms实时worker采样计数及Maintenance有界快照，四类resource_changed通知合并中间变化；files包括Repository目录。客户端首次/重连收到resync_required后查HTTP，不能把事件作为状态或审计事实。每客户端独立8槽队列、reader与writer、读写期限；满队列关闭客户端，业务和其他订阅者不等待。
+- 幂等账本只记录HTTP请求指纹、完成信号与响应，默认4096项，不保存第二套业务对象，不淘汰身份。相同键等待原创建或返回原响应；指纹冲突409，满后拒绝新键。准入后创建context归API生命周期，客户端取消不撤销成功Task/Maintenance；流导入仍观察请求取消并完整校验再发布。task_id幂等和原Service资源生命周期保持独立。
+- 原生HTTP监听限制默认128 TCP连接、32并行请求、64 WebSocket，JSON64KiB、流式资产1GiB及超时；查询输出分页。API添加的创建/重发受账本容量限制；Device/Task等原有Service历史与Repository磁盘保留政策不变。Response DTO隐藏LocalPath、内部诊断与数据面私有身份；临时三入口仍来自Maintenance Snapshot。
+- shutdown先封闭API准入、取消准备、关闭HTTP及所有已升级WebSocket，再join已准入工作和实时worker；随后关闭Maintenance/Gateway/Repository。所有WaitGroup Add与closing检查在同一准入锁内，Close不会遗漏正在升级的连接。嵌入者若仅使用ServeHTTP，外层HTTP Server自行拥有网络超时、连接限额和listener关闭。
+- 唯一新增Go依赖为gorilla/websocket v1.5.3（RFC6455适配）；Probe仍C++11且无变化。默认loopback HTTP8080，远程部署的认证/TLS/网络边界由部署层负责；认证/RBAC/审计/跨进程API恢复仍TBD。API.md为正式v1契约，ADR-023记录决定。
 
 ## Phase 4 模块与生命周期
 
@@ -284,4 +295,4 @@ Device/Session 生命周期、历史保留、进程内存储与 Gateway 边界�
 - 管理端以设备注册快照执行兼容规则，缺失受限字段为 unknown，仅 compatible 可投放；实际传输派发前执行通用 Session 检查。版本/资产解析后，以仓库读锁准入文件准备与派发，归档/Store Close 等待此段完成；不把仓库锁扩大为 Gateway/Device 锁。派发检查在 writer 内短暂获取 Gateway 锁、核对当前连接并记录 Task 派发，锁释放后写帧；后续替换不改变已准入任务的原目标。
 - `internal/filetransfer` 只增加可选 Expected 内容校验及 Released 句柄释放事实；Gateway 只增加可选 Session 前置条件。没有第二套文件传输、Repository wire 字段或 Probe 变化。下载按 Committed + Released 导入，Task RESULT 单独呈现，ACK 丢失不回滚已完整提交文件。
 - 归档保留全部元数据与 blob，阻止新引用/投放而不取消已派发任务；版本标签不重用。崩溃遗留暂存、未引用 blob 和元数据临时文件只报告，不自动 GC。当前进程可以清理自己已释放的下载暂存，已提交文件须先导入。停服后备份整个目录；在线备份和迁移工具未实现。
-- Repository 是进程内目录索引加单写者 JSON 快照，面向小规模仓库；内容流式处理，但元数据整体读写，资产/工具/版本数量和磁盘使用无自动淘汰。Operation/Task/transfer/Device/Session 仍为进程内状态，重启不恢复或自动重发任务。当前平台适配只实现 Linux/Windows；不扩展 Tunnel 或外部 Adapter。
+- Repository 是进程内目录索引加单写者 JSON 快照，面向小规模仓库；内容流式处理，但元数据整体读写，资产/工具/版本数量和磁盘使用无自动淘汰。Operation/Task/transfer/Device/Session 仍为进程内状态，重启不恢复或自动重发任务。当前平台适配只实现 Linux/Windows；Phase 5通过Adapter复用以上仓库行为。

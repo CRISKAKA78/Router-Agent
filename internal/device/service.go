@@ -6,6 +6,7 @@ import (
 	"errors"
 	"sort"
 	"sync"
+	"sync/atomic"
 	"time"
 )
 
@@ -82,6 +83,7 @@ type record struct {
 }
 
 type Service struct {
+	revision     atomic.Uint64
 	mu           sync.RWMutex
 	devices      map[string]*record
 	historyLimit int
@@ -103,6 +105,7 @@ func New(historyLimit int) (*Service, error) {
 // The caller provides a fresh session ID and validated registration. A duplicate
 // current ID is ignored, so it cannot manufacture a replacement or rewrite info.
 func (s *Service) Publish(info Registration, sessionID string, at time.Time) {
+	defer s.revision.Add(1)
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	r := s.devices[info.DeviceID]
@@ -138,6 +141,7 @@ func (s *Service) Seen(deviceID, sessionID string, at time.Time) bool {
 // End is idempotent and only transitions the current device online -> offline.
 // Session replacement uses Publish and deliberately does not update lastOffline.
 func (s *Service) End(deviceID, sessionID string, reason EndReason, at time.Time) bool {
+	defer s.revision.Add(1)
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	r := s.devices[deviceID]
@@ -226,3 +230,5 @@ func cloneSession(v Session) Session {
 	v.Registration = cloneRegistration(v.Registration)
 	return v
 }
+
+func (s *Service) Revision() uint64 { return s.revision.Load() }

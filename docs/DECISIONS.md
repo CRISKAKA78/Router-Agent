@@ -2,6 +2,19 @@
 
 本文件使用轻量 ADR 记录重要设计决定与待确认草案。仅 Accepted 条目构成已确认决定；Proposed 条目不得被实现推断为已接受。状态为 Accepted 的决定不得被实现静默改变；需要变更时，应新增取代决策并说明迁移与影响。
 
+## ADR-023 Phase 5 HTTP / WebSocket Adapter
+
+- 状态：Accepted（2026-09-06 用户明确确认Phase 4验收，并授权自行确定Phase 5 REST、实时模型、错误、输入、并发、关闭语义及必要ADR）。
+- 基线：`b29aa46c81bea7f3b8f4780e9d657c1bba078897`；fetch后HEAD/main/origin/main一致，开始时干净。阶段授权进入Phase 5，完成提交推送后停止等待验收，不进入Phase 6。
+- 性质：补充ADR-004及原API草案的未决外部契约；不取代ADR-009～022的业务/协议决定。AGENTS旧停止于Phase 4属于阶段授权/状态过期，按本次明确用户指令更新；既有历史ADR原文保留。
+- 分层：新增internal/api，仅调用management.Server和已公开Domain Service。Management补齐exec、设备断开、分页任务摘要入口；业务状态、Session检查、文件完整提交、Repository身份、兼容选择及Maintenance关闭继续归原Service。Service变更计数只提供刷新提示，不能用作状态存储。
+- REST：统一/api/v1、snake_case JSON包络、RFC3339时间、offset/limit分页和固定错误码。设备/Session、exec/Task、资产/工具/版本/Artifact/兼容、传输Operation及Maintenance按API.md正式资源设计。文件原始流导入/读取，Adapter不接受Server路径。Maintenance直接调用Phase4 Service，默认240分钟、自定义正整数ms无产品策略上限，只检查原time.Duration可表达范围；不新增续租或数据面。
+- 幂等：所有POST/PUT要求Idempotency-Key；有限进程内账本默认4096、不淘汰、满后拒绝新键。JSON按方法/原始URI/请求字节匹配；流导入按声明SHA-256和长度匹配且首次完整验证。重复返回原响应，冲突409。账本不持久化，不声称跨Server重启去重。保留旧task_id重发、非空身份+不确定派发、下载Committed与RESULT分离。准入后创建由API context拥有，HTTP断开不撤销已创建长期业务对象。
+- 实时：采用资源失效通知而非事件溯源。一个250ms采样worker读取Device/Task/File/Repository变更计数及Maintenance有界快照，向devices/tasks/files/maintenance四类订阅广播轻量通知；files包括资产/工具目录提交。首连/重连resync_required，客户端回查HTTP。合并中间变化，不保证逐状态、重放或审计。每连接有界队列、读写期限、ping/pong，慢消费者关闭，不阻塞业务；无动态业务命令或日志流。
+- 资源与部署：默认loopback HTTP8080，32并行请求、64 WebSocket、128同时TCP连接、64KiB JSON、1GiB流式导入。固定队列8、写期限5s；原Service历史政策不改变，API新增创建/重发受账本容量限制。Server先关Adapter并join，再关业务组合。选用固定版本github.com/gorilla/websocket v1.5.3承担RFC6455 framing和控制帧，BSD-2-Clause；遵循其一个reader/一个writer约束，不自研另一套WebSocket wire。
+- 安全边界：仅可信本机/受保护管理网络；远程部署由部署层提供认证/TLS/网络限制。API拒绝不同Host的Origin，不提供CORS通配。认证、RBAC、租户、完整审计、跨进程恢复仍TBD，本阶段不建立大型权限体系，不把Origin或Tunnel token称为用户认证。HTTP DTO不暴露LocalPath、message_id/reply_to、socket、connection_id、token或data私有地址。
+- 验证：映射与实际结果见PHASE5_VERIFICATION.md；没有UI、MCP、AI、通用转发或Phase6工作。WebSocket并发约束依据[官方包文档](https://pkg.go.dev/github.com/gorilla/websocket#hdr-Concurrency)。
+
 ## ADR-022 Phase 4 端口隔离、独立撤销与轻量默认值
 
 - 状态：Accepted（2026-09-06 用户授权复查并自行确定 Phase 4 修正方式）；修正基线 `f92d73a0d6003835993967848f1f5fe009a0df89`，HEAD/main/fetch 后 origin/main 一致，工作区干净。
@@ -282,7 +295,7 @@ Task Service 继续拥有任务规格、ACK/RESULT 关联与幂等；File Transf
 - Probe 重启后的 task_id 缓存、未上报结果和任务恢复策略。
 - Server 重启后的任务、Session 和传输恢复策略。
 - Protocol 错误严重程度与关闭连接矩阵。
-- API 的正式资源模型、错误、认证和实时事件协议。
+- API认证/授权、跨进程幂等和事件持久化；Phase 5资源/错误/实时通知已由ADR-023决定。
 
 协议层的具体未决项见 [PROTOCOL.md](PROTOCOL.md) 的 Protocol Review。
 

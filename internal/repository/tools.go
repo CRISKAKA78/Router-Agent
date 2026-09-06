@@ -3,7 +3,8 @@ package repository
 import (
 	"context"
 	"encoding/json"
-	"errors"
+
+	"fmt"
 	"reflect"
 	"sort"
 	"time"
@@ -13,7 +14,7 @@ type ToolService struct{ s *Store }
 
 func (t *ToolService) Create(name, description string) (Tool, error) {
 	if !textOK(name, 255, false) || !textOK(description, 4096, true) {
-		return Tool{}, errors.New("invalid tool metadata")
+		return Tool{}, fmt.Errorf("%w: tool metadata", ErrInvalid)
 	}
 	s := t.s
 	s.mu.Lock()
@@ -114,13 +115,13 @@ func specs(artifacts []Artifact) []ArtifactSpec {
 func specKey(a ArtifactSpec) string { b, _ := json.Marshal(a); return string(b) }
 func (t *ToolService) Publish(toolID, version string, input []ArtifactSpec) (Version, error) {
 	if !textOK(version, 128, false) || len(input) == 0 || len(input) > 128 {
-		return Version{}, errors.New("invalid version")
+		return Version{}, fmt.Errorf("%w: version", ErrInvalid)
 	}
 	normalized := make([]ArtifactSpec, len(input))
 	for i, a := range input {
 		v, e := normalizeSpec(a)
 		if e != nil {
-			return Version{}, e
+			return Version{}, fmt.Errorf("%w: %v", ErrInvalid, e)
 		}
 		normalized[i] = v
 	}

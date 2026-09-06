@@ -28,6 +28,11 @@
 
 ### Added
 
+- Phase 5统一 `/api/v1` HTTP API：Device/Session、exec/Task及结果/原身份重发、文件资产与上传/下载导入、Tool/版本/Artifact/兼容/投放、Maintenance创建/查询/关闭和三入口。
+- 独立HTTP监听默认127.0.0.1:8080；一致JSON/错误/分页、异步202及有界Idempotency-Key账本。HTTP取消不撤销成功创建的长期业务对象，不确定派发保留task_id；默认4096项不淘汰账本，满后拒绝新键。
+- WebSocket `/api/v1/events`提供devices/tasks/files/maintenance状态变更通知，首连/重连重新同步；固定容量、多客户端隔离、慢消费者断开和Server关闭回收。files包括Repository目录变更。默认可信部署边界、容量和后续认证/TLS/RBAC设计点见ADR-023/API.md。
+- HTTP隐藏Server本地路径与Tunnel数据面私有细节。复用Phase 4 Service及240分钟默认租约、正自定义租约和Session绑定；Probe协议与Tunnel数据面保持。
+
 - Phase 4 新增极简自研TCP Maintenance Service：一次创建Web/SSH/Telnet临时入口，固定访问设备127.0.0.1:80/22/23；默认240分钟并允许自定义租期。独立data TCP与一次性token配对，保持原始字节、并发连接、half-close和有界背压。
 - Maintenance严格绑定创建时Device Session，主动关闭、到期、替换或失联撤销入口并终止活动连接；等待Server相关资源释放后才归还端口。Server提供端口池、advertised地址、超时与分层连接限额配置，Probe保持C++11且没有新增重型依赖。
 - 新增控制类型0x40～0x42与RMT1独立data握手；以Accepted ADR-021取代未交付FRP/xfrpc路线。不引入HTTP/WebSocket API或通用端口映射。

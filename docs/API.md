@@ -1,86 +1,108 @@
-# Management Server API 设计基线
+# Management Server API
 
-当前阶段尚未实现任何 HTTP API 或 WebSocket。本文件维护 API First、职责边界、能力分类和已实现的内部 Go Service 查询/操作契约；外部字段、认证模型和具体 endpoint 行为在后续 API 设计阶段确定。
+本文件维护Phase 5已实现的 `/api/v1` HTTP/WebSocket规范及原内部Service契约。实现入口 `internal/api`，业务来源为 `management.Server` 与已有 Service。没有新的 Probe 消息或 Tunnel 数据面。
 
-## API First
+## 部署与生命周期
 
-设备控制能力必须先成为 Management Server 的 Application 或 Service 能力，再由 HTTP、WebSocket、CLI、MCP 或其他 Adapter 暴露。Web、微信小程序、Windows UI、CLI、MCP 和 AI Agent 共用同一套核心业务，不得分别实现设备、任务、文件或 Tunnel 逻辑。
+`cmd/server -http-listen 127.0.0.1:8080` 默认启用独立 HTTP listener。控制 TCP 仍为 `-listen :9000`，Maintenance data 与入口配置保持 Phase 4。HTTP 包括命令执行、文件与设备断开能力，仅用于可信本机或受保护管理网络。非 loopback 绑定由部署者显式配置；远程访问由部署层完成 TLS、认证和网络访问限制。当前没有内置用户、租户、RBAC 或完整审计，不能把 loopback、Origin 校验或 Tunnel 配对 token 当成用户认证。
 
-公开 HTTP API 从第一版起使用版本前缀：
+API 拒绝携带不同 Host 的浏览器 Origin；无 CORS 放行配置。无 Origin 的 CLI 可以访问。HTTP/WebSocket 共用一监听，WebSocket不接收业务命令。Server shutdown 停止 API 准入、取消创建准备、关闭 HTTP 与 WebSocket socket、等待已准入工作退出，然后关闭 Maintenance/Gateway/Repository。已成功创建的对象只因其自身租期、Session或Server生命周期结束，不因创建请求断开而撤销。
 
-~~~text
-/api/v1
-~~~
+## 通用约定
 
-版本前缀已经确认；资源路径、请求响应字段和兼容策略仍为 TBD。
+- 所有路径从 `/api/v1` 开始。ID 为不透明字符串，路径段须 URL encode；不得从 UUID、版本标签或字典序推断版本升级关系。
+- JSON 字段使用 snake_case；成功为 `{"data":...}`，错误为 `{"error":{"code":"...","message":"..."}}`。客户端按 code 分支，message 不稳定。未知输出字段可忽略。错误不转发内部磁盘路径、socket或传输诊断。
+- 时间输出为 UTC RFC3339（可带小数）；尚未发生的设备/Session时间为 null。task result 的 started_at/finished_at 同样转换为 RFC3339；Probe wire 仍用原整数秒。正超时输入为 timeout_seconds（uint32整数），Maintenance输入为 lease_ms（整数）。
+- JSON请求必须为UTF-8 object，Content-Type为application/json；上限64KiB、深度32；拒绝重复成员、未知字段、null、尾随JSON、非法Unicode及错误字段类型。空动作提交 `{}`。
+- 列表 `data={items:[],total,offset,limit}`；默认offset=0、limit=50，limit为1～200，offset非负。先过滤再分页。空列表为[]。设备/资产/工具/Maintenance按ID升序；版本按标签字典序；Session当前在前、结束历史从新到旧。分页不是跨请求事务，并发增删时客户端应刷新；total为本次查询的匹配条数。
+- 状态码：200查询/同步动作/版本发布；201新资产/工具/Maintenance；202任务派发及尚无RESULT的结果查询。HTTP 202表示已记录/派发，不保证Probe已接受或成功。
+- 400 invalid_request；403 origin_denied；404 not_found；405 method_not_allowed（Allow）；409 conflict / device_offline / session_changed / idempotency_conflict；411 length_required；413 payload_too_large；415 unsupported_media_type；416 range_not_satisfiable；422 incompatible / integrity_mismatch；503 capacity_exhausted / idempotency_capacity / server_closed / maintenance_disabled；504 operation_timeout；500 internal_error。409 session_changed也覆盖没有有效tunnel-capable Session。
 
-## HTTP API 职责
+## 幂等与异步语义
 
-HTTP API 负责请求响应型操作，例如：
+所有POST及PUT均要求 `Idempotency-Key`（1～128可打印ASCII、无空格）。账本作用域为API进程全部路径，默认4096项、不淘汰、不自动过期。相同键加相同方法、原始RequestURI和完全相同JSON字节返回原始响应；不同请求409。JSON字段顺序和空格变化视为不同请求。重放带 `Idempotency-Replayed: true`。Service中的版本发布/归档/下载完成幂等仍独立生效，即使用新HTTP键也不会改变这些既有业务身份。
 
-- 查询设备、设备状态和设备详情。
-- 创建和查询任务；取消能力属于后续设计。
-- 管理文件资产和工具。
-- 发起上传、下载或工具投放。
-- 创建、查询和关闭 Tunnel。
-- 查询当前设备会话或平台会话。
+创建准入后使用API生命周期context，默认准备/派发期限30s。取消HTTP请求不会发送TASK_CANCEL或关闭成功Maintenance。原始文件导入还受请求body生命周期约束；完整导入成功后也不回滚。已进入账本的响应（包括失败）保留，失败后确需重试须新键；语法、媒体类型和容量等准入前失败不占键。容量满拒绝新键，旧键可查询/重放。可通过 `-http-idempotency-capacity` 配置，不能靠驱逐旧键暗中允许重复执行。
 
-HTTP Handler 只负责协议层工作：解析参数，获取认证与请求上下文，调用 Application 或 Service，并转换响应。它不得直接访问 Probe TCP connection registry，不得直接操作存储表，也不得拼装控制协议帧。
+任务创建返回 `{task_id,dispatch_uncertain}` 及Location `/api/v1/tasks/{id}`；文件操作同时返回operation字段。写入结果不确定也返回202、非空task_id和dispatch_uncertain=true，不自动创建替代任务。网络响应丢失用原HTTP键重试；需要向Probe查询/补报原任务，显式调用resend。文件中断重传才使用新的业务任务。没有任务取消接口；拒绝通过state=rejected且result=null表达。
 
-## WebSocket 职责
+账本和Task/File/Operation/Device/Maintenance均不跨Server重启恢复。禁止跨重启假定原HTTP键或task_id仍可去重；仅Repository元数据与内容持久化。原Service的进程内任务/设备历史保留政策没有被API改变；API新增创建/重发次数受有界账本约束。
 
-WebSocket 或等价实时接口负责向客户端推送：
+## 资源与请求
 
-- 设备上线与离线。
-- 任务状态变化和最终结果。
-- 经明确设计允许的日志或进度流。
-- 文件传输状态变化。
-- Tunnel 状态变化。
+下表路径省略 `/api/v1`。GET无请求体；POST/PUT均带幂等键。
 
-事件名称、订阅模型、重连、补发、顺序和背压规则均为 TBD。WebSocket 不替代 HTTP 的资源管理接口，也不形成另一套业务逻辑。
-
-## 能力分类
-
-以下分类用于后续设计导航，不是已经冻结的 endpoint 清单：
-
-| 分类 | 预期职责 | 当前状态 |
-| --- | --- | --- |
-| devices | 设备清单、详情、在线状态和能力 | Phase 2 内部 Service 已实现；HTTP 未设计 |
-| sessions | Probe 会话与连接状态查询 | Phase 2 内部 Service 已实现；HTTP 未设计 |
-| tasks | 创建、查询、取消任务及读取结果 | 未设计 |
-| files | 文件资产、上传、下载与传输状态 | Phase 3 内部 Service 已实现；HTTP 未设计 |
-| tools | 工具元数据、版本、兼容性与投放 | Phase 3 内部 Service 已实现；HTTP 未设计 |
-| tunnels | 一键创建、查询和关闭固定三服务Maintenance | Phase 4内部Service已实现；HTTP未设计 |
-
-这些分类可以在正式设计中调整。任何调整都必须保持 API First 和 Service 复用原则。
-
-Protocol v1 的 Phase 1 不实现 TASK_CANCEL。未来 API 是否提供任务取消，以及其语义如何映射到 Probe 协议，仍为 TBD。
-
-## 客户端边界
-
-| 客户端 | 接入原则 |
+| 方法和路径 | 输入 / 返回 |
 | --- | --- |
-| Web | 使用公开 HTTP API 与 WebSocket |
-| 微信小程序 | 使用同一公开 API，不依赖 Server 内部实现 |
-| Windows UI | 使用同一 API；即使内嵌 Web UI，也不复制核心业务 |
-| CLI | 作为薄客户端使用公开 API 或稳定 Service |
-| MCP | 复用 Service 或 API，不直接控制 Probe 连接 |
-| AI Agent | 通过 API、MCP 或受控的临时通道使用平台能力 |
+| GET /devices | 分页；status可为online/offline |
+| GET /devices/{id} | 最近registration、status、当前/最近Session、首次/最近时间及历史计数 |
+| GET /devices/{id}/sessions | 分页；当前及保留结束Session，另含history_limit、total_sessions、evicted_sessions |
+| POST /devices/{id}/disconnect | `{}`；同步请求断开当前Session；未知404、已离线disconnected=false |
+| GET /tasks | 分页；device_id、state过滤；摘要task_id/device_id/type/state/created_at，不含输出或派发历史 |
+| POST /tasks | device_id、command、timeout_seconds必填；cwd、env可选；创建exec |
+| GET /tasks/{id} | 规格、state、last_session_id、dispatch_count和result；不暴露message_id/reply_to |
+| GET /tasks/{id}/result | 200返回真实result或最终rejected；202返回当前state和null result |
+| POST /tasks/{id}/resend | `{}`；复用旧规格/身份，返回202；不会重新执行已接受任务 |
+| GET /tasks/{id}/transfer | task_id/transfer_id/size/sha256/committed/released/failed，不含LocalPath或内部Error文字 |
+| GET /tasks/{id}/operation | task_id/transfer_id/device_id/session_id/tool_id/version/artifact_id/asset_id，不适用关联为空字符串 |
+| POST /uploads | device_id、asset_id、remote_path、mode、timeout_seconds；overwrite默认false |
+| POST /downloads | device_id、remote_path、name、timeout_seconds；目标由Repository分配，禁止传Server路径 |
+| POST /deployments | device_id、tool_id、version、remote_path、timeout_seconds；可选artifact_id、overwrite=false |
+| POST /downloads/{task_id}/complete | `{}`；要求committed+released，返回asset、transfer和task身份/状态；不改写最终RESULT；cleanup_pending警告保留成功asset_id |
+| POST /downloads/{task_id}/cleanup | `{}`；只清理本次下载已释放的自有暂存，未导入完整提交返回409 |
+| GET /assets | 分页；include_archived默认false |
+| POST /assets?name={label} | 原始application/octet-stream、Content-Length、X-Content-SHA256；流式导入，返回201 Asset |
+| GET /assets/{id} | Asset元数据，允许查询已归档项 |
+| GET /assets/{id}/content | 原始application/octet-stream、attachment、X-Content-SHA256；支持标准HTTP Range/HEAD；归档项409 |
+| POST /assets/{id}/archive | `{}`；归档，不回收字节；被活动版本引用409 |
+| GET /tools | 分页；include_archived默认false |
+| POST /tools | name必填、description可选；返回201 Tool |
+| GET /tools/{id} | Tool元数据 |
+| POST /tools/{id}/archive | `{}`；归档，保留稳定身份 |
+| GET /tools/{id}/versions | 分页；include_archived默认false |
+| PUT /tools/{id}/versions/{version} | `{artifacts:[{asset_id,platform,mode,rules}]}`；不可变发布，同规格返回原版本/Artifact身份，不同规格409 |
+| GET /tools/{id}/versions/{version} | Version及完整Artifact列表 |
+| POST /tools/{id}/versions/{version}/archive | `{}`；停止新投放/引用，不物理删除 |
+| GET /tools/{id}/versions/{version}/compatibility | device_id必填、分页；每个Artifact、compatible/incompatible/unknown及checks(field/status/reason)；可查离线设备最近资料 |
+| GET /maintenance | 分页；device_id及state=ready/closing/closed过滤 |
+| POST /maintenance | device_id必填，lease_ms可选；省略为240分钟，显式值必须正整数；返回201及三入口 |
+| GET /maintenance/{id} | Maintenance快照及当前入口，历史按Phase4配置保留 |
+| POST /maintenance/{id}/close | `{}`；幂等等待本地释放；未知或已淘汰ID也200/released=true |
 
-## 与 Probe 协议的关系
+Asset、Tool、Version、Artifact和rules字段/限制保持ADR-019。mode为四位八进制，platform为linux，arch/libc必须有允许集合或显式 `["any"]`；models/kernels/required_capabilities可选。artifact_id仍由Repository生成且全局唯一。投放不自动执行、猜latest、降级或跨Session继承兼容判断。
 
-外部 API 表达用户和平台业务语义，Probe TCP 协议表达 Server 与设备之间的控制语义。二者不能简单等同：
+原始导入默认最大1GiB，流式计算并验证声明SHA-256/长度后发布。其幂等签名使用方法、原始URI、声明长度和SHA-256；重放已有键直接返回旧Asset，不重新消费/导入body。首次完整校验保护声明与内容一致。相同内容使用新键导入仍创建新asset_id（原ADR-019语义），不能把摘要当业务身份。
 
-- API Adapter 不直接拼装 TCP 帧。
-- Service 将 API 用例转换为设备、任务、文件或 Tunnel 操作。
-- Probe Gateway 负责把内部请求适配为 [PROTOCOL.md](PROTOCOL.md) 定义的消息。
-- task_id、transfer_id 和 session_id 的业务含义必须在两层间保持一致。
+Maintenance输出：maintenance_id、device_id、session_id、state、reason、created_at、expires_at、released、reusable_after、connections（数量）及endpoints。每入口含service/host/port/address/state，web另含url。SSH/Telnet使用address连接，不生成用户名/密码。固定目标保持Probe 127.0.0.1:80/22/23。没有token、connection_id、data listener地址或内部socket。自定义租期没有产品策略上限，只受现有Go time.Duration表达范围约束（最大9223372036854ms）；零、负数、浮点、溢出均400。ready只表示入口监听；租期优先于idle，端口隔离和Session替换沿用ADR-022。
 
-## 状态与兼容
+## WebSocket
+
+`GET /api/v1/events`，可选 `topics=devices,tasks,files,maintenance`，默认全部。无动态订阅命令。首次事件：
+
+```json
+{"type":"resync_required","topic":"","sequence":"1","time":"2026-09-06T00:00:00Z"}
+```
+
+后续：`{"type":"resource_changed","topic":"tasks","sequence":"2","time":"..."}`。sequence为当前连接内递增十进制字符串，避免JavaScript整数精度问题；它不是业务版本、全局游标或重放ID。
+
+客户端先连接、收到resync_required后查询HTTP快照；查询过程中收到resource_changed再刷新对应资源。重连总是重新同步。设备通知覆盖发布/替换/结束，不推送每次心跳；任务通知覆盖规格/派发/ACK/RESULT；files通知覆盖传输创建/提交/释放/失败，以及Repository资产/工具/版本目录提交（包含导入和归档）；订阅方也刷新相关工具目录。Maintenance有界快照变化覆盖创建、关闭、到期、入口状态与连接数。事件是失效提示，可以合并、可能跳过短暂中间态，不能据此重建业务状态或完整审计。无日志/输出流、事件持久化、历史补发或事件确认协议。
+
+单一采样worker默认250ms；每连接1 reader+1 writer、8条固定队列、5秒写期限、15秒ping、45秒pong期限、最大入站消息1024bytes。业务数据消息以1008关闭，客户端只需处理ping/pong/close。最多64客户端；升级前超额503；慢消费者队列满或写超时直接断开，其余客户端和Service不等待它。Server.Close关闭所有升级后的连接并等待reader退出。
+
+HTTP最多32个并行handler，超额503；原生Serve监听同时最多 `MaxRequests+MaxClients+32` 个TCP连接（默认128，含idle），超额在读取HTTP前直接关闭；header上限16KiB、header读取5秒、idle60秒、body读取默认30秒。嵌入式调用者使用Server.Serve可复用这些网络限制；只挂载ServeHTTP时，外层HTTP Server负责连接数、超时和关闭自己的listener。
+
+配置：`-http-max-requests`、`-http-max-websockets`、`-http-idempotency-capacity`、`-http-max-asset-bytes`、`-http-request-timeout`；均须正值。Go Config另可设置PollInterval、WriteTimeout。大文件准备与底层本地文件系统的不可中断I/O边界保持原实现；这不是硬实时关闭保证。
+
+## 扩展边界
+
+已有v1输出可增加字段和事件topic；客户端忽略未知输出。破坏资源/状态/错误语义须新版本或明确迁移。OpenAPI生成流程、认证/TLS/RBAC/完整审计、跨重启幂等账本及历史持久化为后续设计点。Phase 5不实现UI、MCP、AI、续租、任意目标端口或通用转发。
+
+
+## 内部 Go Service 契约
 
 ### 当前内部任务派发接口
 
-`gateway.Server.CreateExec(ctx, deviceID, request)` 返回 `(taskID, error)`，由 Gateway 调用 Task Service 建立与维护记录，尚无 HTTP/CLI 入口。
+`gateway.Server.CreateExec(ctx, deviceID, request)` 返回 `(taskID, error)`，由 Gateway 调用 Task Service 建立与维护记录；HTTP Adapter通过management.Server调用。
 
 - 成功派发：非空 taskID、nil error。
 - 参数校验、编码、长度限制、离线或发送前失败：空 taskID、error；不保留本次未派发任务。
@@ -88,7 +110,7 @@ Protocol v1 的 Phase 1 不实现 TASK_CANCEL。未来 API 是否提供任务取
 
 最后一种情况不能推断 Probe 未执行，不得自动创建新 task_id 重试副作用操作。调用者必须先保存返回的 taskID，再处理 error。Phase 1C 已实现同 task_id 重发与跨连接补报，不能自动创建替代任务。
 
-当前没有已发布 API，也没有客户端兼容承诺。正式 API 设计后，新增或改变资源、事件或错误行为时必须同步更新本文件、实现、测试、PROJECT_STATUS 和 CHANGELOG。
+正式外部契约见本文前半部分；内部Go接口不等同于外部JSON。新增或改变公开契约必须同步本文、实现、测试、PROJECT_STATUS和CHANGELOG。
 
 ## 待讨论
 
@@ -108,7 +130,7 @@ Protocol v1 的 Phase 1 不实现 TASK_CANCEL。未来 API 是否提供任务取
 - `gateway.Server.ResendTask(ctx, taskID) error`：从 Task Service 获取原规格，向该 device_id 当前在线会话重发同一个 task_id；记录新的 session_id/message_id。不会创建新任务或改变 command、cwd、env、timeout。未知、离线、已 rejected、上下文取消或发送前失败返回错误；传输写入后失败返回 ErrDispatchUncertain，原任务及派发记录保持。
 - `TaskSnapshot` 包含 Dispatches，每项记录 SessionID、MessageID、对应 Ack；旧 MessageID 字段表示最近一次派发编号，不能单独用于跨会话关联。Snapshot 返回副本。
 - `WaitTaskResult` 等待真正 RESULT 或最终拒绝；即使 ACK.state 为完成态，也继续等待 RESULT。缺 ACK 的已派发结果可完成等待；重复 ACK/RESULT 不重复完成或回退状态。具体 wire 契约以 PROTOCOL.md / ADR-015 为准。
-- Server 只在内存中保留这些状态；进程重启后的恢复仍未实现。此处均为 Go 内部能力，没有新增 HTTP、WebSocket、CLI、MCP 或 AI Adapter。
+- Server 只在内存中保留这些状态；进程重启后的恢复仍未实现。此处为Go内部契约；Phase 5外部Adapter按本文前半部分复用。
 
 ## Phase 1D 内部文件接口
 
@@ -117,7 +139,7 @@ Protocol v1 的 Phase 1 不实现 TASK_CANCEL。未来 API 是否提供任务取
 - 创建、派发失败与 ErrDispatchUncertain 的返回规则沿用 CreateExec。非空 taskID 必须保存；不得因 error 自动创建替代文件任务。创建上下文只约束准备与派发，不表示 TASK_CANCEL；业务 timeout 从 Probe 晋升 active 起计算。
 - ResendTask 对文件使用原 type/timeout/params，只查询或补报原任务；不会再次打开或发布文件。中断后重新传输必须创建新任务及 transfer_id。
 - WaitTaskResult/TaskSnapshot 沿用任务接口。FileSnapshot 返回 TaskID、TransferID、LocalPath、Committed、Size、SHA256、Error；Committed/Size/SHA256 仅描述 Server 下载接收端已校验发布的事实。它不是 TASK_RESULT 的替代：done ACK 丢失时 Committed=true 可以与最终 failed 并存。
-- 所有接口均为内部 Go 能力，没有新增 HTTP、WebSocket、CLI、UI、MCP 或 AI Adapter；Server/Probe 重启恢复不在本阶段实现。
+- 这里记录内部Go能力；Phase 5复用它们，Server/Probe重启恢复仍未实现。
 
 ## Phase 2 内部设备查询接口
 
@@ -133,7 +155,7 @@ Protocol v1 的 Phase 1 不实现 TASK_CANCEL。未来 API 是否提供任务取
 
 `Snapshot.Status` 为 online/offline。CurrentSession 在线时非 nil，离线时 nil；LatestSession 在线时为当前 Session，离线时为最近结束的 Session。Session 包含 ID、对应 Registration、StartedAt、LastSeenAt、EndedAt、EndReason；当前会话 EndedAt 为 Go time.Time 零值、EndReason 为空。
 
-时间使用 Server 观测的 `time.Time`，不使用 Probe 时钟或 boot_id 推断状态；外部 JSON 时间格式尚未设计：
+时间使用 Server 观测的 `time.Time`，不使用 Probe 时钟或 boot_id 推断状态；外部JSON时间格式见前文，内部零时间映射null：
 
 - FirstSeenAt：本 Service 生命周期内首次成功发布注册的时间，历史淘汰不改变它。
 - LastSeenAt：最近 Session 的最后合法活动时间，离线后保留；单 Session 内迟到时间不会使它倒退。
@@ -144,7 +166,7 @@ Protocol v1 的 Phase 1 不实现 TASK_CANCEL。未来 API 是否提供任务取
 
 `gateway.Config.DeviceHistoryLimit` 为每设备已结束 Session 保留数：0 使用默认 64，正数自定义，负数使 New 返回错误；当前 Session 不占历史槽位。淘汰最旧历史时增加 EvictedSessions，Task/File 记录不受影响。设备清单本身不自动淘汰，没有持久化，Server 重启后为空。
 
-每次查询在 Device Service 的读锁内取得一致快照，所有嵌套 Session 和 capabilities 都是独立副本；调用方修改返回值不会改变 Service。多次查询之间可发生状态变化，不提供跨调用事务或可重放事件流。没有实现 HTTP/WebSocket、UI、MCP 或其他外部 Adapter。
+每次查询在 Device Service 的读锁内取得一致快照，所有嵌套 Session 和 capabilities 都是独立副本；调用方修改返回值不会改变 Service。多次查询之间可发生状态变化，不提供跨调用事务或可重放事件流。Phase 5外部HTTP/WebSocket调用这些查询；未实现UI/MCP。
 
 ## Phase 3 内部 Repository 与管理接口
 
@@ -194,11 +216,11 @@ CompleteDownload 要求 `Committed=true`、`Released=true` 和登记的暂存路
 
 Repository 与 Device/Task 查询返回副本。Repository 的 WithAsset/WithArtifact 为内部使用的准入回调：持仓库读锁完成内容校验与派发准备，阻止并发归档/关闭；回调不得重入 Repository。此锁可以跨文件准备与派发 I/O，但不是 Device/Gateway 连接表锁。Device/Gateway 锁仍不跨磁盘或网络 I/O。
 
-Repository 元数据/字节跨进程保留；Operation、下载导入的 task_id 关联、Task/transfer、Device/Session 不持久化。没有公开 HTTP/WebSocket 或其他 Adapter 契约。
+Repository 元数据/字节跨进程保留；Operation、下载导入的 task_id 关联、Task/transfer、Device/Session 不持久化。Phase 5公开HTTP/WebSocket契约见前文。
 
 ## Phase 4 内部 Maintenance API
 
-`management.Config.Tunnel *tunnel.Config` 启用维护服务；nil保留旧嵌入式调用方行为（不启动data listener）。`management.Server.Maintenance()` 返回已组合的 `*tunnel.Service`，未启用时nil。`cmd/server` 默认启用；外部Adapter以后只调用Service。
+`management.Config.Tunnel *tunnel.Config` 启用维护服务；nil保留旧嵌入式调用方行为（不启动data listener）。`management.Server.Maintenance()` 返回已组合的 `*tunnel.Service`，未启用时nil。`cmd/server` 默认启用；Phase 5外部Adapter只调用Service。
 
 | 方法 | 契约 |
 | --- | --- |
@@ -217,4 +239,4 @@ DataHost接受IP或DNS主机名；Create在Server解析（最多5s、受ctx取�
 
 Server flags：`-tunnel-bind`、`-tunnel-host`、`-tunnel-data-listen`、`-tunnel-data-host`、`-tunnel-port-first`、`-tunnel-port-last`、`-tunnel-port-reuse-delay`、`-tunnel-max-sessions`、`-tunnel-session-connections`、`-tunnel-device-connections`、`-tunnel-total-connections`、`-tunnel-handshakes`、`-tunnel-history`、`-tunnel-connect-timeout`、`-tunnel-handshake-timeout`、`-tunnel-idle-timeout`。Probe `--tunnel-connections`默认8，允许1～64，超出范围启动失败。每流一线程，低内存部署可调小；需要更多浏览器连接时同步提高双方限额。公网绑定、可达地址、NAT和防火墙由部署者配置。
 
-固定目标为Probe的127.0.0.1:80/22/23。Maintenance/connection/token不持久化；无跨进程恢复、续租、任意端口、UDP/SOCKS/VPN/P2P、HTTP反向代理、TLS终止或通用映射管理；没有新增外部任务CLI/API/UI/MCP。
+固定目标为Probe的127.0.0.1:80/22/23。Maintenance/connection/token不持久化；无跨进程恢复、续租、任意端口、UDP/SOCKS/VPN/P2P、HTTP反向代理、TLS终止或通用映射管理；Phase 5增加HTTP/WebSocket，不增加UI/MCP或操作CLI。

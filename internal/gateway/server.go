@@ -86,6 +86,8 @@ type connectionWriter struct {
 	onFailure         func() // installed before publication; does not acquire writer locks
 }
 
+var ErrOffline = errors.New("device offline")
+
 // ErrDispatchUncertain means TASK bytes may have reached the Probe. CreateExec
 // returns a non-empty task ID with this error; callers must retain that ID and
 // must not automatically create a replacement side-effecting task.
@@ -270,7 +272,7 @@ func (s *Server) CreateExec(ctx context.Context, deviceID string, request task.E
 	active := s.sessions[deviceID]
 	s.mu.Unlock()
 	if active == nil {
-		return "", fmt.Errorf("device %q is offline", deviceID)
+		return "", fmt.Errorf("%w: %s", ErrOffline, deviceID)
 	}
 	spec, err := s.tasks.NewExec(deviceID, request)
 	if err != nil {
@@ -304,7 +306,7 @@ func (s *Server) ResendTask(ctx context.Context, taskID string) error {
 	active := s.sessions[snapshot.Spec.DeviceID]
 	s.mu.Unlock()
 	if active == nil {
-		return fmt.Errorf("device %q is offline", snapshot.Spec.DeviceID)
+		return fmt.Errorf("%w: %s", ErrOffline, snapshot.Spec.DeviceID)
 	}
 	_, err = s.dispatchExec(active, snapshot.Spec)
 	return err

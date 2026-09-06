@@ -14,6 +14,7 @@ import (
 	"routerprobe/internal/protocol"
 	"routerprobe/internal/task"
 	"sync"
+	"sync/atomic"
 	"time"
 )
 
@@ -70,6 +71,7 @@ type record struct {
 	snapshot    Snapshot
 }
 type Service struct {
+	revision  atomic.Uint64
 	closed    bool
 	active    map[string]string // session -> active transfer; guarded by mu
 	mu        sync.Mutex
@@ -136,6 +138,7 @@ func (s *Service) Download(ctx context.Context, device string, q DownloadRequest
 	return s.add(device, "download", q.Timeout, p, t, nil, q.TargetPath, q.Overwrite)
 }
 func (s *Service) add(device, kind string, timeout time.Duration, p Params, t Transport, f *os.File, local string, overwrite bool) (task.Spec, error) {
+	defer s.revision.Add(1)
 	b, _ := json.Marshal(p.Wire(kind))
 	spec, e := s.tasks.NewFile(device, kind, timeout, b)
 	if e != nil {
@@ -160,11 +163,13 @@ func (s *Service) add(device, kind string, timeout time.Duration, p Params, t Tr
 			}
 			s.mu.Lock()
 			r.snapshot.Released = true
+			s.revision.Add(1)
 			s.mu.Unlock()
 		}()
 		if e := s.run(r); e != nil {
 			s.mu.Lock()
 			r.snapshot.Error = e.Error()
+			s.revision.Add(1)
 			s.mu.Unlock()
 			select {
 			case <-r.t.Done:
@@ -183,6 +188,7 @@ func (s *Service) add(device, kind string, timeout time.Duration, p Params, t Tr
 	return spec, nil
 }
 func (s *Service) Remove(id string) {
+	defer s.revision.Add(1)
 	s.mu.Lock()
 	r := s.records[id]
 	if r != nil {
@@ -541,6 +547,7 @@ func (s *Service) receive(r *record) error {
 			}
 			s.mu.Lock()
 			r.snapshot.Committed = dst.Committed
+			s.revision.Add(1)
 			if dst.Committed {
 				r.snapshot.Size = b.Size
 				r.snapshot.SHA256 = b.SHA256
@@ -556,3 +563,5 @@ func (s *Service) receive(r *record) error {
 		}
 	}
 }
+
+func (s *Service) Revision() uint64 { return s.revision.Load() }

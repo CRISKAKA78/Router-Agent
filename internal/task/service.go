@@ -11,6 +11,7 @@ import (
 	"reflect"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 )
 
@@ -91,8 +92,9 @@ type record struct {
 }
 
 type Service struct {
-	mu      sync.Mutex
-	records map[string]*record
+	revision atomic.Uint64
+	mu       sync.Mutex
+	records  map[string]*record
 }
 
 func NewService() *Service {
@@ -112,6 +114,7 @@ func newTaskID() (string, error) {
 }
 
 func (s *Service) NewExec(deviceID string, request ExecRequest) (Spec, error) {
+	defer s.revision.Add(1)
 	if deviceID == "" {
 		return Spec{}, errors.New("device_id is required")
 	}
@@ -148,6 +151,7 @@ func (s *Service) NewExec(deviceID string, request ExecRequest) (Spec, error) {
 
 // NewFile records immutable wire parameters; filesystem ownership stays in File Service.
 func (s *Service) NewFile(deviceID, kind string, timeout time.Duration, params json.RawMessage) (Spec, error) {
+	defer s.revision.Add(1)
 	if deviceID == "" || (kind != "upload" && kind != "download") || timeout <= 0 || timeout%time.Second != 0 || timeout/time.Second > time.Duration(^uint32(0)) {
 		return Spec{}, errors.New("invalid file task")
 	}
@@ -163,6 +167,7 @@ func (s *Service) NewFile(deviceID, kind string, timeout time.Duration, params j
 }
 
 func (s *Service) MarkDispatched(taskID, sessionID string, messageID uint64) error {
+	defer s.revision.Add(1)
 	if messageID == 0 || sessionID == "" {
 		return errors.New("message_id must not be zero")
 	}
@@ -183,12 +188,14 @@ func (s *Service) MarkDispatched(taskID, sessionID string, messageID uint64) err
 }
 
 func (s *Service) Remove(taskID string) {
+	defer s.revision.Add(1)
 	s.mu.Lock()
 	delete(s.records, taskID)
 	s.mu.Unlock()
 }
 
 func (s *Service) HandleAck(deviceID, sessionID string, ack Ack) error {
+	defer s.revision.Add(1)
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	record, ok := s.records[ack.TaskID]
@@ -274,6 +281,7 @@ func sameResult(a, b Result) bool {
 }
 
 func (s *Service) HandleResult(deviceID string, result Result) error {
+	defer s.revision.Add(1)
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	record, ok := s.records[result.TaskID]

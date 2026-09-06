@@ -20,6 +20,7 @@ import (
 
 const DefaultLease = 240 * time.Minute
 
+var ErrConflict = errors.New("device already has an unreleased maintenance session")
 var ErrNotFound = errors.New("maintenance not found")
 var ErrCapacity = errors.New("maintenance capacity exhausted")
 var ErrSession = errors.New("device session ended or does not support tunnel")
@@ -273,7 +274,7 @@ func (s *Service) Create(ctx context.Context, deviceID string, lease time.Durati
 		if !m.snapshot.Released {
 			live++
 			if m.snapshot.DeviceID == deviceID {
-				return Snapshot{}, errors.New("device already has an unreleased maintenance session")
+				return Snapshot{}, ErrConflict
 			}
 		}
 	}

@@ -14,6 +14,7 @@ import (
 )
 
 var (
+	ErrInvalid    = errors.New("invalid repository input")
 	ErrNotFound   = errors.New("repository item not found")
 	ErrArchived   = errors.New("repository item archived")
 	ErrConflict   = errors.New("repository identity conflict")

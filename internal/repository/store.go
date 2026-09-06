@@ -17,6 +17,7 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"sync/atomic"
 )
 
 const DefaultDirectory = "./data/repository"
@@ -24,12 +25,13 @@ const DefaultDirectory = "./data/repository"
 // Store owns one catalog transaction boundary for asset/version references.
 // Readers receive copies. Its lock is never a Device/Gateway lock.
 type Store struct {
-	mu      sync.RWMutex
-	root    string
-	lock    *os.File
-	data    catalog
-	closed  bool
-	publish func(string, string) error
+	revision atomic.Uint64
+	mu       sync.RWMutex
+	root     string
+	lock     *os.File
+	data     catalog
+	closed   bool
+	publish  func(string, string) error
 }
 
 func Open(directory string) (*Store, error) {
@@ -165,6 +167,7 @@ func (s *Store) commit(c catalog) error {
 		return e
 	}
 	s.data = c
+	s.revision.Add(1)
 	return nil
 }
 func (s *Store) nextID() (string, error) {
