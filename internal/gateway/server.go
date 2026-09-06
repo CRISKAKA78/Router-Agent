@@ -67,11 +67,13 @@ type SessionEvent struct {
 }
 
 type session struct {
-	lifetime  chan struct{}
-	done      chan struct{}
-	deviceID  string
-	sessionID string
-	transport *connectionWriter
+	tunnelQueue chan tunnelMessage
+	tunnelDone  chan struct{}
+	lifetime    chan struct{}
+	done        chan struct{}
+	deviceID    string
+	sessionID   string
+	transport   *connectionWriter
 }
 
 type connectionWriter struct {
@@ -475,6 +477,12 @@ func (s *Server) handleConnection(conn net.Conn) {
 			return
 		}
 		s.endSession(active, endReason)
+		// Unblock the transport worker before joining it; Maintenance release does
+		// not wait for this control-session-owned worker.
+		_ = conn.Close()
+		if active.tunnelDone != nil {
+			<-active.tunnelDone
+		}
 	}()
 
 	for {
@@ -538,6 +546,14 @@ func (s *Server) handleConnection(conn net.Conn) {
 						return
 					}
 					previous := s.sessions[register.DeviceID]
+					for _, capability := range register.Capabilities {
+						if capability == "tunnel" {
+							candidate.tunnelQueue = make(chan tunnelMessage, 64)
+							candidate.tunnelDone = make(chan struct{})
+							go s.runTunnelControl(candidate)
+							break
+						}
+					}
 					if previous != nil && previous.lifetime != nil {
 						close(previous.lifetime)
 					}

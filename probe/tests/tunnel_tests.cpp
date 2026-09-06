@@ -1,4 +1,5 @@
 #include "rmp/tunnel.h"
+#include "rmp/client.h"
 #include "rmp/json.h"
 #ifdef NDEBUG
 #undef NDEBUG
@@ -8,6 +9,7 @@
 #include <chrono>
 #include <csignal>
 #include <iostream>
+#include <stdexcept>
 #include <sys/socket.h>
 #include <unistd.h>
 
@@ -16,6 +18,13 @@ static std::string connectPayload(const std::string& cid="2222222222222222222222
  return "{\"session_id\":"+rmp::EscapeJsonString(session)+",\"maintenance_id\":\"11111111111111111111111111111111\",\"connection_id\":"+rmp::EscapeJsonString(cid)+",\"service\":"+rmp::EscapeJsonString(service)+",\"token\":\"3333333333333333333333333333333333333333333333333333333333333333\",\"data_host\":\"127.0.0.1\",\"data_port\":1,\"timeout_ms\":500,\"idle_ms\":500}";
 }
 int main(){
+ assert(rmp::ClientConfig().tunnel_connections==8);
+ for(std::size_t limit: {std::size_t(0),std::size_t(65)}) {
+  bool rejected=false;
+  try { rmp::TunnelManager invalid("session",limit,[](const std::string&){return true;}); }
+  catch(const std::invalid_argument&) { rejected=true; }
+  assert(rejected);
+ }
  // Tunnel send must never change the process-wide signal disposition.
  std::signal(SIGPIPE,SIG_DFL);
  std::string error;int reports=0;

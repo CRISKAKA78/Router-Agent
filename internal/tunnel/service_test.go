@@ -22,12 +22,12 @@ func (f *fakeControl) BindTunnel(id string) (Binding, error) {
 	if d == nil {
 		return Binding{}, ErrSession
 	}
-	return Binding{ID: id, Done: d, Send: func(ctx context.Context, close bool, c Command) error {
+	return Binding{ID: id, Done: d, Enqueue: func(ctx context.Context, close bool, c Command) error {
 		if close {
 			return nil
 		}
 		if f.pause != nil {
-			<-f.pause
+			return nil // Simulate an admitted command waiting in the transport queue.
 		}
 		select {
 		case f.commands <- c:
@@ -185,8 +185,8 @@ func TestMaintenanceDefaultCustomConcurrentHalfCloseAndIsolation(t *testing.T) {
 	echoBytes(t, bClient, bData)
 	next := create(t, s, "a", time.Hour)
 	for i, e := range m.Endpoints {
-		if next.Endpoints[i].Port != e.Port {
-			t.Fatal("port not reused after release")
+		if next.Endpoints[i].Port == e.Port {
+			t.Fatal("quarantined port reused")
 		}
 	}
 	s.Close()
@@ -308,4 +308,94 @@ func TestPendingDeadlineRevokesSocketWhileControlWriterBlocked(t *testing.T) {
 		t.Fatal("pending timeout waited for control writer")
 	}
 	s.CloseMaintenance(m.ID)
+}
+
+func TestPortQuarantineAndDelayedReuse(t *testing.T) {
+	s, _ := newTestService(t, func(c *Config) {
+		c.PortFirst = 25010
+		c.PortLast = 25012
+		c.PortReuseDelay = 200 * time.Millisecond
+		c.History = 1
+	})
+	m := create(t, s, "a", 0)
+	if e := s.CloseMaintenance(m.ID); e != nil {
+		t.Fatal(e)
+	}
+	closedSnapshot, _ := s.Get(m.ID)
+	if !closedSnapshot.Released || !closedSnapshot.ReusableAfter.After(time.Now()) {
+		t.Fatal(closedSnapshot)
+	}
+	if _, e := s.Create(context.Background(), "b", 0); e != ErrCapacity {
+		t.Fatal("quarantine bypassed", e)
+	}
+	for _, entry := range m.Endpoints {
+		c, e := net.DialTimeout("tcp", entry.Address(), 30*time.Millisecond)
+		if e == nil {
+			c.Close()
+			t.Fatal("old client reconnected during quarantine")
+		}
+	}
+	time.Sleep(time.Until(closedSnapshot.ReusableAfter) + 10*time.Millisecond)
+	next := create(t, s, "b", 0)
+	if next.ID == m.ID || next.Endpoints[0].Port != m.Endpoints[0].Port {
+		t.Fatal("delayed pool reuse failed", next)
+	}
+	s.CloseMaintenance(next.ID)
+	if _, e := s.Get(m.ID); e != ErrNotFound {
+		t.Fatal("history not evicted")
+	}
+	if _, e := s.Create(context.Background(), "a", 0); e != ErrCapacity {
+		t.Fatal("history eviction erased quarantine", e)
+	}
+}
+
+func TestDataHostResolutionAndDefaults(t *testing.T) {
+	c, e := (Config{}).defaults()
+	if e != nil || c.IdleTimeout != 24*time.Hour || c.PortReuseDelay != 24*time.Hour || c.PerMaintenance != 8 || c.PerDevice != 8 {
+		t.Fatal(c, e)
+	}
+	for _, host := range []string{"https://example.com", "host:9001", "bad host", "bad..host", "-host"} {
+		if _, e := (Config{DataHost: host}).defaults(); e == nil {
+			t.Fatal("invalid host accepted", host)
+		}
+	}
+	for _, host := range []string{"example.com", "example.com.", "127.0.0.1", "::1"} {
+		if _, e := (Config{DataHost: host}).defaults(); e != nil {
+			t.Fatal(host, e)
+		}
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	if _, e := resolveDataHost(ctx, "cancelled.invalid"); e == nil {
+		t.Fatal("cancelled DNS succeeded")
+	}
+	s, f := newTestService(t, func(c *Config) { c.DataHost = "localhost" })
+	m := create(t, s, "a", 0)
+	client := dial(t, m.Endpoints[0].Address())
+	command := command(t, f)
+	if command.DataHost != "127.0.0.1" {
+		t.Fatal("expected server-resolved IPv4", command.DataHost)
+	}
+	data := pairTest(t, s, command)
+	echoBytes(t, client, data)
+}
+
+func TestWholeConnectionIdleAndOneWayAfterHalfClose(t *testing.T) {
+	s, f := newTestService(t, func(c *Config) { c.IdleTimeout = 300 * time.Millisecond })
+	m := create(t, s, "a", 0)
+	client := dial(t, m.Endpoints[0].Address())
+	data := pairTest(t, s, command(t, f))
+	client.(*net.TCPConn).CloseWrite()
+	data.SetReadDeadline(time.Now().Add(time.Second))
+	var b [1]byte
+	if _, e := data.Read(b[:]); e != io.EOF {
+		t.Fatal("missing half-close", e)
+	}
+	for i := 0; i < 10; i++ {
+		time.Sleep(75 * time.Millisecond)
+		echoBytes(t, data, client)
+	}
+	// No direction now progresses; the explicitly short idle limit must fire.
+	closed(t, client)
+	closed(t, data)
 }

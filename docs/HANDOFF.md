@@ -1,22 +1,26 @@
 # 项目接管手册
 
-项目由跨平台Go Management Server与轻量C++11 Probe组成。Phase 0～3已交付；本轮从用户确认的Phase 3基线 `ceaaab791850746911f965167c885789444efd4c` 实现Phase 4极简自研TCP Maintenance，放弃FRP/xfrpc。当前验证与交付状态见PROJECT_STATUS和[PHASE4_VERIFICATION](PHASE4_VERIFICATION.md)。Phase 4独立提交推送后停止，不进入Phase 5。
+项目由跨平台Go Management Server与轻量C++11 Probe组成。Phase 0～4已形成闭环；本轮从Phase 4首版 `f92d73a0d6003835993967848f1f5fe009a0df89` 的干净main修正端口隔离、独立撤销、域名和轻量默认值，保留自研TCP Maintenance。当前验证与交付状态见PROJECT_STATUS和[PHASE4_VERIFICATION](PHASE4_VERIFICATION.md)。修正独立提交推送后停止，不进入Phase 5。
 
 ## Phase 4 接管入口
 
-先读Accepted ADR-021、[PHASE4_DESIGN](PHASE4_DESIGN.md)、PROTOCOL的Phase 4章节与API内部Maintenance契约。`management.Server.Maintenance()`提供Create/Get/List/CloseMaintenance；一次创建三个固定入口，默认240分钟。data listener与控制TCP独立；C++ TunnelManager不包含HTTP/SSH/Telnet实现或第三方Tunnel程序。
+先读Accepted ADR-021及superseding ADR-022、[PHASE4_DESIGN](PHASE4_DESIGN.md)、PROTOCOL的Phase 4章节与API内部Maintenance契约。`management.Server.Maintenance()`提供Create/Get/List/CloseMaintenance；一次创建三个固定入口，默认240分钟。data listener与控制TCP独立；C++ TunnelManager不包含HTTP/SSH/Telnet实现或第三方Tunnel程序。
 
 重要文件：`internal/tunnel`（租约/端口/配对/Relay）、`internal/gateway/tunnel.go`（可撤销Session绑定及发送准入）、`probe/src/tunnel.cpp`（固定目标/worker/取消/half-close）、`tests/integration/phase4_test.go`（真实协议/负载/故障验收）。运行配置集中在`cmd/server`的`-tunnel-*`及Probe的`--tunnel-connections`。
 
-默认loopback绑定和advertised host；远程部署必须配置Probe可达的data数值IP、维护入口host及bind。创建接口当前仅内部Go Service，没有Phase 5 HTTP API。closed历史端口可能已复用，使用前检查State；Released是Server本地资源释放，不表示跨网络收到Probe释放ACK。
+默认loopback绑定；远程部署配置data IP或域名、维护入口host及bind。域名每次Create在Server解析，Probe仍收到IP。默认Probe/Server每维护8条流，较大浏览器并发须显式同步提高双方限额；Probe上限64。idle默认24小时，正常维护由默认4小时租期控制。创建接口仍为内部Go Service。
 
-启动核对时存在上一轮未提交FRP PoC，完整保存至Git stash `preserve previous FRP Phase 4 PoC before minimal TCP Tunnel`后确认干净基线。该stash保留，不恢复覆盖新实现；旧PoC源码/验证结论未被复用。
+Released表示Server本地资源释放，不等待控制writer或Probe ACK。释放后的端口默认隔离24小时，ReusableAfter表示最早可复用时刻；隔离记录独立于关闭历史。默认200端口池在隔离窗口内最多支持66次三入口创建。超窗或Server重启后不保证旧地址永久隔离；永久隔离需部署不重叠的池/地址。原始TCP入口没有外部客户端Maintenance身份，token只配对Probe data流。
+
+放弃FRP/xfrpc方向的归档摘要见DECISIONS.md ADR-020；当前实现、构建与验收均以已提交仓库为准。
 
 ## 接管顺序与事实来源
 
 严格依次阅读 AGENTS.md、本文件、PROJECT_STATUS.md、ARCHITECTURE.md、ROADMAP.md，以及当前任务相关 PROTOCOL.md、API.md、DECISIONS.md；随后核对 main 代码、Git 状态与实际构建测试。当前事实见 PROJECT_STATUS，完整 Phase 1 验收证据见 [PHASE1_VERIFICATION.md](PHASE1_VERIFICATION.md)。
 
 ## 提交导航
+
+- Phase 4首版：`f92d73a0d6003835993967848f1f5fe009a0df89`；本轮独立修正标题 `fix: isolate Phase 4 ports and decouple maintenance revocation`，实际SHA和推送状态以Git记录为准。
 
 - baseline：`bc8d747dfc41a375c31698073005857c238ede51`
 - Phase 1A：`cd722b6f3fd6cfe5e8ccded256c5295828e4372f`

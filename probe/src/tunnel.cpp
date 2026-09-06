@@ -9,6 +9,7 @@
 #include <fcntl.h>
 #include <mutex>
 #include <system_error>
+#include <stdexcept>
 #include <poll.h>
 #include <sys/socket.h>
 #include <unistd.h>
@@ -72,7 +73,14 @@ void Relay(int a,int b,const std::atomic<bool>& stop,std::chrono::milliseconds i
         if(progress){last=Clock::now();continue;}
         short ae=static_cast<short>((!ab.eof&&ab.size==0?POLLIN:0)|(ba.size>0?POLLOUT:0));
         short be=static_cast<short>((!ba.eof&&ba.size==0?POLLIN:0)|(ab.size>0?POLLOUT:0));
-        pollfd p[2]={{ae?a:-1,ae,0},{be?b:-1,be,0}};if(poll(p,2,20)<0&&errno!=EINTR)return;
+        // Keep both descriptors in poll even after read EOF: a later reset
+        // must cancel the local socket while its application is still idle.
+        pollfd p[2]={{a,ae,0},{b,be,0}};int n=poll(p,2,20);
+        if(n<0&&errno!=EINTR)return;
+        if(n>0&&((p[0].revents|p[1].revents)&(POLLERR|POLLNVAL)))return;
+        // HUP may accompany buffered bytes/normal EOF. Drain them through Step;
+        // avoid spinning on a persistent HUP while the other socket is blocked.
+        if(n>0&&((p[0].revents|p[1].revents)&POLLHUP))poll(NULL,0,20);
     }
 }
 }
@@ -94,7 +102,7 @@ struct TunnelManager::Worker {
         done.store(true);
     }
 };
-TunnelManager::TunnelManager(const std::string& session,std::size_t limit,Report report):session_(session),limit_(limit),report_(report){}
+TunnelManager::TunnelManager(const std::string& session,std::size_t limit,Report report):session_(session),limit_(limit),report_(report){if(limit<1||limit>64)throw std::invalid_argument("tunnel limit must be 1-64");}
 TunnelManager::~TunnelManager(){for(auto& w:workers_)w->stop.store(true);for(auto& w:workers_)if(w->thread.joinable())w->thread.join();}
 bool TunnelManager::Feed(const Frame& frame,std::string* error){
     JsonObject object;std::string mid,cid;

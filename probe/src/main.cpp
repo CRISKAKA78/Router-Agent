@@ -85,7 +85,7 @@ bool NextValue(int argc, char** argv, int* index, std::string* value) {
 int main(int argc, char** argv) {
     std::string server_address = "127.0.0.1:9000";
     rmp::ClientConfig config;
-    std::string tunnel_connections="64";
+    std::string tunnel_connections="8";
     config.probe_version = "0.1.0";
     config.hostname = Hostname();
     config.arch = Architecture();
@@ -123,7 +123,7 @@ int main(int argc, char** argv) {
     }
 
     char* tail=NULL;unsigned long tunnel_limit=std::strtoul(tunnel_connections.c_str(),&tail,10);
-    if(tunnel_connections.empty()||tail==NULL||*tail!='\0'||tunnel_limit<1||tunnel_limit>1024){std::cerr<<"tunnel-connections must be 1-1024"<<std::endl;return 2;}
+    if(tunnel_connections.empty()||tail==NULL||*tail!='\0'||tunnel_limit<1||tunnel_limit>64){std::cerr<<"tunnel-connections must be 1-64"<<std::endl;return 2;}
     config.tunnel_connections=static_cast<std::size_t>(tunnel_limit);
     if (config.device_id.empty() || config.device_id.size() > 128 ||
         config.probe_version.empty() || config.probe_version.size() > 64 ||

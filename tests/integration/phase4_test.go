@@ -25,7 +25,24 @@ import (
 	"routerprobe/internal/tunnel"
 )
 
-func phase4Server(t *testing.T, c tunnel.Config) (*gateway.Server, *tunnel.Service, string) {
+type phase4SilentClose struct{ *gateway.Server }
+
+func (g phase4SilentClose) BindTunnel(id string) (tunnel.Binding, error) {
+	b, e := g.Server.BindTunnel(id)
+	if e != nil {
+		return b, e
+	}
+	enqueue := b.Enqueue
+	b.Enqueue = func(ctx context.Context, closing bool, c tunnel.Command) error {
+		if closing {
+			return nil
+		}
+		return enqueue(ctx, closing, c)
+	}
+	return b, nil
+}
+
+func phase4Server(t *testing.T, c tunnel.Config, silentClose ...bool) (*gateway.Server, *tunnel.Service, string) {
 	t.Helper()
 	probeBinary(t)
 	g, e := gateway.New(gateway.Config{HeartbeatInterval: 10 * time.Second, Logger: log.New(io.Discard, "", 0)})
@@ -37,7 +54,11 @@ func phase4Server(t *testing.T, c tunnel.Config) (*gateway.Server, *tunnel.Servi
 	}
 	c.PortFirst = 26000
 	c.PortLast = 26999
-	s, e := tunnel.New(c, g)
+	var control tunnel.Control = g
+	if len(silentClose) > 0 && silentClose[0] {
+		control = phase4SilentClose{g}
+	}
+	s, e := tunnel.New(c, control)
 	if e != nil {
 		g.Close()
 		t.Fatal(e)
@@ -57,6 +78,145 @@ func phase4Server(t *testing.T, c tunnel.Config) (*gateway.Server, *tunnel.Servi
 		}
 	})
 	return g, s, l.Addr().String()
+}
+
+func TestTunnelRealDefaultCapacityAndResetAfterHalfClose(t *testing.T) {
+	binary := probeBinary(t)
+	l, e := net.Listen("tcp", "127.0.0.1:80")
+	if e != nil {
+		t.Fatal(e)
+	}
+	defer l.Close()
+	accepted := make(chan net.Conn, 16)
+	acceptDone := make(chan struct{})
+	go func() {
+		defer close(acceptDone)
+		for {
+			c, e := l.Accept()
+			if e != nil {
+				return
+			}
+			accepted <- c
+		}
+	}()
+	defer func() {
+		l.Close()
+		<-acceptDone
+		close(accepted)
+		for c := range accepted {
+			c.Close()
+		}
+	}()
+	g, s, address := phase4Server(t, tunnel.Config{PerMaintenance: 16, PerDevice: 16}, true)
+	var logs lockedBuffer
+	p := startProbe(t, binary, address, "small-router", &logs)
+	waitOnline(t, g.Events(), "small-router", 5*time.Second)
+	time.Sleep(100 * time.Millisecond)
+	fds, threads := phase4Counts(p.Process.Pid)
+	m := phase4Create(t, s, "small-router", 0)
+	var clients, targets []net.Conn
+	for i := 0; i < 8; i++ {
+		c := phase4Dial(t, m.Endpoints[0])
+		clients = append(clients, c)
+		select {
+		case target := <-accepted:
+			targets = append(targets, target)
+			t.Cleanup(func() { target.Close() })
+		case <-time.After(time.Second):
+			t.Fatal("missing local target")
+		}
+	}
+	// Probe default is eight, even when Server explicitly permits more.
+	extra := phase4Dial(t, m.Endpoints[0])
+	phase4Closed(t, extra)
+	_, activeThreads := phase4Counts(p.Process.Pid)
+	if activeThreads > threads+8 {
+		t.Fatal("unbounded Probe threads", threads, activeThreads)
+	}
+	clients[0].(*net.TCPConn).CloseWrite()
+	targets[0].SetReadDeadline(time.Now().Add(time.Second))
+	var one [1]byte
+	if _, e := targets[0].Read(one[:]); e != io.EOF {
+		t.Fatal("missing normal EOF", e)
+	}
+	// Keep all local applications open and idle. Drop every control CLOSE to
+	// prove data reset alone releases Probe workers, including after read EOF.
+	s.CloseMaintenance(m.ID)
+	for _, c := range clients {
+		phase4Closed(t, c)
+	}
+	until := time.Now().Add(3 * time.Second)
+	for {
+		f, n := phase4Counts(p.Process.Pid)
+		if f <= fds && n <= threads {
+			break
+		}
+		if time.Now().After(until) {
+			t.Fatalf("reset left idle local workers: fd %d/%d threads %d/%d\n%s", f, fds, n, threads, logs.String())
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	r := runExec(t, g, "small-router", task.ExecRequest{Command: "printf control-alive", Timeout: time.Second})
+	if r.Stdout != "control-alive" {
+		t.Fatal(r)
+	}
+}
+
+func TestTunnelRealOneWayIdleAndBufferedEOF(t *testing.T) {
+	binary := probeBinary(t)
+	l, e := net.Listen("tcp", "127.0.0.1:80")
+	if e != nil {
+		t.Fatal(e)
+	}
+	defer l.Close()
+	done := make(chan error, 1)
+	go func() {
+		c, e := l.Accept()
+		if e != nil {
+			done <- e
+			return
+		}
+		defer c.Close()
+		if _, e = io.Copy(io.Discard, c); e != nil {
+			done <- e
+			return
+		}
+		for i := 0; i < 12; i++ {
+			time.Sleep(100 * time.Millisecond)
+			if _, e = c.Write([]byte("x")); e != nil {
+				done <- e
+				return
+			}
+		}
+		_, e = io.CopyN(c, bytes.NewReader(bytes.Repeat([]byte("z"), 512*1024)), 512*1024)
+		done <- e // normal full local close with unread/buffered bytes
+	}()
+	g, s, address := phase4Server(t, tunnel.Config{IdleTimeout: 500 * time.Millisecond})
+	var logs lockedBuffer
+	startProbe(t, binary, address, "one-way", &logs)
+	waitOnline(t, g.Events(), "one-way", 5*time.Second)
+	m := phase4Create(t, s, "one-way", 0)
+	c := phase4Dial(t, m.Endpoints[0])
+	c.(*net.TCPConn).CloseWrite()
+	var got bytes.Buffer
+	buffer := make([]byte, 8192)
+	for {
+		n, e := c.Read(buffer)
+		got.Write(buffer[:n])
+		if e != nil {
+			if e != io.EOF {
+				t.Fatal(e)
+			}
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	if got.Len() != 12+512*1024 || !bytes.Equal(got.Bytes()[:12], bytes.Repeat([]byte("x"), 12)) || !bytes.Equal(got.Bytes()[12:], bytes.Repeat([]byte("z"), 512*1024)) {
+		t.Fatal("EOF dropped buffered bytes", got.Len())
+	}
+	if e := <-done; e != nil {
+		t.Fatal(e)
+	}
 }
 func phase4Create(t *testing.T, s *tunnel.Service, id string, lease time.Duration) tunnel.Snapshot {
 	t.Helper()
@@ -191,7 +351,7 @@ func TestTunnelRealProbeLifecycleConcurrencyAndControlLoad(t *testing.T) {
 	}
 	b := phase4Create(t, s, "tunnel-b", time.Minute)
 	var cs []net.Conn
-	for i := 0; i < 9; i++ {
+	for i := 0; i < 6; i++ {
 		c := phase4Dial(t, m.Endpoints[i%3])
 		phase4Echo(t, c)
 		cs = append(cs, c)
@@ -279,8 +439,8 @@ func TestTunnelRealProbeLifecycleConcurrencyAndControlLoad(t *testing.T) {
 	// Repeated creation and active revoke returns actual Probe FD/thread counts.
 	for i := 0; i < 5; i++ {
 		next := phase4Create(t, s, "tunnel-a", time.Minute)
-		if next.Endpoints[0].Port != m.Endpoints[0].Port {
-			t.Fatal("port not reused")
+		if next.Endpoints[0].Port == m.Endpoints[0].Port {
+			t.Fatal("quarantined port reused")
 		}
 		c := phase4Dial(t, next.Endpoints[0])
 		phase4Echo(t, c)
@@ -470,9 +630,9 @@ func TestTunnelRealHTTPSSHAndTelnet(t *testing.T) {
 	go httpServer.Serve(httpListener)
 	t.Cleanup(func() { httpServer.Close() })
 	time.Sleep(200 * time.Millisecond)
-	g, s, address := phase4Server(t, tunnel.Config{})
+	g, s, address := phase4Server(t, tunnel.Config{PerMaintenance: 16, PerDevice: 16, DataHost: "localhost"})
 	var output lockedBuffer
-	startProbe(t, binary, address, "protocols", &output)
+	startProbe(t, binary, address, "protocols", &output, "--tunnel-connections", "16")
 	waitOnline(t, g.Events(), "protocols", 5*time.Second)
 	m := phase4Create(t, s, "protocols", 0)
 	client := &http.Client{Timeout: 5 * time.Second, Transport: &http.Transport{DisableKeepAlives: true}}

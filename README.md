@@ -2,7 +2,7 @@
 
 本项目用于建设一套由 Management Server 和路由器端 Probe 组成的远程运维平台。Management Server 统一承载设备、任务、文件与工具、Tunnel 和对外 API 等核心能力；Probe 主动连接 Server，并向上提供轻量、通用的设备控制原语。
 
-Phase 0、Phase 1A～1E、Phase 2 与 Phase 3 已完成实现与自动化验收。Phase 3 按 [Accepted ADR-019](docs/DECISIONS.md#adr-019-phase-3-file-and-tool-repository) 提供持久化文件资产、工具版本/兼容产物及管理端投放与下载导入，事实见 [PROJECT_STATUS](docs/PROJECT_STATUS.md) 和 [Phase 3 验证记录](docs/PHASE3_VERIFICATION.md)。既有 TCP 注册/心跳/重连、并发 exec、幂等补报、双向文件传输与 Device Inventory 全量回归通过；Phase 3 独立提交推送后停止等待验收，不进入 Phase 4。
+Phase 0～4 已完成实现与自动化验收。Phase 4 按 [ADR-021 / ADR-022](docs/DECISIONS.md) 提供一键 Web/SSH/Telnet TCP Maintenance：默认240分钟，独立数据TCP、Session绑定、端口复用隔离与确定本地撤销。持久文件/工具仓库、exec、文件传输与Device Inventory保持；当前事实见 [PROJECT_STATUS](docs/PROJECT_STATUS.md) 和 [Phase 4 验证记录](docs/PHASE4_VERIFICATION.md)。修正独立提交推送后等待验收，不进入Phase 5。
 
 ## 系统关系
 

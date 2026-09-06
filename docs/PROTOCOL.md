@@ -906,7 +906,7 @@ Probe ClientConfig.file_queue_capacity 默认 8（等待槽位，不含一个 ac
 
 ## Phase 4 Maintenance 控制与数据协议
 
-状态：Accepted ADR-021。固定三服务的本节取代前文有关 Tunnel 数据面尚未展开的描述；通用 Tunnel、平台认证和加密仍不在范围内。REGISTER.capabilities 新增 `tunnel`；不声明该能力时 Server 拒绝新 Maintenance。
+状态：Accepted ADR-021 / ADR-022。固定三服务的本节取代前文有关 Tunnel 数据面尚未展开的描述；通用 Tunnel、平台认证和加密仍不在范围内。REGISTER.capabilities 新增 `tunnel`；不声明该能力时 Server 拒绝新 Maintenance。
 
 0x40 CONNECT、0x41 CLOSE、0x42 STATUS 均为 UTF-8 JSON object，flags=0（无 RESPONSE/reply_to），沿用控制连接双向 message_id 顺序；不是 TASK，不存 task_id，不跨 Session 补报/重发。CONNECT/CLOSE 最多4096bytes，仍受协商控制载荷上限限制。
 
@@ -916,9 +916,9 @@ Probe ClientConfig.file_queue_capacity 默认 8（等待槽位，不含一个 ac
 | maintenance_id / connection_id | 各32个小写hex，Server分别以128-bit安全随机值生成，不重用 |
 | service | 仅web、ssh、telnet，Probe内部固定映射127.0.0.1:80/22/23；wire不得指定target host/port |
 | token | 64个小写hex，256-bit安全随机值，只用于本条流的一次配对 |
-| data_host / data_port | Server可达数值IPv4/IPv6字符串 / 1～65535整数，Probe不做DNS |
+| data_host / data_port | 从Probe可达的数值IPv4/IPv6字符串 / 1～65535整数；配置域名由Server在Create解析，Probe不做DNS |
 | timeout_ms | 1～60000整数，总建流期限，包括本地连接、data连接和握手，默认10000 |
-| idle_ms | 1～86400000整数，活动I/O空闲期限，默认300000 |
+| idle_ms | 1～86400000整数，整条连接无读写进展的空闲期限，默认86400000；绝对租期优先 |
 
 Probe先连接本地目标，再主动连接data_host:data_port；使用独立socket，不在控制帧承载数据。本地连接失败上报local_unavailable，data连接/握手失败上报data_failed，worker配额满上报busy；STATUS必选maintenance_id、connection_id、state。Server按当前来源Session与pending流校验；已关闭、迟到、不属于该Session的状态不改变当前连接或其他服务。错误state/缺少身份为协议错误。
 
@@ -928,7 +928,9 @@ CLOSE必选maintenance_id、connection_id；后者为空字符串表示取消整
 
 Server未配对握手默认5s；外部accept起pending总时限默认10s，包含控制派发排队；到期关闭外部socket并使该token永久失效，后续建立须新connection_id。Probe不自动重连data流；重启不恢复任何Maintenance。Server租期默认240分钟、0选默认，自定义至少1ms；到期始终撤销全部listener和pending/active流。
 
-任意业务字节保持原样，不解析HTTP/SSH/Telnet，不改Host/Location/Cookie，不终止TLS。正常EOF在已读字节写完后传播写半关闭，反向持续至EOF/错误/关闭/空闲时限。Server每方向32KiB缓冲且读写分别受idle期限；Probe每方向16KiB、任一方向进展刷新本地空闲计时，Server仍执行方向时限。读取服从写入背压，不保存完整流或无界队列。
+任意业务字节保持原样，不解析HTTP/SSH/Telnet，不改Host/Location/Cookie，不终止TLS。正常EOF在已读字节写完后传播写半关闭，反向持续至EOF/错误/关闭/空闲时限。Server每方向32KiB、Probe每方向16KiB；两端均由任一方向实际读写进展刷新整条连接idle期限。读取服从写入背压，不保存完整流或无界队列。
+
+主动关闭/租期/Session撤销先撤listener，再以reset终止data TCP，最后关闭外部TCP；正常EOF仍用半关闭。Probe读EOF后继续检查socket错误，确保CLOSE延迟或未送达时reset也能退出空闲worker。Gateway每Session一发送worker、64项队列，CONNECT写前复核context和Session；本地Released不等待控制writer。端口Released后还受默认24小时隔离约束，窗口及重启边界见API.md/ADR-022；wire身份和132-byte握手不变。
 
 服务状态ready表示Server入口已监听，本地可达性在建流时才确定；某次local_unavailable使该服务unavailable，其他服务保持原状态，后续配对成功恢复ready。关闭全部closed。错误data建流只失败本客户端，不关闭控制TCP或其他通道。配额、端口池及详细生命周期为内部API配置，见API.md；没有新增HTTP/WebSocket endpoint。
 

@@ -30,25 +30,62 @@ func (s *Server) BindTunnel(deviceID string) (tunnel.Binding, error) {
 	if !capable {
 		return tunnel.Binding{}, tunnel.ErrSession
 	}
-	return tunnel.Binding{ID: active.sessionID, Done: active.lifetime, Send: func(ctx context.Context, closing bool, command tunnel.Command) error {
-		typ := protocol.TypeTunnelConnect
-		if closing {
-			typ = protocol.TypeTunnelClose
-		}
+	return tunnel.Binding{ID: active.sessionID, Done: active.lifetime, Enqueue: func(ctx context.Context, closing bool, command tunnel.Command) error {
 		if e := ctx.Err(); e != nil {
 			return e
 		}
-		_, e := active.transport.sendJSON(typ, 0, command, func(uint64) error {
-			if e := ctx.Err(); e != nil {
-				return e
-			}
-			s.mu.Lock()
-			defer s.mu.Unlock()
-			if s.closed || s.sessions[deviceID] != active {
-				return tunnel.ErrSession
-			}
+		s.mu.Lock()
+		defer s.mu.Unlock()
+		if s.closed || s.sessions[deviceID] != active {
+			return tunnel.ErrSession
+		}
+		select {
+		case active.tunnelQueue <- tunnelMessage{ctx, closing, command}:
 			return nil
-		})
-		return e
+		default:
+			return tunnel.ErrCapacity
+		}
 	}}, nil
+}
+
+type tunnelMessage struct {
+	ctx     context.Context
+	closing bool
+	command tunnel.Command
+}
+
+// One worker per capable control Session, not per maintenance or flow. Slow
+// control writes cannot retain released maintenance goroutines or sockets.
+func (s *Server) runTunnelControl(active *session) {
+	defer close(active.tunnelDone)
+	for {
+		select {
+		case <-active.lifetime:
+			return
+		default:
+		}
+		select {
+		case <-active.lifetime:
+			return
+		case message := <-active.tunnelQueue:
+			if message.ctx.Err() != nil {
+				continue
+			}
+			typ := protocol.TypeTunnelConnect
+			if message.closing {
+				typ = protocol.TypeTunnelClose
+			}
+			_, _ = active.transport.sendJSON(typ, 0, message.command, func(uint64) error {
+				if e := message.ctx.Err(); e != nil {
+					return e
+				}
+				s.mu.Lock()
+				defer s.mu.Unlock()
+				if s.closed || s.sessions[active.deviceID] != active {
+					return tunnel.ErrSession
+				}
+				return nil
+			})
+		}
+	}
 }

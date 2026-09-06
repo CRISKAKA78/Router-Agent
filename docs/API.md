@@ -204,15 +204,17 @@ Repository 元数据/字节跨进程保留；Operation、下载导入的 task_id
 | --- | --- |
 | `Create(ctx, deviceID, lease time.Duration) (Snapshot,error)` | 在线且声明tunnel能力；一次原子创建web/ssh/telnet三个入口。lease=0选240分钟，正值至少1ms；同设备已有未释放Maintenance时返回冲突，不修改原租期。创建失败返回空快照、释放部分端口；成功后ctx取消不关闭Maintenance |
 | `Get(maintenanceID)` / `List()` | 查询独立快照；List按ID排序，关闭历史按配置保留，淘汰后Get返回ErrNotFound |
-| `CloseMaintenance(maintenanceID) error` | 并发/重复调用幂等，等待Server listener、pending/active socket、accept/派发/已配对握手/Relay worker释放后返回；未知/历史已淘汰ID同样成功，保证重启或历史淘汰后重复关闭无副作用 |
+| `CloseMaintenance(maintenanceID) error` | 并发/重复调用幂等，等待Server listener、pending/active socket、accept/已配对握手/Relay worker释放后返回，不等待Gateway控制发送worker；未知/历史已淘汰ID同样成功 |
 | `Close() error` | 幂等关闭整个Service，另关闭data listener和所有未握手socket，等待全部worker；management.Server.Close会调用 |
 
-Snapshot为ID、DeviceID、SessionID、State、Reason、CreatedAt、ExpiresAt、Released、Connections、Endpoints。State为ready/closing/closed；失败创建不产生可查询ID。Connections统计pending+active；Endpoint为Service、Host、Port、State，Address()返回正确IPv4/IPv6 host:port。端点顺序固定web/ssh/telnet，状态ready/unavailable/closed；ready仅表示Server监听及最近建流状态，不承诺设备本地服务持续存在。网络失败影响本次连接，后续客户端可重新尝试。
+Snapshot为ID、DeviceID、SessionID、State、Reason、CreatedAt、ExpiresAt、Released、ReusableAfter、Connections、Endpoints。State为ready/closing/closed；失败创建不产生可查询ID。ReusableAfter在释放后表示本次端口最早可复用时刻，释放前为零值。Connections统计pending+active；Endpoint为Service、Host、Port、State，Address()返回正确IPv4/IPv6 host:port。顺序固定web/ssh/telnet，状态ready/unavailable/closed；ready不承诺本地服务持续存在。失败影响本次连接，后续客户端可重试。
 
-Close先撤监听再终止流，Released是Server资源回收事实；Probe取消通过控制CLOSE或Session终止执行，没有跨网络释放ACK。Session失效后准入和配对同步拒绝，watcher立即发起关闭；新Session不继承。已Closed历史中的端口仅是历史值，可已被新Maintenance复用，调用方必须同时检查State/Released。
+Close先撤监听，再reset data TCP并关闭外部流，Released是Server本地资源回收事实，没有Probe释放ACK。CLOSE通过Gateway每Session一个worker、64项有界队列尽力发送，本地释放不等待控制网络。Session失效后准入和配对同步拒绝，watcher发起关闭；新Session不继承。Released后端口默认隔离24小时；隔离记录独立于关闭历史，池满返回ErrCapacity，不提前复用。闭合历史地址不能继续使用；超出隔离期或Server重启后，旧客户端与新客户端无法由原始TCP区分。需永久隔离时部署不重叠的池/地址，见ADR-022。
 
-配置默认值：BindHost/AdvertisedHost/DataHost均127.0.0.1；DataListen=127.0.0.1:9001；PortFirst/PortLast=20000/20199；MaxMaintenance=64；PerMaintenance=32、PerDevice=64、TotalConnections=512；Handshakes=64；History=128；PendingTimeout=10s、HandshakeTimeout=5s、IdleTimeout=5min。数值0选择默认，非法负数/范围启动报错。DataHost必须数值IP；AdvertisedHost可为部署者提供的域名。各限制不提供无界关闭选项。
+配置默认值：BindHost/AdvertisedHost/DataHost均127.0.0.1；DataListen=127.0.0.1:9001；PortFirst/PortLast=20000/20199；MaxMaintenance=64；PerMaintenance=8、PerDevice=8、TotalConnections=512；Handshakes=64；History=128；PendingTimeout=10s、HandshakeTimeout=5s、IdleTimeout=24h、PortReuseDelay=24h。数值0选择默认；IdleTimeout范围1ms～24h，PortReuseDelay至少1ms，非法范围启动报错。默认200个端口在隔离窗口内最多支持66次三入口分配，按维护频率配置更大池。各限制不提供无界关闭选项。
 
-Server flags：`-tunnel-bind`、`-tunnel-host`、`-tunnel-data-listen`、`-tunnel-data-host`、`-tunnel-port-first`、`-tunnel-port-last`、`-tunnel-max-sessions`、`-tunnel-session-connections`、`-tunnel-device-connections`、`-tunnel-total-connections`、`-tunnel-handshakes`、`-tunnel-history`、`-tunnel-connect-timeout`、`-tunnel-handshake-timeout`、`-tunnel-idle-timeout`。Probe `--tunnel-connections`默认64，允许1～1024。公网绑定、可达地址、NAT和防火墙由部署者配置；程序不自动配置。
+DataHost接受IP或DNS主机名；Create在Server解析（最多5s、受ctx取消），优先IPv4，本次维护固定所得IP，下次Create更新；并行Create最多MaxMaintenance个，超额ErrCapacity。解析失败无入口，解析不阻塞Close；绑定失效在发布前复核。Probe不做DNS，仍收到数值IP。部署者保证Server解析所得地址从Probe可达；不自动判断split-horizon或逐地址故障切换。AdvertisedHost可为域名，由外部客户端解析。
+
+Server flags：`-tunnel-bind`、`-tunnel-host`、`-tunnel-data-listen`、`-tunnel-data-host`、`-tunnel-port-first`、`-tunnel-port-last`、`-tunnel-port-reuse-delay`、`-tunnel-max-sessions`、`-tunnel-session-connections`、`-tunnel-device-connections`、`-tunnel-total-connections`、`-tunnel-handshakes`、`-tunnel-history`、`-tunnel-connect-timeout`、`-tunnel-handshake-timeout`、`-tunnel-idle-timeout`。Probe `--tunnel-connections`默认8，允许1～64，超出范围启动失败。每流一线程，低内存部署可调小；需要更多浏览器连接时同步提高双方限额。公网绑定、可达地址、NAT和防火墙由部署者配置。
 
 固定目标为Probe的127.0.0.1:80/22/23。Maintenance/connection/token不持久化；无跨进程恢复、续租、任意端口、UDP/SOCKS/VPN/P2P、HTTP反向代理、TLS终止或通用映射管理；没有新增外部任务CLI/API/UI/MCP。

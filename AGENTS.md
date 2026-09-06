@@ -52,7 +52,9 @@ Phase 0 完成后，仓库内 Markdown 文档成为项目持续维护的当前�
 
 ## 当前阶段限制
 
-Phase 0～3 已交付。2026-09-06 用户确认 Phase 3 基线 `ceaaab791850746911f965167c885789444efd4c`，授权完整 Phase 4 极简自研 TCP Tunnel，明确放弃 FRP/xfrpc。当前范围以 Accepted ADR-021、PROTOCOL.md、PHASE4_DESIGN.md 及用户指令为准。维护会话固定 Web/SSH/Telnet → 127.0.0.1:80/22/23，默认 240 分钟，可自定义正租期；数据使用独立 TCP，与创建时 Device Session 严格绑定。
+Phase 0～3 已交付。Phase 4 首版提交为 `f92d73a0d6003835993967848f1f5fe009a0df89`，本轮从该 main 干净基线继续修正。当前范围以 Accepted ADR-021 / ADR-022、PROTOCOL.md、PHASE4_DESIGN.md 及用户指令为准。维护会话固定 Web/SSH/Telnet → 127.0.0.1:80/22/23，默认 240 分钟，可自定义正租期；数据使用独立 TCP，与创建时 Device Session 严格绑定。保持自研路线，不恢复 FRP/xfrpc。
+
+端口本地释放后默认隔离24小时；控制发送由Gateway有界队列独立拥有，不得阻塞Maintenance本地释放；域名在Server解析，Probe仍只接收IP；Probe默认8条流、最大64，每流一线程；默认整连接idle24小时，租期优先。完整语义与有限端口隔离边界见ADR-022。正式历史必须在提交的仓库中，不依赖开发者本地临时保存项。
 
 保留 Accepted ADR-009～018、Phase 1/2 的连接、设备、Session、任务、文件和幂等行为。具体资产模型、版本模型、目录结构和内部接口可自行设计；涉及资产持久化和存储目录、元数据持久化、版本唯一性与升级关系、arch/libc/kernel/model 匹配、去重/SHA-256/资产身份、删除/版本保留/清理的长期设计，先记录问题、原因、影响和推荐方案，等待用户明确确认。ADR-019 R1～R6 已获用户明确确认，状态为 Accepted。artifact_id 为全 Repository 唯一的不透明 UUID；tool_id、asset_id、artifact_id 均为稳定业务身份，不因归档、去重或存储路径变化重用。
 

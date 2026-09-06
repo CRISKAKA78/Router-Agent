@@ -2,11 +2,23 @@
 
 本文件使用轻量 ADR 记录重要设计决定与待确认草案。仅 Accepted 条目构成已确认决定；Proposed 条目不得被实现推断为已接受。状态为 Accepted 的决定不得被实现静默改变；需要变更时，应新增取代决策并说明迁移与影响。
 
+## ADR-022 Phase 4 端口隔离、独立撤销与轻量默认值
+
+- 状态：Accepted（2026-09-06 用户授权复查并自行确定 Phase 4 修正方式）；修正基线 `f92d73a0d6003835993967848f1f5fe009a0df89`，HEAD/main/fetch 后 origin/main 一致，工作区干净。
+- 取代 ADR-021 的立即归还端口、同步控制派发、默认并发及空闲期限；保留固定三服务、Session 绑定、一次性 token、独立 data TCP、half-close、背压及 ADR-009～019。
+- 端口：本地资源全部释放后进入默认 24 小时隔离，配置 PortReuseDelay 可调整正时长。Snapshot.ReusableAfter 与 Released 分别表示最早可复用时间和已完成本地释放；隔离记录独立于关闭历史，最多端口池大小，无 listener 或定时器。池满拒绝创建，不提前复用。隔离是抑制旧客户端自动重连的时间窗口，不是身份认证：原始 TCP 无法辨别任意迟到的旧客户端；超窗后及 Server 重启清空隔离记录后不保证旧地址永久隔离。无跨重启 Maintenance 恢复；部署需永久隔离时必须使用不重叠端口池/地址，不能依赖短租约或 token 认证外部客户端。
+- 撤销：Gateway 每个支持 tunnel 的 Device Session 拥有一个发送 worker 和最多 64 个待发控制消息，入队不等待网络，满时拒绝。实际写前复核 Session 和 CONNECT context；过期消息不写出。Maintenance 仅等待自己的 listener/handshake/relay，不等待 Gateway writer；先撤入口，再取消并以 TCP reset 终止数据连接，随后完成释放，CLOSE 为有界队列中的尽力通知。reset 区分撤销与正常 EOF，避免阻塞控制链路使 Probe 误将撤销当 half-close。Gateway Session 结束关闭 control socket 并回收其发送 worker。
+- 域名：DataHost 接受数值 IP 或 DNS 主机名；每次 Create 在 Server 以最多 5 秒、可取消的解析获得地址，优先 IPv4，固定至本次维护结束。并行 Create 受 MaxMaintenance 限额约束，解析不持有生命周期锁。失败不分配端口；DNS 变更作用于下一次 Create。Probe wire 仍为数值 IP，不加入 DNS、重试或后台 resolver。部署者保证 Server 解析出的地址从 Probe 可达，支持普通 A/AAAA 域名，不承诺 split-horizon 自动选择或多地址故障切换。
+- 轻量：Probe 默认最多 8 条流，每流一个 C++11 thread，硬上限 64，可配置 1～64；两方向固定缓冲合计每流 32KiB。保留简单线程模型，线程栈由目标 libc 决定，不宣称统一 RAM 上限；低内存设备可调小，较多浏览器连接可显式调大。Server 每维护/设备默认均为 8，与 Probe 对齐。
+- 空闲：默认 24 小时，仍被绝对租期（默认 240 分钟）提前截断；配置正时长，上限 24 小时，wire 不变。任一方向实际读写推进都刷新整条连接空闲期限，避免单向输出或 half-close 后反向传输被另一方向误判。固定缓冲和背压保持。
+- 历史：仓库中的 ADR-020 摘要是被放弃 FRP 路线的归档；正式文档不再把本地临时 Git 保存项作为可移交历史或验收依据。历史 ADR-021 的默认值保留用于理解变更，由本 ADR 明确取代。
+- 验证：按本次用户要求执行 Phase 1～4 全量回归与平台/并发检查，结果写入 PHASE4_VERIFICATION.md；不进入 Phase 5。
+
 ## ADR-021 Phase 4 极简自研 TCP Maintenance Tunnel
 
 - 状态：Accepted（2026-09-06 用户明确选择自研原始 TCP，授权自行确定范围内长期语义）。
-- 基线：`ceaaab791850746911f965167c885789444efd4c`，fetch 后 HEAD/main/origin/main 一致；旧未提交 FRP PoC 材料完整 stash 后确认干净。
-- 取代：上一轮未提交 ADR-020 的 FRP/xfrpc 数据面、投放与 backend PoC 门槛。该历史决策及失败证据保存在 Git stash `preserve previous FRP Phase 4 PoC before minimal TCP Tunnel`；未静默改写或沿用其实现。补充 ADR-002/003/004/006 的 Tunnel 未决部分，保留 ADR-009～019。
+- 基线：`ceaaab791850746911f965167c885789444efd4c`，fetch 后 HEAD/main/origin/main 一致，实施起点干净。以下保留首版决定；修正由 ADR-022 明确取代。
+- 取代：上一轮未提交 ADR-020 的 FRP/xfrpc 数据面、投放与 backend PoC 门槛；历史方向摘要归档于下文 ADR-020，不沿用其实现或验收结论。补充 ADR-002/003/004/006 的 Tunnel 未决部分，保留 ADR-009～019。
 - 原因：用户只需一次开启设备维护，同时获得 Web/SSH/Telnet 三个临时入口，不需要通用穿透产品或外部 Tunnel 进程。
 - 决定：以 Maintenance Session 为业务中心，一次原子分配三个端口，固定 Probe loopback TCP 80/22/23；0 租期选择 240 分钟，自定义至少 1 ms。每设备同时最多一个未释放维护会话。入口 ready 表示 Server listener 可接入，本地服务在实际建流验证；不可达标 unavailable，后续成功恢复 ready。
 - 数据面：每外部客户端独立 connection_id 与 Probe 主动 data TCP；128-bit 随机 Maintenance/connection 身份，256-bit 一次性 token；RMT1 固定握手后只复制字节。控制消息使用独立类型 0x40～0x42，不纳入跨 Session Task 重放。不做协议解析、TLS 终止、HTTP 改写或重启恢复。
@@ -17,7 +29,7 @@
 
 ## ADR-020 历史 FRP/xfrpc 方向（已被 ADR-021 取代）
 
-上一轮未提交方向为共享 frps、每 Tunnel 独立 xfrpc、确定撤销和 SIGPIPE 子进程策略；其 backend PoC 因 xfrpc 生命周期崩溃而停止，未形成产品或 Phase 4 commit。原始完整决定与证据由上述 stash 保存。2026-09-06 用户明确放弃该路线，新的产品实现不依赖 FRP、xfrpc、旧补丁或旧验证结论。
+上一轮未提交方向为共享 frps、每 Tunnel 独立 xfrpc、确定撤销和 SIGPIPE 子进程策略；其 backend PoC 因 xfrpc 生命周期崩溃而停止，未形成产品或 Phase 4 commit。此段归档放弃路线所需的决定与原因，不作为可复现的失败测试记录。2026-09-06 用户明确放弃该路线，新的产品实现不依赖 FRP、xfrpc、旧补丁或旧验证结论；项目接管和构建只依赖已提交仓库。
 
 ## ADR-019 Phase 3 File and Tool Repository
 

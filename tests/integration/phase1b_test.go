@@ -50,7 +50,7 @@ func probeBinary(t *testing.T) string {
 	return binary
 }
 
-func startProbe(t *testing.T, binary, address, deviceID string, output io.Writer) *exec.Cmd {
+func startProbe(t *testing.T, binary, address, deviceID string, output io.Writer, extra ...string) *exec.Cmd {
 	t.Helper()
 	command := exec.Command(binary,
 		"--server", address,
@@ -58,6 +58,7 @@ func startProbe(t *testing.T, binary, address, deviceID string, output io.Writer
 		"--boot-id", "phase1b-boot",
 		"--hostname", "phase1b-host",
 	)
+	command.Args = append(command.Args, extra...)
 	command.Stdout = output
 	command.Stderr = output
 	if err := command.Start(); err != nil {

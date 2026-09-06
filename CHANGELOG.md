@@ -12,6 +12,12 @@
 
 ### Fixed
 
+- Phase 4：维护端口释放后默认隔离24小时，独立于关闭历史；新增 `ReusableAfter` 和 `-tunnel-port-reuse-delay`，池满拒绝提前复用。有限隔离不提供超窗或重启后的永久旧地址隔离，部署边界见ADR-022。
+- `CloseMaintenance` 本地释放不再等待Probe控制发送；Gateway采用有界控制队列，撤销以data reset终止活动流，Probe在half-close后仍检测reset并回收空闲worker。
+- `-tunnel-data-host`支持Server侧域名解析；每次维护固定解析所得IP，Probe保持数值IP握手。
+- Probe默认Tunnel并发由64降至8、允许1～64；Server每维护/设备默认均为8。默认idle由5分钟改为24小时，并按整条连接进展计算；绝对维护租期保持默认240分钟。
+- 当前Phase 4文档按ADR-022同步，FRP历史归档为仓库内摘要，接管不依赖本地临时Git保存项。
+
 - Phase 1E：Server 严格拒绝非法 Unicode 与字符串形式 load1；Probe 忽略未知扩展字段中的合法大整数，已知 uint64 字段仍拒绝溢出。
 - Probe 在 REGISTER_ACK 缩小帧上限后立即复核已缓冲 Header，防止等待超限 Payload；未确认心跳记录设为每连接最多 1024 项，满后沿用既有重连流程。
 - Server 文件 worker 结束时释放残留文件块邮箱；入站 message_id 耗尽时结束连接，避免回绕为 0。

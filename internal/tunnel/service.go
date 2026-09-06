@@ -12,7 +12,9 @@ import (
 	"net"
 	"sort"
 	"strconv"
+	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 )
 
@@ -41,7 +43,9 @@ type Status struct {
 type Binding struct {
 	ID   string
 	Done <-chan struct{}
-	Send func(context.Context, bool, Command) error // bool: close instead of connect
+	// Enqueue must return without waiting for network I/O. The transport owns a
+	// bounded queue and rechecks context immediately before writing CONNECT.
+	Enqueue func(context.Context, bool, Command) error // bool: close instead of connect
 }
 type Control interface{ BindTunnel(string) (Binding, error) }
 type Config struct {
@@ -49,6 +53,7 @@ type Config struct {
 	PortFirst, PortLast                                                              int
 	MaxMaintenance, PerMaintenance, PerDevice, TotalConnections, Handshakes, History int
 	PendingTimeout, HandshakeTimeout, IdleTimeout                                    time.Duration
+	PortReuseDelay                                                                   time.Duration
 }
 
 func (c Config) defaults() (Config, error) {
@@ -72,10 +77,10 @@ func (c Config) defaults() (Config, error) {
 		c.MaxMaintenance = 64
 	}
 	if c.PerMaintenance == 0 {
-		c.PerMaintenance = 32
+		c.PerMaintenance = 8
 	}
 	if c.PerDevice == 0 {
-		c.PerDevice = 64
+		c.PerDevice = 8
 	}
 	if c.TotalConnections == 0 {
 		c.TotalConnections = 512
@@ -93,12 +98,58 @@ func (c Config) defaults() (Config, error) {
 		c.HandshakeTimeout = 5 * time.Second
 	}
 	if c.IdleTimeout == 0 {
-		c.IdleTimeout = 5 * time.Minute
+		c.IdleTimeout = 24 * time.Hour
 	}
-	if net.ParseIP(c.BindHost) == nil || net.ParseIP(c.DataHost) == nil || c.AdvertisedHost == "" || c.PortFirst < 1 || c.PortLast > 65535 || c.PortFirst > c.PortLast || c.MaxMaintenance < 1 || c.PerMaintenance < 1 || c.PerDevice < 1 || c.TotalConnections < 1 || c.Handshakes < 1 || c.History < 1 || c.PendingTimeout < time.Millisecond || c.PendingTimeout > time.Minute || c.HandshakeTimeout < time.Millisecond || c.HandshakeTimeout > time.Minute || c.IdleTimeout < time.Millisecond || c.IdleTimeout > 24*time.Hour {
+	if c.PortReuseDelay == 0 {
+		c.PortReuseDelay = 24 * time.Hour
+	}
+	if net.ParseIP(c.BindHost) == nil || !validDataHost(c.DataHost) || c.AdvertisedHost == "" || c.PortFirst < 1 || c.PortLast > 65535 || c.PortFirst > c.PortLast || c.MaxMaintenance < 1 || c.PerMaintenance < 1 || c.PerDevice < 1 || c.TotalConnections < 1 || c.Handshakes < 1 || c.History < 1 || c.PendingTimeout < time.Millisecond || c.PendingTimeout > time.Minute || c.HandshakeTimeout < time.Millisecond || c.HandshakeTimeout > time.Minute || c.IdleTimeout < time.Millisecond || c.IdleTimeout > 24*time.Hour || c.PortReuseDelay < time.Millisecond {
 		return c, errors.New("invalid tunnel configuration")
 	}
 	return c, nil
+}
+
+func validDataHost(host string) bool {
+	if net.ParseIP(host) != nil {
+		return true
+	}
+	host = strings.TrimSuffix(host, ".")
+	if len(host) == 0 || len(host) > 253 {
+		return false
+	}
+	for _, label := range strings.Split(host, ".") {
+		if len(label) == 0 || len(label) > 63 || label[0] == '-' || label[len(label)-1] == '-' {
+			return false
+		}
+		for _, c := range label {
+			if !(c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z' || c >= '0' && c <= '9' || c == '-') {
+				return false
+			}
+		}
+	}
+	return true
+}
+
+func resolveDataHost(ctx context.Context, host string) (string, error) {
+	if ip := net.ParseIP(host); ip != nil {
+		return ip.String(), nil
+	}
+	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+	resolver := net.Resolver{}
+	ips, err := resolver.LookupIP(ctx, "ip", host)
+	if err != nil {
+		return "", fmt.Errorf("resolve tunnel data host: %w", err)
+	}
+	for _, ip := range ips {
+		if ip.To4() != nil {
+			return ip.String(), nil
+		}
+	}
+	if len(ips) == 0 {
+		return "", errors.New("tunnel data host has no IP addresses")
+	}
+	return ips[0].String(), nil
 }
 
 type Endpoint struct {
@@ -108,6 +159,7 @@ type Endpoint struct {
 type Snapshot struct {
 	ID, DeviceID, SessionID, State, Reason string
 	CreatedAt, ExpiresAt                   time.Time
+	ReusableAfter                          time.Time
 	Released                               bool
 	Endpoints                              []Endpoint
 	Connections                            int
@@ -115,6 +167,7 @@ type Snapshot struct {
 type maintenance struct {
 	snapshot  Snapshot
 	binding   Binding
+	dataHost  string
 	listeners []net.Listener
 	streams   map[string]*stream
 	ctx       context.Context
@@ -138,6 +191,8 @@ type Service struct {
 	data       net.Listener
 	sessions   map[string]*maintenance
 	ports      map[int]bool
+	quarantine map[int]time.Time
+	creates    chan struct{}
 	handshakes map[net.Conn]bool
 	history    []string
 	total      int
@@ -158,7 +213,7 @@ func New(config Config, control Control) (*Service, error) {
 	if e != nil {
 		return nil, e
 	}
-	s := &Service{config: c, control: control, data: l, sessions: make(map[string]*maintenance), ports: make(map[int]bool), handshakes: make(map[net.Conn]bool), done: make(chan struct{})}
+	s := &Service{config: c, control: control, data: l, sessions: make(map[string]*maintenance), ports: make(map[int]bool), quarantine: make(map[int]time.Time), creates: make(chan struct{}, c.MaxMaintenance), handshakes: make(map[net.Conn]bool), done: make(chan struct{})}
 	s.wg.Add(1)
 	go s.acceptData()
 	return s, nil
@@ -187,7 +242,17 @@ func (s *Service) Create(ctx context.Context, deviceID string, lease time.Durati
 	if lease < time.Millisecond {
 		return Snapshot{}, errors.New("lease must be at least one millisecond")
 	}
+	select {
+	case s.creates <- struct{}{}:
+		defer func() { <-s.creates }()
+	default:
+		return Snapshot{}, ErrCapacity
+	}
 	binding, e := s.control.BindTunnel(deviceID)
+	if e != nil {
+		return Snapshot{}, e
+	}
+	dataHost, e := resolveDataHost(ctx, s.config.DataHost)
 	if e != nil {
 		return Snapshot{}, e
 	}
@@ -215,7 +280,7 @@ func (s *Service) Create(ctx context.Context, deviceID string, lease time.Durati
 	if live >= s.config.MaxMaintenance {
 		return Snapshot{}, ErrCapacity
 	}
-	m := &maintenance{binding: binding, done: make(chan struct{}), streams: make(map[string]*stream)}
+	m := &maintenance{binding: binding, dataHost: dataHost, done: make(chan struct{}), streams: make(map[string]*stream)}
 	m.ctx, m.cancel = context.WithCancel(context.Background())
 	now := time.Now()
 	m.snapshot = Snapshot{ID: id, DeviceID: deviceID, SessionID: binding.ID, State: "ready", CreatedAt: now, ExpiresAt: now.Add(lease)}
@@ -230,11 +295,12 @@ func (s *Service) Create(ctx context.Context, deviceID string, lease time.Durati
 		var listener net.Listener
 		port := 0
 		for p := s.config.PortFirst; p <= s.config.PortLast; p++ {
-			if s.ports[p] {
+			if s.ports[p] || now.Before(s.quarantine[p]) {
 				continue
 			}
 			l, err := net.Listen("tcp", net.JoinHostPort(s.config.BindHost, strconv.Itoa(p)))
 			if err == nil {
+				delete(s.quarantine, p)
 				listener = l
 				port = p
 				break
@@ -328,18 +394,18 @@ func (s *Service) closeMaintenance(m *maintenance, reason string) {
 	}
 	m.cancel()
 	for _, c := range m.streams {
-		c.external.Close()
 		if c.data != nil {
-			c.data.Close()
+			abortTCP(c.data)
 		}
+		c.external.Close()
 	}
 	s.mu.Unlock()
-	// Best effort peer cancellation. Local revocation never depends on delivery.
-	_ = m.binding.Send(context.Background(), true, Command{MaintenanceID: m.snapshot.ID})
 	m.wg.Wait()
 	s.mu.Lock()
+	m.snapshot.ReusableAfter = time.Now().Add(s.config.PortReuseDelay)
 	for i := range m.snapshot.Endpoints {
 		delete(s.ports, m.snapshot.Endpoints[i].Port)
+		s.quarantine[m.snapshot.Endpoints[i].Port] = m.snapshot.ReusableAfter
 		m.snapshot.Endpoints[i].State = "closed"
 	}
 	m.listeners = nil
@@ -352,6 +418,15 @@ func (s *Service) closeMaintenance(m *maintenance, reason string) {
 	}
 	close(m.done)
 	s.mu.Unlock()
+	// Admission only: Gateway owns network delivery and its bounded worker.
+	_ = m.binding.Enqueue(context.Background(), true, Command{MaintenanceID: m.snapshot.ID})
+}
+
+func abortTCP(c net.Conn) {
+	if tcp, ok := c.(*net.TCPConn); ok {
+		_ = tcp.SetLinger(0)
+	}
+	_ = c.Close()
 }
 func (s *Service) Close() error {
 	s.mu.Lock()
@@ -366,13 +441,15 @@ func (s *Service) Close() error {
 	for _, m := range s.sessions {
 		ms = append(ms, m)
 	}
-	for c := range s.handshakes {
-		c.Close()
-	}
 	s.mu.Unlock()
 	for _, m := range ms {
 		s.closeMaintenance(m, "server_closed")
 	}
+	s.mu.Lock()
+	for c := range s.handshakes {
+		abortTCP(c)
+	}
+	s.mu.Unlock()
 	s.wg.Wait()
 	close(s.done)
 	return nil
@@ -417,16 +494,21 @@ func (s *Service) acceptExternal(m *maintenance, l net.Listener, service string)
 func (s *Service) runStream(m *maintenance, c *stream) {
 	defer m.wg.Done()
 	sent := false
+	completed := false
 	defer func() {
 		s.mu.Lock()
-		c.external.Close()
 		if c.data != nil {
-			c.data.Close()
+			if completed {
+				c.data.Close()
+			} else {
+				abortTCP(c.data)
+			}
 		}
+		c.external.Close()
 		s.mu.Unlock()
-		// Socket revocation precedes a potentially blocked control writer.
+		// This bounded admission never waits for a control writer.
 		if sent && !ended(m.ctx.Done()) {
-			_ = m.binding.Send(m.ctx, true, Command{MaintenanceID: m.snapshot.ID, ConnectionID: c.id})
+			_ = m.binding.Enqueue(m.ctx, true, Command{MaintenanceID: m.snapshot.ID, ConnectionID: c.id})
 		}
 		s.mu.Lock()
 		delete(m.streams, c.id)
@@ -435,26 +517,10 @@ func (s *Service) runStream(m *maintenance, c *stream) {
 	}()
 	_, port, _ := net.SplitHostPort(s.data.Addr().String())
 	p, _ := strconv.Atoi(port)
-	cmd := Command{SessionID: m.binding.ID, MaintenanceID: m.snapshot.ID, ConnectionID: c.id, Service: c.service, Token: c.token, DataHost: s.config.DataHost, DataPort: p, TimeoutMS: s.config.PendingTimeout.Milliseconds(), IdleMS: s.config.IdleTimeout.Milliseconds()}
+	cmd := Command{SessionID: m.binding.ID, MaintenanceID: m.snapshot.ID, ConnectionID: c.id, Service: c.service, Token: c.token, DataHost: m.dataHost, DataPort: p, TimeoutMS: s.config.PendingTimeout.Milliseconds(), IdleMS: s.config.IdleTimeout.Milliseconds()}
 	ctx, cancel := context.WithDeadline(m.ctx, c.deadline)
-	watchDone := make(chan struct{})
-	go func() {
-		defer close(watchDone)
-		select {
-		case <-c.paired:
-		case <-ctx.Done():
-			s.mu.Lock()
-			if !ended(c.paired) {
-				c.external.Close()
-				if c.data != nil {
-					c.data.Close()
-				}
-			}
-			s.mu.Unlock()
-		}
-	}()
-	defer func() { cancel(); <-watchDone }()
-	if e := m.binding.Send(ctx, false, cmd); e != nil {
+	defer cancel()
+	if e := m.binding.Enqueue(ctx, false, cmd); e != nil {
 		return
 	}
 	sent = true
@@ -472,7 +538,7 @@ func (s *Service) runStream(m *maintenance, c *stream) {
 	if !valid {
 		return
 	}
-	relay(c.external, data, s.config.IdleTimeout)
+	completed = relay(c.external, data, s.config.IdleTimeout)
 }
 func (s *Service) acceptData() {
 	defer s.wg.Done()
@@ -577,33 +643,45 @@ func (s *Service) Report(sessionID string, status Status) error {
 	close(c.failed)
 	return nil
 }
-func relay(a, b net.Conn, idle time.Duration) {
+func relay(a, b net.Conn, idle time.Duration) bool {
+	var eof atomic.Int32
+	// Both directions share one activity deadline. Updating deadlines also wakes
+	// an already blocked Read/Write; no polling timer or extra monitor is needed.
+	var activity sync.Mutex
+	touch := func() {
+		activity.Lock()
+		defer activity.Unlock()
+		until := time.Now().Add(idle)
+		_ = a.SetDeadline(until)
+		_ = b.SetDeadline(until)
+	}
+	touch()
 	var wg sync.WaitGroup
 	wg.Add(2)
 	copyDirection := func(dst, src net.Conn) {
 		defer wg.Done()
 		buffer := make([]byte, 32*1024)
 		for {
-			_ = src.SetReadDeadline(time.Now().Add(idle))
 			n, e := src.Read(buffer)
 			if n > 0 {
-				_ = dst.SetWriteDeadline(time.Now().Add(idle))
-				if _, we := writeAll(dst, buffer[:n]); we != nil {
+				touch()
+				if _, we := writeAll(activityWriter{dst, touch}, buffer[:n]); we != nil {
+					abortTCP(b)
 					a.Close()
-					b.Close()
 					return
 				}
 			}
 			if e != nil {
 				if e == io.EOF {
+					eof.Add(1)
 					if tcp, ok := dst.(*net.TCPConn); ok {
 						_ = tcp.CloseWrite()
 					} else {
 						dst.Close()
 					}
 				} else {
+					abortTCP(b)
 					a.Close()
-					b.Close()
 				}
 				return
 			}
@@ -612,6 +690,20 @@ func relay(a, b net.Conn, idle time.Duration) {
 	go copyDirection(a, b)
 	go copyDirection(b, a)
 	wg.Wait()
+	return eof.Load() == 2
+}
+
+type activityWriter struct {
+	io.Writer
+	touch func()
+}
+
+func (w activityWriter) Write(p []byte) (int, error) {
+	n, e := w.Writer.Write(p)
+	if n > 0 {
+		w.touch()
+	}
+	return n, e
 }
 func writeAll(w io.Writer, b []byte) (int, error) {
 	total := 0

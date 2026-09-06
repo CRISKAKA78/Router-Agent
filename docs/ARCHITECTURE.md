@@ -2,19 +2,22 @@
 
 本文定义 Management Server、Probe、对外客户端和传输通道之间的长期边界。Phase 1 已实现 TCP Session、并发 exec、进程内幂等、跨 TCP 结果补报与双向文件传输；Phase 2 已实现 Device Inventory 和内部查询；Phase 3 已实现持久 File/Tool Repository、兼容判断和管理端文件投放/下载导入，验证状态见 PROJECT_STATUS。其他模块仍是架构约束和后续实现方向，不表示已经实现。
 
-Phase 4 新增 `internal/tunnel.Service` 与 C++11 `TunnelManager`，采用 Accepted ADR-021 的极简 TCP Maintenance，不使用 FRP/xfrpc。验证状态以 PROJECT_STATUS 为准。
+Phase 4 新增 `internal/tunnel.Service` 与 C++11 `TunnelManager`，采用 Accepted ADR-021 / ADR-022 的极简 TCP Maintenance，不使用 FRP/xfrpc。验证状态以 PROJECT_STATUS 为准。
 
 ## Phase 4 模块与生命周期
 
 - `management.Server` 组合 Repository、Gateway、可选 Maintenance Service，通过 `Maintenance()` 暴露用例。程序 `cmd/server` 默认启用独立 data listener；嵌入式旧调用方 `Config.Tunnel=nil` 保持原行为。
 - `internal/tunnel` 拥有维护/入口模型、租期、固定三服务、端口池、随机流身份和一次性 token、并发准入、配对、Relay、释放和有界关闭历史。它只依赖 Control 接口，不能读取 Gateway 内部映射。
 - Gateway 在 Session 发布后可返回 BindTunnel 撤销句柄；结束、替换、Disconnect、writer失败及Server关闭同步使旧句柄失效。发送在 writer 准入时复核当前 Session；状态按收到消息的连接身份调用 Service.Report。无可丢事件依赖；Device/Task/File 既有契约不变。
-- Gateway → Device 的原锁序保持。Tunnel 调用 Bind/Send 时不持 Tunnel 锁；Gateway 不回调 Tunnel 进行网络 I/O。Tunnel 锁保护准入、流表、token消费、状态与端口池；关闭 listener/socket 是本地撤销，数据复制和控制发送在锁外。WaitGroup Add 在准入锁内完成，closing 后不能新增被等待操作。
+- Gateway → Device 的原锁序保持。Tunnel 调用 Bind/Enqueue 时不持 Tunnel 锁；Enqueue 不等待网络，Gateway 不回调 Tunnel 进行网络 I/O。Tunnel 锁保护准入、流表、token消费、状态与端口池；关闭 listener/socket 是本地撤销，数据复制和控制发送在锁外。WaitGroup Add 在准入锁内完成，closing 后不能新增被等待操作。
 - Maintenance 先绑定Session再分配三端口，创建发布前复核；监听失败全部回滚。每个 accept 单独申请 pending+active 配额，超额直接关闭。共享 data listener 的无身份握手另有容量和期限，不能无限建立 goroutine。
-- pending期限有独立watcher，控制writer阻塞也按期关闭外部及已登记data socket。流退出先关闭socket，再最佳努力通知Probe取消；等待watcher和控制派发完成后才释放流配额，不能靠慢writer积累额外worker。
-- 关闭顺序：状态closing → listener.Close → cancel及pending/active socket.Close → 最佳努力Probe取消 → 等待listener/dispatch/已配对握手/Relay worker → 归还端口 → closed/Released。未知身份的未完成data握手属于Server全局资源，由握手期限和Server Close管理；不可冒充某个Maintenance阻止释放。
+- 每个支持 Tunnel 的 Device Session 有一个 Gateway 发送 worker、64 项控制队列；满时直接拒绝。写前复核 CONNECT context 和 Session。Maintenance 的 pending select 独立处理期限，writer 排队或阻塞不占用已释放维护资源；Gateway 在 Session 退出关闭 control socket 后 join 自己的 worker。
+- 关闭顺序：状态closing → listener.Close → cancel → data socket reset → external socket.Close → 等待listener/已配对握手/Relay worker → 端口进入隔离 → closed/Released → 尽力入队CLOSE。本地释放不等待控制发送。未知身份的未完成data握手属于Server全局资源，由握手期限和Server Close管理。
+- 端口隔离默认24小时，不占listener/worker，独立于128项关闭历史、最多池大小；只有Released且到达ReusableAfter才可重新分配，满池拒绝。原始TCP没有外部客户端维护身份，隔离不能保证超窗或Server重启后旧地址永久隔离；永久隔离需部署不重叠的池/地址，见ADR-022。
+- DataHost可为IP或DNS主机名；Server在Create中最多5秒解析，优先IPv4并固定至本次维护结束。并行Create受MaxMaintenance限额限制，解析不持生命周期锁，失败不分配资源；下次Create刷新DNS。Probe收到的仍是数值IP，无DNS或多地址重试逻辑。
 - Probe 每控制Session一个TunnelManager，固定目标查表，建流worker持有自己的两个socket，以可取消poll实现connect、握手与Relay；fd设置CLOEXEC与ExecForkMutex同步，发送使用MSG_NOSIGNAL，不改变Probe/exec的SIGPIPE disposition。控制Reader只验证并准入、取消或回收已完成worker，不执行Relay和DNS。
-- Server每方向32KiB、Probe每方向16KiB，socket发送/接收有界；慢端使另一端停止读。EOF在已缓存数据写完后传播SHUT_WR，反向仍可传输；关闭/错误/租约和空闲超时终止活动连接。Probe取消轮询最长20ms（调度时间另计），控制Session析构先取消Tunnel再收敛FileManager。
+- Server每方向32KiB、Probe每方向16KiB，socket发送/接收有界；慢端使另一端停止读。EOF排空后传播SHUT_WR，反向仍可传输；Probe在读EOF后仍检查data socket错误，reset撤销本地连接，普通HUP仍排空缓冲。两端任一方向读写推进刷新整条连接空闲期限，默认24小时，绝对租期优先。Probe普通poll为20ms；持续HUP时另有20ms退让避免忙循环，取消还受调度影响。
+- Probe默认8条流、每流一线程，硬上限64；Server每维护/设备默认8条。Probe默认Relay缓冲合计256KiB，线程栈由libc决定，低内存设备可调小；大量浏览器连接可同步提高双方限额。控制Session析构先取消Tunnel再收敛FileManager。
 - Maintenance、配对token、流、监听与历史均为进程内状态；重启清空，新Session不能继承。仅固定loopback 80/22/23，不实现外部Adapter或通用映射。
 
 ## 项目目标
@@ -125,10 +128,10 @@ CONNECT -> REGISTER -> REGISTER_ACK -> ONLINE
 
 ## 控制面与 Tunnel 数据面
 
-控制 TCP 只承载注册、心跳、任务、结果、事件和必要文件传输。SSH、Telnet 和 Web 等持续交互流量通过 open_tunnel 任务建立独立数据连接。
+控制 TCP 只承载注册、心跳、任务、结果、事件、必要文件传输及 Tunnel 控制消息。Phase 4 的 SSH、Telnet 和 Web 持续交互流量通过 TUNNEL_CONNECT 建立独立数据连接，不使用 TASK 缓存。
 
 ~~~text
-Management Server -- TASK open_tunnel --> Probe
+Management Server -- TUNNEL_CONNECT --> Probe
                                            |
                                 separate data connection
                                            |
