@@ -2,7 +2,7 @@
 
 本项目用于建设一套由 Management Server 和路由器端 Probe 组成的远程运维平台。Management Server 统一承载设备、任务、文件与工具、Tunnel 和对外 API 等核心能力；Probe 主动连接 Server，并向上提供轻量、通用的设备控制原语。
 
-Phase 0～5已验收。Phase 6提供C# + WinUI 3中文Fluent Windows远程维护工作台，支持浅色/深色主题、设备侧栏和维护卡片，通过统一 `/api/v1` 和WebSocket使用设备、任务、文件、工具与Maintenance能力。Windows入口及构建见[使用说明](windows/README.md)，正式API见[API](docs/API.md)，交付事实见[PROJECT_STATUS](docs/PROJECT_STATUS.md)和[Phase 6验证](docs/PHASE6_VERIFICATION.md)。本轮WinUI 3重构提交推送后等待验收。
+Phase 0～5已验收。Phase 6提供React / TypeScript Shared Frontend + C# / WinUI 3 WebView2 Thin Shell中文Windows远程维护工作台，支持浅色/深色主题、设备侧栏和维护卡片，通过统一 `/api/v1` 和WebSocket使用设备、任务、文件、工具与Maintenance能力。Windows入口及构建见[使用说明](windows/README.md)，正式API见[API](docs/API.md)，交付事实见[PROJECT_STATUS](docs/PROJECT_STATUS.md)和[Phase 6验证](docs/PHASE6_VERIFICATION.md)。React 是今后 Windows 与 Web 的统一产品 UI 基线（ADR-026），本轮重构提交推送后等待验收。
 
 ## 系统关系
 

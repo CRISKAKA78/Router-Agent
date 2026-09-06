@@ -13,6 +13,8 @@ internal sealed class TestProbe : IAsyncDisposable
     private readonly TcpClient tcp = new();
     private readonly CancellationTokenSource stop = new();
     private Task? reader;
+    private Task? heartbeat;
+    private readonly SemaphoreSlim writer = new(1, 1);
     private ulong next = 1;
     private readonly Dictionary<string, byte[]> files = [];
     private readonly Dictionary<string, object> results = [];
@@ -27,6 +29,11 @@ internal sealed class TestProbe : IAsyncDisposable
         var (_, _, _, ack) = await ReadAsync();
         SessionId = JsonDocument.Parse(ack).RootElement.GetProperty("session_id").GetString()!;
         reader = RunAsync();
+        heartbeat = HeartbeatAsync();
+    }
+    private async Task HeartbeatAsync() {
+        try { while (!stop.IsCancellationRequested) { await Task.Delay(10000, stop.Token); await SendAsync(3, new { uptime = 10, running_tasks = 0 }); } }
+        catch (Exception e) when (e is IOException or OperationCanceledException or ObjectDisposedException) { }
     }
     private async Task RunAsync()
     {
@@ -99,9 +106,12 @@ internal sealed class TestProbe : IAsyncDisposable
     private Task SendAsync(byte type, object payload, ushort flags = 0) => SendBytesAsync(type, JsonSerializer.SerializeToUtf8Bytes(payload), flags);
     private async Task SendBytesAsync(byte type, byte[] payload, ushort flags)
     {
+        await writer.WaitAsync(stop.Token);
+        try {
         var header = new byte[20]; "RMP1"u8.CopyTo(header); header[4] = 1; header[5] = type;
         BinaryPrimitives.WriteUInt16BigEndian(header.AsSpan(6), flags); BinaryPrimitives.WriteUInt32BigEndian(header.AsSpan(8), (uint)payload.Length); BinaryPrimitives.WriteUInt64BigEndian(header.AsSpan(12), next++);
         await tcp.GetStream().WriteAsync(header, stop.Token); await tcp.GetStream().WriteAsync(payload, stop.Token);
+        } finally { writer.Release(); }
     }
     private async Task<(byte Type, ushort Flags, ulong Id, byte[] Payload)> ReadAsync()
     {
@@ -109,5 +119,5 @@ internal sealed class TestProbe : IAsyncDisposable
         var payload = new byte[BinaryPrimitives.ReadUInt32BigEndian(header.AsSpan(8))]; await tcp.GetStream().ReadExactlyAsync(payload, stop.Token);
         return (header[5], BinaryPrimitives.ReadUInt16BigEndian(header.AsSpan(6)), BinaryPrimitives.ReadUInt64BigEndian(header.AsSpan(12)), payload);
     }
-    public async ValueTask DisposeAsync() { stop.Cancel(); tcp.Dispose(); if (reader != null) await reader; uploading?.Dispose(); stop.Dispose(); }
+    public async ValueTask DisposeAsync() { stop.Cancel(); tcp.Dispose(); if (reader != null) await reader; if (heartbeat != null) await heartbeat; uploading?.Dispose(); stop.Dispose(); writer.Dispose(); }
 }

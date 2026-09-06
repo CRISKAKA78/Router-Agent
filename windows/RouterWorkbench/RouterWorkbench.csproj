@@ -19,11 +19,8 @@
     <PackageReference Include="Microsoft.Windows.SDK.BuildTools" Version="10.0.26100.9169" />
   </ItemGroup>
   <PropertyGroup Condition="'$(VerifyUI)' == 'true'"><DefineConstants>$(DefineConstants);VERIFY_UI</DefineConstants></PropertyGroup>
-  <ItemGroup Condition="'$(VerifyUI)' == 'true'">
-    <Compile Include="../RouterWorkbench.Tests/UiVerification.cs" Link="Verification/UiVerification.cs" />
-    <Compile Include="../RouterWorkbench.Tests/TestProbe.cs" Link="Verification/TestProbe.cs" />
-    <Compile Include="../RouterWorkbench.Tests/MockEvents.cs" Link="Verification/MockEvents.cs" />
-  </ItemGroup>
+  <ItemGroup><Content Include="../../frontend/dist/**/*" Link="Frontend/%(RecursiveDir)%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" /></ItemGroup>
+  <Target Name="RequireFrontend" BeforeTargets="BeforeBuild"><Error Condition="!Exists('../../frontend/dist/index.html')" Text="Build the React frontend first: npm ci and npm run build in frontend" /></Target>
   <!-- Unpackaged modular WinUI builds produce loose XBF/PRI files that the
        .NET publish item set does not include automatically. Keep their paths. -->
   <Target Name="PublishWinUIResources" AfterTargets="ComputeFilesToPublish">

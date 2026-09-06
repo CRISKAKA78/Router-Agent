@@ -1,57 +1,63 @@
-# Phase 6 WinUI 3 验证记录
+# Phase 6 Shared React / WebView2 验证记录
 
-日期：2026-09-06。起点 `f8d099d6bb6ac4830199b122755cbf37f6a9e849`，HEAD/main/origin/main 一致，初始工作区干净。用户明确要求替换 WinForms，采用 ADR-025。首版 WinForms 的历史 84 项结果保留于该 Git 提交，不当作本次 WinUI 证据。本次 Server／Probe／Go 依赖／API／Tunnel 生产代码无变化。
+日期：2026-09-06。起点为干净 main / origin/main `6f0ce71a5027b57d51e9a6c807794be45f7633b5`，架构依据 Accepted ADR-026。本次 Server、Probe、Go 依赖、公开 API、Protocol 与 Tunnel 生产代码未改动。旧纯 XAML 的 61/98 项历史结果不作为本轮证据。
 
-## 客户端与窗口验证
+**React Shared Frontend 是今后 Windows 与 Web 的统一产品 UI 基线。** 本轮交付可复用源码和 Windows 本地发布目录，不部署正式公网 Web。
 
-`windows/build.ps1 -Verify`执行：Release 产品构建；独立 Core 测试；VerifyUI=true 编译的真实 WinUI 窗口验证；VerifyUI=false 正式目录发布。Core **61 项**、WinUI **98 项**断言通过，构建 0 警告／0 错误。测试失败返回非零；测试代码不进入正式发布。
+## 构建与客户端验证
 
-| 要求 | 实际验证 |
+`windows/build.ps1 -Dotnet ./build/dotnet/dotnet.exe -Verify` 从锁文件恢复前端依赖，执行 TypeScript/Vite production build、Vitest、Windows Release publish、原生策略与真实 WebView2 集成。最终构建通过，0 警告、0 错误；production JS 247.14 kB、CSS 17.60 kB，未压缩原始体积。前端 9 项测试、原生策略/保存 21 项检查、实际 WebView2 26 项集成检查通过。
+
+| 要求 | 本轮实际证据 |
 | --- | --- |
-| 连接／切换／断开／重连 | 设置 ContentDialog 保存并连接真实 Go Server；按钮断开和重连；切到独立 MockEvents 后旧连接不同步、旧设备／任务／维护／工具清空 |
-| 设备列表与详情 | 实际 WinUI 列表和设备概览显示中文名称、在线／离线；WebSocket 后 HTTP 快照刷新；主操作区域不出现会话编号 |
-| 会话替换 | 同设备新 TCP 注册，Core 验证原维护撤销、会话变化且仍在线；WinUI 概览刷新新会话，离线通知禁用维护 |
-| 创建／关闭维护 | WinUI 控件自动化点击，真实 POST、GET 与通知刷新，三个入口就绪；主动关闭后 Released 来自服务器 |
-| 默认 240 分钟／自定义租期 | 默认请求省略 lease_ms，期限差精确 240 分钟；原生时长弹窗 0.005 分钟转 300ms；零或不可表示租期错误，不创建对象；Core 另验证 150ms |
-| 到期与历史 | 短租期服务器释放后 UI 回查显示关闭；当前维护选择服务器最新记录，历史在详情；倒计时不伪造终态 |
-| Web／SSH／Telnet | WinUI 三按钮经过 GET 后调用启动边界；Core 验证浏览器 Shell URL，以及系统／PuTTY 模式实际 argv 捕获进程的独立主机、端口和用户参数；缺失客户端／非法地址拒绝 |
-| 命令与结果 | 控件创建任务，测试对端 ACK／RESULT，UI 显示中文标准输出和错误；同键重试和重发原任务不重复执行 |
-| 文件 | 原生桌面“导入文件”／“另存文件”对话框选真实路径，导入与保存逐字节一致；上传／下载弹窗发起真实操作并完成；Core 另验证 complete 稳定身份、cleanup、归档及提交／释放事实 |
-| 工具／版本／兼容／投放 | 创建工具与发布版本 ContentDialog，服务器 compatible 结果决定投放按钮；显式产物投放到测试对端完成；Core 另验证多资源身份与归档 |
-| WebSocket 恢复 | 真实 socket abort，重连后 HTTP 读取断线期间新设备；Core 查询屏障期间通知后再次查询，没有丢失失效标记，不假设重放 |
-| 网络与业务错误 | 不可达、快照失败、维护冲突、设备离线、会话／容量／工具错误分别映射；WinUI InfoBar 显示中文摘要，原始诊断收进详情 |
-| 重复点击／并发 | WinUI 拒绝禁用按钮的第二次 Invoke，维护／命令只创建一次；Core 在途屏障拒绝并发，丢失响应后同键同字节重试保留原任务 |
-| 生命周期 | Core Dispose 幂等，取消卡住 HTTP、join socket／worker，关闭后不再发布；WinUI 向窗口发送正常 WM_CLOSE，等待资源释放再关闭 |
-| 浅色／深色 | 实际切换 Root 主题并验证 ActualTheme、截图；标题栏按钮随主题更新，设置保存外观偏好 |
-| 窗口缩放 | 1280×920 与 960×720，侧栏收缩、维护操作可见、详情滚动；截图核对留白与层级 |
-| 高 DPI | 桌面 100%；同一实际 XAML 树临时放入公开 DesktopWindowXamlSource 宿主，OverrideScale=2，断言 XamlRoot.RasterizationScale=2、1920×1440 输出和维护控件布局，再恢复原比例 |
-| 私有字段与状态边界 | Core DTO 没有 Tunnel token／connection_id；真实 API 响应验证不含私有字段；配置不保存业务快照；UI 不计算兼容或业务状态机 |
-| 正式发布目录 | verify-published.ps1 独立启动非测试 EXE，确认原生窗口、从发布目录加载 Microsoft.UI.Xaml.dll、WM_CLOSE exit=0 |
+| 本地资源 / SPA | 实际 WebView2 加载 production assets；受控 index 加 hash 路由、刷新后恢复；不存在 Vite 开发服务器依赖 |
+| Bridge 正常与拒绝 | 实际 getProfile/连接/三入口/Windows 保存；任意 exec、非法 endpoint、脚本设置可执行路径被拒绝；策略覆盖未知方法、重复字段、外部来源/协议、路径穿越、参数注入 |
+| Server 连接/切换 | React 经真实 Go HTTP/WebSocket 连接；切换另一 Server 清空旧设备/任务，再切回创建新连接所有者 |
+| Device / Session replacement | 真实 Protocol v1 测试对端注册；旧连接下线与新 Session 替换后回查，界面显示新 Session |
+| WebSocket 恢复 | 关闭真实 socket，断线期间替换 Session；新 socket 连入后 HTTP 全快照恢复；单元测试覆盖查询中通知不丢失、非法首事件拒绝后重连 |
+| Maintenance | 实际双击仅创建一次；默认省略租期后期限精确 240 分钟；自定义 300ms 由 Server 到期、1000 分钟接受；主动关闭与三个 ready 入口 |
+| Web / SSH / Telnet | 三按钮启动前回查 API，实际跨 Native Bridge 到测试捕获边界；平台测试验证默认浏览器 URL、系统 SSH 独立参数；生产保留系统客户端/PuTTY 启动实现 |
+| Exec / Task | React 提交、真实 API 派发、测试对端 ACK/RESULT、页面显示最终结果；不把 202 作为任务成功 |
+| File | 浏览器 File API 打开 Windows 选择器导入真实文件；Save Picker 选路径并逐字节核对输出；设备 upload 成功、download committed/released、显式 complete 后稳定资产 |
+| Tool | 创建工具、版本/Artifact、查询 Server compatibility、显式投放并完成真实 API 流程 |
+| 幂等 / 重复点击 | 在途写入单次准入；不确定响应保留相同键和相同 body 字节、拒绝新请求，显式重试；业务错误清除不确定状态；真实维护双击检查 |
+| 网络 / 业务错误 | Vitest 分离 transport/解析不确定与结构化 API 错误；实际 WS 断线/下线/切换恢复；错误显示于页面及当前表单 |
+| Light / Dark | 实际 WebView2 切换主题并截图；系统主题使用 matchMedia，本地配置保存偏好 |
+| DPI / 窗口布局 | 实际 WebView2 的 960px、deviceScaleFactor=2 CDP 布局验证，无页面水平溢出；浅色/深色/任务/工具截图复核 |
+| 退出 / 资源释放 | 单元测试取消阻塞 HTTP、join socket、dispose 幂等且不迟到发布；原生 WM_CLOSE 等待 JS shutdown 后退出 0；保存临时文件失败时清理且保留原目标 |
+| 发布目录 | .NET/WinUI 自包含、Frontend 静态资源、Fixed Version WebView2、app-local VC DLL、可选 VC 离线安装器；正式非测试 EXE 本机启动/退出 |
 
-WinUI 测试通过原生控件的 AutomationPeer／IInvokeProvider、真实 ContentDialog 和当前测试进程的文件对话框控制执行。原生文件对话框异步初始化后才可填路径和确认；测试等待可见／启用和布局就绪。使用 Windows App SDK 桌面选择器，避免旧 Windows.Storage.Pickers 的管理员模式限制。
+集成运行日志：`build/react-shell-delivery.log`。最终 UI 截图与 fixture 日志：`build/react-shell/verification-20260906-203637/`。每次复现生成新的时间目录，构建产物与日志不提交 Git。`VerifyUI=true` 才包含 CDP 19222、测试配置入口与外部启动捕获；正式发布禁用 DevTools，不含测试 Probe。
 
-截图覆盖断开、维护浅色／深色／紧凑／200%、任务、文件和工具。RenderTargetBitmap 不包含合成器的 Mica，截屏时临时使用对应纯色主题回退背景，随后恢复 Mica；不把该截图称作 Mica 实际合成结果。200% 测试改变测试宿主缩放，不改变用户显示设置；不声称已完成多物理显示器拖动矩阵。
+测试对端只实现 Protocol v1 以验证 UI/API 闭环，不冒充实际 Linux Probe；实际 C++ Probe 及 Web/SSH/Telnet 通道见下面全量回归。外部客户端按钮检查不等于用户 SSH/PuTTY 登录、主机密钥或厂商设备网页验收。DPI 使用 WebView2 CDP emulation，不声称完成物理显示器 200% 或跨屏拖动矩阵。
 
-测试专用 TestProbe 为 Protocol v1 对端，验证 API 请求／返回和界面闭环；它不是实际 Linux Probe，不进入正式应用。真实 C++ Probe／SSH／Telnet／HTTP 通道见下面的全量回归。
+## 本机与干净环境的验收范围
 
-发布验证曾发现默认 dotnet publish 未包含模块化 WinUI 的应用 XBF／PRI，导致独立程序 XAML 初始化失败。已在项目发布目标显式加入编译资源，并将非测试发布程序的独立启动／正常退出检查纳入 build.ps1 -Verify；修复后通过。测试构建成功没有被用来代替发布程序检查。未预期的界面异常写入本机应用目录 last-error.log，普通 API 错误仍在界面展示。
+正式发布为 `build/windows-react/win-x64/`，Node/npm 仅用于构建。发布程序只加载随包前端；随包固定 Runtime 的 Microsoft 签名和 VC 安装器签名均有效。本机将完整包复制到 `build/react-shell/portable-20260906-204100/`，子进程 PATH 只含 Windows/System32，实际窗口正常显示 React 工作台；检查 .NET、WinUI 与 WebView2 进程均来自该副本，正常关闭 exit=0。证据为 `build/react-shell-portable.log` 与 `build/react-shell/portable-production.png`。这不卸载本机开发工具或改变系统 PATH。
+
+正式 WinUI WebView2 的 UI Automation 查询在本机返回空节点；该尝试没有作为 React 加载断言。页面内容由 computer-use 实际窗口截图确认；自动 `verify-published.ps1` 检查原生窗口、随包进程/运行库及退出，最终通过，日志为 `build/react-shell-published-final.log`。React DOM 自动断言由前述实际 WebView2 集成测试承担。
+
+实际尝试了网络关闭的 Windows Sandbox：确认没有 Node/dotnet 命令，发布目录只读映射后完整复制，离线 VC 运行准备成功；但 Windows Application Control 拒绝启动未签名 `RouterWorkbench.exe`，错误为 “An Application Control policy has blocked this file”。证据在 `build/react-shell/sandbox-20260906-203148/failure.txt`。未绕过或修改该策略，**干净 Windows 运行未验证通过**。
+
+用户了解阻断后最终明确要求“直接在本机测试”，因此本轮按更新后的本机范围交付。不能把无开发工具 PATH、本地发布副本运行或沙盒准备成功描述为干净目标机独立运行成功。
 
 ## Phase 1～5 与 Tunnel 全量回归
 
-本次从当前源码重新执行，未将首版结果复用为本轮结果。Windows：Go 1.25.5、.NET SDK 10.0.400、.NET 10.0.11、Windows 11 build 26200。Linux：WSL 隔离 Alpine，Go 1.26.3、GCC 15.2.0、CMake 4.2.3，独立网络／mount namespace 与 devpts。
+本轮重新执行全部既有回归，不复用此前阶段结果。Windows 使用 Go 1.25.5、.NET SDK 10.0.400、Windows 11 build 26200；Linux 使用 WSL 隔离 Alpine、Go 1.26.3、GCC 15.2.0、CMake 4.2.3 与独立网络/mount namespace、devpts。
 
 | 验证 | 本轮结果 |
 | --- | --- |
-| Linux Release C++11／CTest | 4/4，4.72 秒 |
-| Linux Phase 1～5 全量 Go + 真实 Probe | 全包通过，集成 169.963 秒 |
-| C++ ASan／UBSan／LSan CTest | 4/4，5.95 秒，无报告 |
-| ASan 真实 Probe Phase 4／5 | 通过，15.463 秒 |
-| C++ TSan CTest | 4/4，6.92 秒，无报告 |
-| Go race 全量 + TSan 真实 Probe | 全包通过，集成 177.456 秒，无报告 |
-| Windows Go 全部源码包测试 | 通过，集成 0.163 秒；Linux 专用例在 Linux 执行 |
-| Windows／Linux Go vet 与 Server 构建 | 通过 |
-| Linux Server 真实进程检查 | HTTP 空设备列表成功，SIGTERM exit=0；首次 listener 未就绪由启动轮询恢复 |
-| go mod verify／git diff --check | 通过 |
+| Linux Release C++11 / CTest | 4/4，4.72 秒 |
+| Linux Phase 1～5 全量 Go + 真实 Probe | 全包通过，集成 170.462 秒 |
+| C++ ASan / UBSan / LSan CTest | 4/4，6.02 秒，无报告 |
+| ASan 真实 Probe Phase 4/5 | 通过，15.570 秒 |
+| C++ TSan CTest | 4/4，6.96 秒，无报告 |
+| Go race 全量 + TSan 真实 Probe | 全包通过，集成 177.110 秒，无报告 |
+| Windows Go 全部源码包测试 | 全部通过，集成 0.144 秒；Linux 专用用例在 Linux 执行 |
+| Windows / Linux Go vet 与 Server 构建 | 通过 |
+| go mod verify / git diff --check | 通过 |
+
+日志为 `build/react-shell-linux-release.log`、`build/react-shell-linux-asan.log`、`build/react-shell-linux-race.log`、`build/react-shell-windows-go.log`。后端生产差异为空。
 
 ## 复现
 
@@ -59,17 +65,19 @@ Windows 仓库根目录：
 
 ```powershell
 ./windows/build.ps1 -Verify
-# 本轮独立 SDK：
+# 使用本轮独立 SDK：
 ./windows/build.ps1 -Dotnet ./build/dotnet/dotnet.exe -Verify
+./windows/verify-published.ps1 -Executable ./build/windows-react/win-x64/RouterWorkbench.exe
+./windows/verify-sandbox.ps1
 go test ./cmd/... ./internal/... ./tests/... -count=1
 go vet ./cmd/... ./internal/... ./tests/...
 go mod verify
 git diff --check
 ```
 
-日志／截图：`build/windows-winui/verification-*`；正式目录：`build/windows-winui/win-x64`。测试控制／HTTP 使用随机 loopback 端口；Core 维护池 32000～32029，WinUI 维护池 32100～32129，须空闲。正式程序仅用户点击后才连接，不包含测试入口。
+原生测试使用 loopback HTTP 18080、Probe 控制 18081、测试控制 18082、切换用 18083、CDP 19222、维护池 32200～32299，需空闲。正式程序没有这些测试入口。
 
-Linux 隔离环境执行：
+Linux 隔离环境：
 
 ```sh
 /bin/sh tests/verify-phase5.sh release
@@ -77,14 +85,14 @@ Linux 隔离环境执行：
 /bin/sh tests/verify-phase5.sh race
 ```
 
-需准备 go.mod 锁定缓存、OpenSSH、busybox-extras 和 devpts。真实服务用例绑定 80／22／23，须在隔离网络执行。脚本保留 phase5 输出名，表示继承回归入口，不表示复用旧结果。进程检查用独立空仓库和 loopback 启动当前 Linux Server，读取 /api/v1/devices 后 SIGTERM 并等待退出码 0。
+需要 go.mod 锁定缓存、OpenSSH、busybox-extras 和 devpts；真实服务绑定 80/22/23，必须在隔离网络运行。脚本名称沿用 Phase 5，执行的仍是本轮源码。
 
-## 已知限制与交付边界
+## 已知限制与交付
 
-- 发布 Windows x64 非 MSIX 自包含目录，目标机需 Visual C++ x64 运行库；未执行 Windows ARM64／x86、全部 Windows 10 版本或多物理显示器矩阵。
-- 外部入口测试覆盖启动边界与实际参数，不替代用户的浏览器、SSH／PuTTY 登录、主机密钥确认或厂商网页测试。真实通道字节流由 Phase 4／5 回归覆盖。
-- 只有 Repository 持久化；WebSocket 不重放、无实时 stdout，服务器重启后不保证幂等。倒计时受本机时钟影响；API 是事实来源。
-- Probe mipsel／ARM／ARM64、uClibc／老内核实机矩阵仍未执行，不能从 Linux x86_64 推断通过。
-- 认证／TLS／RBAC、Web、微信、MCP、AI、自研 SSH／Telnet、通用转发及新数据面未实现。
+- Windows x64 目录发布；干净目标机、Windows ARM64/x86、多物理显示器及所有旧 Windows 版本未完成环境矩阵。未签名应用可能被组织 Application Control 拒绝。
+- 固定 WebView2/VC 版本需发布者随版本维护；尚未构建升级系统。
+- 仅 Repository 持久化；WebSocket 不重放、无实时 stdout，Server 重启后幂等不保证；倒计时受本机时钟影响，API 为事实来源。
+- Probe mipsel/ARM/ARM64、uClibc/老内核实机矩阵未执行，不从 Linux x86_64 推断通过。
+- 正式公网 Web、认证/TLS/RBAC、微信、MCP、AI、自研 SSH/Telnet、通用转发及新数据面未实现。
 
-独立提交标题：`refactor: rebuild Windows workbench with WinUI 3`。实际 SHA 与 main 推送状态以 Git 记录及交付回复为准；推送后停止等待验收。
+本轮独立提交标题为 `refactor: adopt shared React frontend and Windows WebView2 shell`。最终 SHA 与 main 推送状态由实际 Git 记录及交付回复提供。按用户最终指定的本机范围完成验证后推送，停止等待验收。

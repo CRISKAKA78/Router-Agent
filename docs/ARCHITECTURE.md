@@ -4,13 +4,17 @@
 
 Phase 4 新增 `internal/tunnel.Service` 与 C++11 `TunnelManager`，采用 Accepted ADR-021 / ADR-022 的极简 TCP Maintenance，不使用 FRP/xfrpc。验证状态以 PROJECT_STATUS 为准。
 
-## Phase 6 Windows UI 模块与生命周期
+## Phase 6 Shared Frontend / Windows Shell
 
-`windows/RouterWorkbench`是C# / .NET 10 LTS WinUI 3中文Fluent桌面客户端，独立自包含Windows x64目录发布。WorkbenchViewModel协调快照/选择/交互准入，XAML窗口拥有主题、控件与DispatcherQueue调度；维护为设备概览首要卡片，连接设置与编号等技术信息收在设置/详情。`RouterWorkbench.Core`只消费Phase 5 HTTP/WebSocket公开契约；不引用或访问Server内部Service、数据表、Gateway或Tunnel数据面。没有Server/Probe生产代码变化。
+**React Shared Frontend 是今后 Windows 与 Web 的统一产品 UI 基线。** 采用 Accepted ADR-026：frontend/ 是唯一业务 UI、HTTP/WS Client、DTO、快照恢复、状态与设计系统；Windows 以 WinUI 3 + WebView2 加载随包静态资源。旧 XAML 业务页、C# ApiClient 与 WorkspaceConnection 已删除。
 
-每次Server连接拥有HttpClient、ClientWebSocket、单快照worker、容量1刷新队列、5秒恢复刷新和在途请求。WebSocket首连/重连后HTTP同步；通知仅使快照失效，查询期间新通知触发再次查询。UI采用当前连接及选择版本检查阻止迟到结果，异步切换/关闭取消并等待请求和worker。用户动作不计算业务终态/兼容性；POST/PUT固定字节与幂等键，响应不确定保留原请求并要求核对Server是否重启。
+Shell 仅管理窗口、本地内容、配置、受限平台 Bridge、Windows 文件选择与保存，以及浏览器/SSH/Telnet 启动。Core 无业务网络层；所有设备/任务/文件/工具/Maintenance 操作仍通过公开 /api/v1。Frontend 不引用 Server 内部实现、不重建状态机。
 
-Maintenance是默认操作页，新创建项自动选中，剩余时间仅为本机显示估计，入口打开前回查Maintenance。Web交系统浏览器，SSH/Telnet交Windows已有客户端或用户指定PuTTY，使用独立ArgumentList，用户负责外部登录；工作台不实现协议或缓存密码/Tunnel身份。外部程序与Server维护不因工作台退出自动终止。细节见[PHASE6_DESIGN](PHASE6_DESIGN.md)、[windows/README](../windows/README.md)、ADR-025。
+为保留现有 Origin 契约，Shell 在选定 Server origin 的 /__workbench/ 路径拦截并返回本地静态资源，页面直接调用同源 API/WS，不增加 C# API 代理。文档与静态脚本受本地资源和导航白名单控制，Bridge 核对当前入口文档来源；外部网页不能进入主 WebView2。Browser 平台共享相同 UI，未来正式部署需同源服务/反向代理，本轮不发布 Web。
+
+每个 Connection 拥有请求取消源、WebSocket、单快照 worker、dirty 合并及 5 秒恢复刷新。首连/重连重新 HTTP 全分页同步；查询结果按连接与选择隔离。原 Mutation 键和字节在不确定响应后保留，明确核对 Server 进程后重试。切换/退出取消并等待请求/socket/worker；WinUI await JS shutdown 再释放 WebView2。外部程序与 Server 已创建资源保持各自生命周期。
+
+发布目录包含 .NET、WinUI、React production assets 和固定 WebView2 Runtime，不需 Node。平台方法、页面层级、资产与任务事实分离、租期与安全细节见 [PHASE6_DESIGN](PHASE6_DESIGN.md)、[windows/README](../windows/README.md)。
 
 ## Phase 5 HTTP / WebSocket 模块与生命周期
 

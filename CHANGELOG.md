@@ -12,6 +12,10 @@
 
 ### Changed
 
+- Phase 6 产品 UI 正式迁移为共享 React / TypeScript 工作台，WinUI 3 作为 WebView2 薄 Shell；Windows 与未来 Web 共用页面、设计系统、HTTP/WebSocket 与状态管理，依据 ADR-026。
+- 按确认截图实现一级导航、设备列表、维护主卡片和中文浅色/深色界面；保留 Exec、文件、工具版本/产物/兼容/投放与全部既有 API 语义。移除旧 XAML 业务页面和 C# 业务网络层。
+- Windows Release 携带 production 静态资源、固定版本 WebView2、app-local VC DLL 和可选 VC++ 离线安装器；目标机不需要 Node/Vite。Native Bridge 限于明确平台能力并验证来源及输入，外部设备网页由系统浏览器打开。
+
 - Phase 6 Windows界面以C# + WinUI 3正式替换WinForms：中文Fluent工作台、设备侧栏、突出远程维护卡片，浅色/深色/系统主题、Mica与自适应布局；服务器地址移入设置，维护/会话编号及释放原因移入详情。
 - 命令、文件和工具使用列表与详情，原生弹窗和文件选择器支持桌面流程；错误主摘要中文化，原始API诊断放入详情。HTTP/WebSocket、幂等和系统浏览器/SSH/Telnet启动策略继续复用，后端契约不变。
 - Windows发布改为包含.NET与所需WinUI组件的x64目录包，替代旧单文件包；需要保留整个目录及目标机Visual C++运行库。架构选择按ADR-025取代ADR-024的界面/部署部分。

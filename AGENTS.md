@@ -52,11 +52,11 @@ Phase 0 完成后，仓库内 Markdown 文档成为项目持续维护的当前�
 
 ## 当前阶段限制
 
-Phase 0～5已验收。用户于2026-09-06明确授权从main稳定基线 `57c2b1f8f6da1069e4a2eb988224b94bafe9cf84` 进入Phase 6 Windows UI；用户随后明确要求WinUI 3正式重构（起点f8d099d6），设计按Accepted ADR-025、API.md及PHASE6_DESIGN.md。本阶段仅实现Windows桌面管理客户端，通过Phase 5 `/api/v1` 和WebSocket调用Server，不访问内部Service、数据库、Gateway或Tunnel数据面，不复制业务状态机。
+Phase 0～5已验收。用户于2026-09-06明确授权从main稳定基线 `57c2b1f8f6da1069e4a2eb988224b94bafe9cf84` 进入Phase 6 Windows UI；用户随后明确要求WinUI 3正式重构（起点f8d099d6），历史纯WinUI 3设计按ADR-025，本轮最终架构按Accepted ADR-026、API.md及PHASE6_DESIGN.md。本阶段仅实现Windows桌面管理客户端，通过Phase 5 `/api/v1` 和WebSocket调用Server，不访问内部Service、数据库、Gateway或Tunnel数据面，不复制业务状态机。
 
 保留Accepted ADR-009～023及ADR-024未被ADR-025取代的边界。Maintenance固定Web/SSH/Telnet → Probe 127.0.0.1:80/22/23，默认240分钟，自定义正租期；独立data TCP、创建Session绑定、24小时默认端口隔离、Gateway有界独立控制发送及Probe默认8条/最大64条流保持。资产持久化/身份/版本/匹配/归档/清理由Accepted ADR-019 R1～R6约束；artifact_id全Repository唯一，tool_id/asset_id/artifact_id不因归档、去重或存储路径变化重用。
 
-当前明确使用C# + WinUI 3，中文Fluent界面、Light/Dark/系统主题，设备侧栏与首要维护卡片；地址进入设置，维护/会话编号和释放原因进入详情。可自行组织合理UI分层并复用已有API/WS/DTO/外部SSH及Telnet启动逻辑。维护默认240分钟，可自定义正租期。WebSocket首连/重连回查HTTP快照；网络请求异步，切换Server/退出取消并等待旧资源释放。必要API缺口只允许最小补充，不重构Server。认证、TLS、RBAC、租户和完整审计仍为后续边界；配置保留合理扩展入口，不构建账号体系。不得缓存或显示Tunnel token、connection_id或data私有细节。
+用户于2026-09-06进一步明确授权从main稳定基线 `6f0ce71a5027b57d51e9a6c807794be45f7633b5` 采用Accepted ADR-026，当前明确使用C# / WinUI 3 Thin Shell + WebView2 + React / TypeScript Shared Frontend。React是今后Windows与Web的统一产品UI基线，替代旧XAML业务页与C#业务网络层；Shell仅保留受限平台Bridge、本地资源、窗口及配置能力。中文Fluent界面、Light/Dark/系统主题，设备侧栏与首要维护卡片；地址进入设置，维护/会话编号和释放原因进入详情。可自行组织合理UI分层并复用已有API/WS/DTO/外部SSH及Telnet启动逻辑。维护默认240分钟，可自定义正租期。WebSocket首连/重连回查HTTP快照；网络请求异步，切换Server/退出取消并等待旧资源释放。必要API缺口只允许最小补充，不重构Server。认证、TLS、RBAC、租户和完整审计仍为后续边界；配置保留合理扩展入口，不构建账号体系。不得缓存或显示Tunnel token、connection_id或data私有细节。
 
 必须完成Windows客户端连接/断线/重连、设备实时更新/Session replacement、Maintenance创建/关闭/默认与自定义租期/到期/三入口、Exec结果、File/Tool、API错误、重复点击/并发和退出资源验证；保留Phase 1～5全量测试、Go race/vet、C++ CTest/sanitizers、Linux Probe与Windows/Linux Server适用验证。同步API/ARCHITECTURE/DECISIONS/PROJECT_STATUS/HANDOFF/ROADMAP/CHANGELOG及PHASE6_VERIFICATION。全部通过后独立Phase 6 Windows UI commit推送GitHub main，停止等待验收，不进入Web UI、微信小程序、MCP、AI Agent、通用端口转发、新Tunnel数据面、自研SSH/Telnet或任意目标端口。
 

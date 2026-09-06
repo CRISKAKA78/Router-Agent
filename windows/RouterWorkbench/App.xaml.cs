@@ -25,10 +25,9 @@ public partial class App : Application
 #if VERIFY_UI
         var arguments = Environment.GetCommandLineArgs();
         UnhandledException += (_, e) => { File.WriteAllText(Path.Combine(arguments[2], "ui-failure.txt"), e.Exception.ToString()); Environment.Exit(1); };
-        var verification = new MainWindow(Path.Combine(arguments[2], "profile.json"), MainWindow.CaptureLaunch);
+        var verification = new MainWindow(Path.Combine(arguments[2], "profile.json"));
         window = verification;
         verification.Activate();
-        verification.DispatcherQueue.TryEnqueue(async () => await verification.VerifyAsync(arguments[1], arguments[2]));
 #else
         window = new MainWindow();
         window.Activate();

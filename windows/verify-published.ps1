@@ -22,7 +22,14 @@ public static class WorkbenchPublishedWindow {
     }
 }
 '@
-$publishedProcess = Start-Process -FilePath (Resolve-Path -LiteralPath $Executable).Path -WindowStyle Hidden -PassThru
+$releaseDirectory = Split-Path (Resolve-Path -LiteralPath $Executable).Path -Parent
+$originalPath = $env:PATH
+try {
+    # Only this launch inherits the restricted PATH; the user's environment is restored.
+    $env:PATH = "$env:SystemRoot\System32;$env:SystemRoot"
+    if (Get-Command node.exe,dotnet.exe -ErrorAction SilentlyContinue) { throw 'Developer runtime remains on test PATH' }
+    $publishedProcess = Start-Process -FilePath (Join-Path $releaseDirectory 'RouterWorkbench.exe') -WorkingDirectory $releaseDirectory -WindowStyle Hidden -PassThru
+} finally { $env:PATH = $originalPath }
 try {
     $window = [IntPtr]::Zero
     for ($attempt = 0; $attempt -lt 150 -and $window -eq [IntPtr]::Zero; $attempt++) {
@@ -31,11 +38,21 @@ try {
         $window = [WorkbenchPublishedWindow]::Find($publishedProcess.Id)
     }
     if ($window -eq [IntPtr]::Zero) { throw '发布程序未创建工作台窗口，请检查本地 last-error.log' }
+    $web = $null
+    for ($attempt = 0; $attempt -lt 120; $attempt++) {
+        if ($publishedProcess.HasExited) { throw 'Product exited before WebView2 loaded' }
+        $web = Get-CimInstance Win32_Process -Filter "Name='msedgewebview2.exe'" | Where-Object {
+            $_.ParentProcessId -eq $publishedProcess.Id -and $_.ExecutablePath -eq (Join-Path $releaseDirectory 'WebView2Runtime/msedgewebview2.exe')
+        }
+        if ($web) { break }
+        Start-Sleep -Milliseconds 500
+    }
+    if (!$web) { throw 'Product did not load its bundled WebView2 runtime' }
     $publishedProcess.Refresh()
     $xaml = $publishedProcess.Modules | Where-Object ModuleName -eq 'Microsoft.UI.Xaml.dll'
     if (!$xaml -or (Split-Path $xaml.FileName -Parent) -ne (Split-Path (Resolve-Path -LiteralPath $Executable).Path -Parent)) { throw '未从发布目录加载 WinUI 运行库' }
     [WorkbenchPublishedWindow]::PostMessage($window, 16, [UIntPtr]::Zero, [IntPtr]::Zero) | Out-Null
     if (!$publishedProcess.WaitForExit(15000) -or $publishedProcess.ExitCode -ne 0) { throw '发布程序未正常退出' }
-    'PASS published WinUI: native window, local runtime, WM_CLOSE exit=0'
+    'PASS published native window, bundled WebView2/WinUI, no Node/dotnet on child PATH, WM_CLOSE exit=0'
 }
 finally { if (!$publishedProcess.HasExited) { $publishedProcess.Kill() }; $publishedProcess.Dispose() }

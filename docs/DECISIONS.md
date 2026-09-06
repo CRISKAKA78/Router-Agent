@@ -363,3 +363,18 @@ Task Service 继续拥有任务规格、ACK/RESULT 关联与幂等；File Transf
 - 影响：P1 明确 queued upload 可登记 FILE_BEGIN 但延后 ready；P2 冻结字段与帧长度口径；P3 将 Phase 1 接收限制为顺序 offset 并明确失败处理；P4 扩展文件任务执行身份；P5 固定超时、断线和提交确认边界。
 - 与历史决定关系：补充 ADR-011/015；P3 正式取代 PROTOCOL.md 原来“发送端建议顺序发送、offset 支持乱序校验”在 Phase 1 的宽松表述，改为强制连续 offset。ADR-009/010/011/015 原文保留。
 - 实施：按正式协议实现与测试 Phase 1D，全部验证后独立提交推送并停止等待验收。
+
+
+## ADR-026 React Shared Frontend 与 Windows WebView2 Thin Shell
+
+- 状态：Accepted。
+- 日期：2026-09-06。
+- 确认依据：用户明确要求从 main `6f0ce71a5027b57d51e9a6c807794be45f7633b5` 将最终前端重构为 C# / WinUI 3 Thin Shell + WebView2 + React / TypeScript Shared Frontend，并授权实现、验证、独立提交与推送。
+- Supersedes：ADR-025 的完整 XAML 产品 UI、C# Core 业务 HTTP/WS 层与不使用网页 UI 的选择；ADR-024/025 未涉及的 API First、幂等、外部客户端和资源释放语义保留。原 ADR 不改写。
+- 决定：**React Shared Frontend 是今后 Windows 与 Web 的统一产品 UI 基线。** React / TypeScript / Vite / Tailwind / Lucide 承担业务页面、状态、API、WebSocket、快照和设计系统；删除被替代的纯 XAML 业务页及 C# 网络实现。WinUI 保留窗口、WebView2、本地配置、Windows 文件选择与受限启动能力。
+- 原因：用户确认的工作台视觉和后续 Web 复用要求，需要一套可维护的正式产品 UI；继续分别维护 XAML 与 Web 页面会产生两套交互、适配和状态恢复逻辑。
+- Bridge：已知方法、严格字段/类型/长度与来源校验；只提供配置、连接上下文、原生客户端选择与固定三种服务启动。不得提供任意命令、路径读写或任意 Process.Start。文件读取仅来自用户选择的 File；保存由原生选择器创建一次性句柄，连续有界分块写入、摘要校验后发布，不接受目标路径参数。不得改变 Server 业务状态。
+- 同源与内容：现有 API Origin 策略不改动。WebView2 将选定 Server origin 下的 /__workbench/ 本地资源请求截获，JS 直接调用同源公开 API/WS。只允许受控本地入口文档、静态资源和 API 请求；拒绝外部导航、frame、worker 与远程脚本。设备 Web 页面只交系统浏览器。未来 Browser 使用同源部署，具体公开部署尚未实施。
+- 发布：Windows x64 自包含 .NET/WinUI 目录，包含 React production assets、Fixed Version WebView2 Runtime、包内 VC DLL 的 app-local 副本和可选离线 VC++ 安装器，不依赖 Node/Vite 服务或目标机提权安装。固定 Runtime/VC DLL 由发布者随应用更新并验证；不引入自动升级系统。
+- 保留：ADR-009～023、Phase 4 Maintenance/端口隔离/数据面和 ADR-019 身份/资产规则全部保持。没有后端契约、Probe 或 Tunnel 生产变更；认证/TLS/RBAC、MCP、AI、微信和通用转发仍不在本轮。
+- 实施与证据：PHASE6_DESIGN、PHASE6_VERIFICATION、windows/README；历史纯 XAML 验证不能冒充本轮验证。

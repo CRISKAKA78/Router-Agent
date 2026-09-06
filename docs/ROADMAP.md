@@ -160,16 +160,20 @@ Protocol v1 的 14 项验收基线已映射至可运行测试，完整结果见 
 
 ## Phase 6 User Interfaces
 
-状态：Windows UI已实现并通过规定验证，待用户验收；Web与微信未开始。首版f8d099d6后，用户明确要求C# + WinUI 3正式重构，采用Accepted ADR-025。
+状态：用户授权从 6f0ce71 将 Windows 客户端迁移为共享 React UI + WinUI 3 WebView2 Thin Shell，采用 Accepted ADR-026。React 是今后 Windows 与 Web 的统一产品 UI 基线，公网 Web 部署尚未开始。
 
-- [x] Windows UI：C# / .NET 10 LTS WinUI 3，中文Fluent界面与自包含x64目录发布。
-- [x] Server连接设置、设备/Session、Maintenance三入口/租期/关闭、Exec结果与File/Tool/版本/兼容产物/投放。
-- [x] WebSocket重连HTTP同步、原请求幂等重试、错误区分、重复点击和连接/退出资源回收。
-- [x] WinUI原生控件/弹窗、Light/Dark、100%/200% XAML、窗口缩放与真实API验证、Phase 1～5全量回归和平台检查；记录见PHASE6_VERIFICATION。
-- [ ] Web 管理界面（未授权）。
+- [x] React / TypeScript / Vite / Tailwind / Lucide 工作台及 Light/Dark/系统主题。
+- [x] Device/Session、Maintenance 三入口与租期、Exec/Task、File、Tool/Version/Artifact/兼容/投放迁移。
+- [x] 唯一 TypeScript HTTP/WS Client、幂等、快照恢复、查询合并与切换/退出取消。
+- [x] WinUI Thin Shell、受控本地静态资源、严格平台 Bridge；旧 XAML 业务 UI 和 C# 网络层删除。
+- [x] React production build、Windows Release 与包含固定 WebView2 的离线发布目录。
+- [x] 本轮 9 项前端测试、21 项原生策略/保存检查、26 项实际 WebView2 集成与本机正式发布启动/退出。
+- [-] 无网络干净 Windows Sandbox 运行：Application Control 拒绝未签名 EXE；用户明确将本轮验收改为直接在本机测试，干净目标机运行尚未验证。
+- [x] Phase 1～5、Tunnel、Linux Release/ASan/race 与 Windows Go test/vet/build 回归。
+- [ ] 正式 Web 管理界面部署（未授权；复用当前 React 基线）。
 - [ ] 微信小程序（未授权）。
 
-本轮独立Phase 6 WinUI 3重构commit推送main后停止等待验收。Web/微信技术栈及后续实施仍TBD，不进入Phase 7/8。
+按用户最终指定的本机范围完成验证后，独立 commit 推送 main，停止等待验收，不进入 Phase 7/8。
 
 ## Phase 7 MCP
 

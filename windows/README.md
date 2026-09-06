@@ -1,54 +1,58 @@
 # Windows 远程维护工作台
 
-C# / .NET 10 LTS / WinUI 3，中文 Windows 11 维护客户端。Fluent 控件、Mica、设备侧栏、分区导航、状态提示条和原生弹窗，支持浅色、深色及跟随系统。
+Windows 客户端采用 C# / WinUI 3 Thin Shell + WebView2。**React Shared Frontend 是今后 Windows 与 Web 的统一产品 UI 基线。** 业务页面、HTTP/WebSocket、状态和错误处理位于 `frontend/`；C# 不再维护第二套业务 API Client 或 XAML 页面。
 
-## 安装和连接
+## 使用
 
-复制整个发布目录到 Windows x64 电脑，运行 `RouterWorkbench.exe`。保留 DLL、资源和子目录，不能只复制 EXE。目录自带 .NET 和所需 Windows App SDK 组件，不需要 SDK、Node 或独立安装 Windows App Runtime。目标机需要[微软 Visual C++ x64 运行库](https://learn.microsoft.com/en-us/cpp/windows/latest-supported-vc-redist)。实际验证 Windows 11 build 26200；最低目标 Windows 10 build 19041，旧系统矩阵未全部验证。
+发布目录为 `build/windows-react/win-x64/`。保留完整目录，直接启动 `RouterWorkbench.exe`。包内含 .NET、WinUI、Frontend、固定版本 WebView2Runtime 和 app-local VC DLL，目标机不需要 Node、Vite、.NET SDK、提权安装或在线前端服务。另附 `Install-Prerequisites.ps1` 和 VC++ 离线安装器，供采用系统集中运行库的部署使用。
 
-左下角“设置”填写管理服务器地址，例如 `http://127.0.0.1:8080`，点击“保存并连接”。地址不含 `/api/v1`，不是探针控制或隧道数据地址。右上角显示“已连接 · 实时同步”后可操作。详细地址和外部客户端配置保留在设置中。
+在“系统设置”输入 `http(s)://主机:端口`，保存并连接。选择设备 → 开启远程维护 → Web / SSH / Telnet。默认 240 分钟，自定义正租期没有 360 分钟上限。Web 使用默认浏览器；SSH/Telnet 使用系统客户端或在原生选择器中选择已有 PuTTY。工作台不安装这些运维客户端、不自研登录协议。
 
-配置位于 `%LOCALAPPDATA%\RouterWorkbench\profile.json`，兼容首版配置，新增外观偏好。仅保存地址、外观、客户端路径及 SSH 用户名，不保存密码、业务快照或隧道内部标识。API 面向可信本机或受保护管理网络；认证、TLS、RBAC 仍属部署边界与后续设计。使用系统证书验证。
+文件先导入仓库再上传到设备；设备下载在任务中显示 committed/released 与最终 RESULT，显式导入后成为稳定资产。工具版本可包含多个 Artifact，兼容性由 Server 判定。响应不确定时先核对 Server 是否重启，再显式重试相同请求或核对后放弃。
 
-## 日常使用
+配置：`%LOCALAPPDATA%\RouterWorkbench\profile.json`，只保存地址、主题、客户端路径和用户名。WebView2 本地用户数据也在此目录；不缓存业务快照或 Tunnel 身份。退出等待网络资源释放，不关闭用户已打开的外部程序，也不撤销 Server 已创建的维护或任务。
 
-1. 左侧搜索并选择设备，查看名称、编号、在线和维护状态。
-2. 在概览的维护卡片点击“开启远程维护”。默认 240 分钟；“调整”可设置正数分钟，支持对应整数毫秒的小数，范围与 API 一致。
-3. 创建后直接看到剩余时间、三个临时入口和按钮；随时可“关闭维护”。维护记录、会话编号、释放事实及原因在“详细信息”中。
-4. Web 调用默认浏览器；SSH 默认系统 `OpenSSH\ssh.exe`，Telnet 默认系统 `telnet.exe`。可指定已有 PuTTY.exe 并勾选对应模式。SSH 用户名默认 root；密码和主机密钥确认由外部客户端处理，不禁用验证、不自研协议。
-5. “命令与任务”执行基础命令、查看服务器状态、退出码、标准输出／标准错误和截断标记。派发、编号及文件提交／释放事实在详情中。重发原任务保留业务身份，没有实时输出流或新增取消能力。
-6. “文件”导入本机文件、另存、上传到设备、从设备下载和归档。下载完成后在任务页显式导入仓库或清理暂存。采用支持普通／管理员桌面进程的 Windows App SDK 文件选择器。
-7. “工具与版本”创建工具、发布多产物不可变版本、查看服务器兼容性并投放所选兼容产物。规则多值用逗号分隔。投放只上传文件，执行时另行发起命令。
+## 构建与验证
 
-退出工作台不会杀死外部客户端，也不自动撤销服务器已有任务或维护。维护到期、会话替换和主动关闭仍由服务器决定。
-
-## 连接恢复和错误
-
-WebSocket 只通知刷新，首连和每次重连均获取 HTTP 完整快照，不假设历史事件重放。断线退避 1/2/4/8/16/30 秒，另每 5 秒回查；未同步时禁用写入和入口打开。页面切换不重复订阅，切换服务器先释放旧连接及在途网络操作。
-
-倒计时是本机显示估计，到期回查服务器，不伪造“已关闭”；打开入口前也会查询维护。API 始终是业务事实来源。
-
-写入绑定固定内容和幂等键，不自动重试。响应不确定时用“处理请求”核对状态，仅在服务器未重启时“重试原请求”；已核对副作用后可解除保护。服务器重启后旧键不保证去重。非空任务编号和派发不确定提示会保留。
-
-主错误提示中文化，原始 API code、HTTP 状态和说明放入详情；区分不可达、设备离线、会话替换、维护创建失败、容量不足和文件／工具失败。共享错误码 `capacity_exhausted` 提示“维护端口池或服务器容量不足”，不猜测唯一内部原因。
-
-列表每页 200 项，超过 10000 项显式失败。导入上限 1 GiB，受服务器更小限制约束。HTTP 超时 40 秒，文件保存体超时 5 分钟。
-
-## 构建和验证
-
-Windows 仓库根目录，安装 .NET 10 SDK 和 Go 后运行：
+构建机需要 Windows x64、.NET 10 SDK、Node 20.19+/22.12+（本轮使用 Node 24）、Go（验证时）。
 
 ```powershell
 ./windows/build.ps1 -Verify
+# 仓库中独立 SDK：
 ./windows/build.ps1 -Dotnet ./build/dotnet/dotnet.exe -Verify
+./windows/verify-sandbox.ps1
 ```
 
-默认目录 `build/windows-winui/win-x64`；可用 `-OutputDirectory` 指定新目录。请部署完整目录，不覆盖旧 WinForms 单文件包。固定微软 WinUI 组件和 Windows SDK BuildTools NuGet，无须 Visual Studio。未引用无关 AI／ML 包；WinUI 传递依赖含 WebView2 接口，程序不创建 WebView2，也不分发 Chromium。
+脚本执行 npm ci、TypeScript/Vite production build、Windows Release publish；默认下载并缓存微软 Fixed Version WebView2 152.0.4191.62 与 VC++ 离线安装器，核对 Microsoft 签名。已有离线 Fixed Runtime 可通过 `-WebView2Runtime <目录>` 提供。发布资源不要求目标机下载。固定 WebView2 版本由后续发布维护者升级并回归。
 
-验证包含独立 Core API／故障测试和真正的 WinUI 窗口，后者仅在 `VerifyUI=true` 编译，正式发布明确为 false。日志和截图在 `build/windows-winui/verification-*`。100% 桌面及实际 XAML 200% 光栅化、主题、窗口缩放、断线恢复与关闭均有验证；200% 使用公开 XAML 岛宿主，不改变用户显示设置。不同显示器移动和硬件组合仍需现场验证。
+`-Verify` 执行 Vitest、原生策略测试、真实 Go API + WebView2 全流程，再检查正式发布 EXE 的正常启动/退出。测试临时使用 loopback 18080/18081/18082、调试 19222、维护端口 32200～32299，请确保空闲。调试端口和入口捕获只编译进 VerifyUI=true；正式包禁用 DevTools，不带 Probe 测试代码。
 
-构建脚本还会独立启动正式发布程序，确认应用编译资源、本目录 WinUI 运行库及正常关闭。若发生未预期的界面初始化错误，可查看 `%LOCALAPPDATA%\RouterWorkbench\last-error.log` 的时间和诊断；普通网络／业务错误显示在界面中。
+Sandbox 验证需要 Windows Sandbox 功能；映射发布目录只读、结果目录可写、网络关闭，在新环境复制到本地后启动正式程序，检查无 Node/dotnet 命令、真实 React 无障碍树、本地运行库和退出。结果在 `build/react-shell/sandbox-*`。本轮沙盒 Application Control 拒绝未签名 EXE，用户随后明确要求直接在本机测试；本机通过不等于干净目标机已通过，详见专项验证记录。
 
-完整服务器／真实探针／Tunnel 回归沿用 `tests/verify-phase5.sh release|asan|race`，见 [Phase 6 验证记录](../docs/PHASE6_VERIFICATION.md)。
+```text
+frontend/
+  src/              React UI / API / WebSocket / platform / design system
+  tests/native.mjs  实际 WebView2 集成验证
+  dist/             Vite 生产静态资源（构建生成）
+windows/
+  RouterWorkbench/       WinUI Shell / WebView2 / local resources
+  RouterWorkbench.Core/  profile / launch / bridge policy
+  RouterWorkbench.Tests/ native policy / fixture / Windows picker tests
+build/windows-react/win-x64/
+  RouterWorkbench.exe + .NET / WinUI 文件
+  Frontend/index.html + assets/
+  WebView2Runtime/        随包固定版本运行库
+  Prerequisites/         VC++ 离线安装器
+```
 
-依据：[稳定版本](https://learn.microsoft.com/en-us/windows/apps/windows-app-sdk/release-channels)、[自包含部署](https://learn.microsoft.com/en-us/windows/apps/package-and-deploy/self-contained-deploy/deploy-self-contained-apps)、[桌面文件选择器](https://learn.microsoft.com/en-us/windows/apps/develop/files/using-file-folder-pickers)。
+## 浏览器开发与后续复用
+
+```powershell
+$env:RMP_SERVER='http://127.0.0.1:8080'
+npm --prefix frontend ci
+npm --prefix frontend run dev
+```
+
+浏览器使用 Vite 显示的同源地址连接。开发代理只绑定 loopback；正式部署应由同源反向代理承载静态资源和 `/api/v1`。浏览器平台通过文件选择/Blob 下载和系统浏览器完成相应能力，SSH/Telnet 显示本机客户端连接提示。业务组件不区分 Windows 与 Browser。公网 Web 部署、认证/TLS/RBAC 仍属后续设计，本轮未实施。
+
+设计与实际限制见 [PHASE6_DESIGN](../docs/PHASE6_DESIGN.md)、[PHASE6_VERIFICATION](../docs/PHASE6_VERIFICATION.md) 和 ADR-026。Windows ARM64/x86、多物理显示器、全部旧 Windows 版本及各路由器实机架构矩阵仍需相应环境验收。
