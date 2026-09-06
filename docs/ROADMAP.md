@@ -151,7 +151,7 @@ Protocol v1 的 14 项验收基线已映射至可运行测试，完整结果见 
 
 ## Phase 5 HTTP and WebSocket API
 
-状态：实现及全部规定自动化验证通过，待用户验收；用户明确授权基线b29aa46，采用Accepted ADR-023。独立commit推送main后停止，验证结果见PHASE5_VERIFICATION。
+状态：已完成并获用户验收。稳定提交 `57c2b1f8f6da1069e4a2eb988224b94bafe9cf84`，采用Accepted ADR-023；历史验证见PHASE5_VERIFICATION。
 
 - [x] /api/v1 HTTP API。
 - [x] 设备、Session、exec/Task、资产/文件传输、工具/版本/Artifact/兼容与Maintenance能力。
@@ -160,13 +160,16 @@ Protocol v1 的 14 项验收基线已映射至可运行测试，完整结果见 
 
 ## Phase 6 User Interfaces
 
-状态：未开始
+状态：Windows UI已实现并通过规定验证，待用户验收；Web与微信未开始。用户授权从57c2b1f基线优先Windows桌面客户端，采用Accepted ADR-024。
 
-- [ ] Web 管理界面。
-- [ ] Windows UI。
-- [ ] 微信小程序。
+- [x] Windows UI：C# / .NET 10 LTS Windows Forms，自包含x64发布。
+- [x] Server连接设置、设备/Session、Maintenance三入口/租期/关闭、Exec结果与File/Tool/版本/兼容产物/投放。
+- [x] WebSocket重连HTTP同步、原请求幂等重试、错误区分、重复点击和连接/退出资源回收。
+- [x] Windows原生控件与真实API验证、Phase 1～5全量回归和平台检查；记录见PHASE6_VERIFICATION。
+- [ ] Web 管理界面（未授权）。
+- [ ] 微信小程序（未授权）。
 
-各前端的实现顺序和技术栈为 TBD。
+本轮独立Phase 6 Windows UI commit推送main后停止等待验收。Web/微信技术栈及后续实施仍TBD，不进入Phase 7/8。
 
 ## Phase 7 MCP
 

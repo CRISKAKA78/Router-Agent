@@ -4,6 +4,14 @@
 
 Phase 4 新增 `internal/tunnel.Service` 与 C++11 `TunnelManager`，采用 Accepted ADR-021 / ADR-022 的极简 TCP Maintenance，不使用 FRP/xfrpc。验证状态以 PROJECT_STATUS 为准。
 
+## Phase 6 Windows UI 模块与生命周期
+
+`windows/RouterWorkbench`是C# / .NET 10 LTS Windows Forms桌面客户端，独立自包含Windows x64发布。`RouterWorkbench.Core`只消费Phase 5 HTTP/WebSocket公开契约；不引用或访问Server内部Service、数据表、Gateway或Tunnel数据面。没有Server/Probe生产代码变化。
+
+每次Server连接拥有HttpClient、ClientWebSocket、单快照worker、容量1刷新队列、5秒恢复刷新和在途请求。WebSocket首连/重连后HTTP同步；通知仅使快照失效，查询期间新通知触发再次查询。UI采用当前连接及选择版本检查阻止迟到结果，异步切换/关闭取消并等待请求和worker。用户动作不计算业务终态/兼容性；POST/PUT固定字节与幂等键，响应不确定保留原请求并要求核对Server是否重启。
+
+Maintenance是默认操作页，新创建项自动选中，剩余时间仅为本机显示估计，入口打开前回查Maintenance。Web交系统浏览器，SSH/Telnet交Windows已有客户端或用户指定PuTTY，使用独立ArgumentList，用户负责外部登录；工作台不实现协议或缓存密码/Tunnel身份。外部程序与Server维护不因工作台退出自动终止。细节见[PHASE6_DESIGN](PHASE6_DESIGN.md)、[windows/README](../windows/README.md)、ADR-024。
+
 ## Phase 5 HTTP / WebSocket 模块与生命周期
 
 - `internal/api.Server`是HTTP/WebSocket Adapter，`api.Run`组合两个listener及management.Server；`cmd/server`提供独立http-listen及容量配置。HTTP路径、DTO、错误、分页、幂等账本及事件wire属于Adapter；不访问Gateway连接表、Task/File内部map或Repository存储表。
@@ -161,7 +169,7 @@ Management Server 采用 API First。客户端只消费公开 API 或稳定的�
 | --- | --- | --- |
 | Web | 主要管理界面 | 只调用 HTTP API 与 WebSocket |
 | 微信小程序 | 移动端快速维护入口 | 不依赖后端内部实现 |
-| Windows UI | 本地桌面管理工具 | 可调用同一 API 或内嵌 Web UI，不复制核心业务 |
+| Windows UI | 原生Windows Forms远程维护工作台 | 仅调用统一HTTP API与WebSocket，不复制核心业务 |
 | CLI | 调试与自动化薄客户端 | 不形成独立业务实现 |
 | MCP 与 AI Agent | AI 工具入口 | 复用 Service 或 API，不直接拼装 Probe 协议帧 |
 

@@ -2,7 +2,7 @@
 
 本项目用于建设一套由 Management Server 和路由器端 Probe 组成的远程运维平台。Management Server 统一承载设备、任务、文件与工具、Tunnel 和对外 API 等核心能力；Probe 主动连接 Server，并向上提供轻量、通用的设备控制原语。
 
-Phase 0～4已验收；Phase 5提供统一 `/api/v1` HTTP API与WebSocket状态通知，复用已有设备、任务、文件、工具仓库与Maintenance Service。正式契约见[API](docs/API.md)，实际交付与验证见[PROJECT_STATUS](docs/PROJECT_STATUS.md)和[Phase 5验证](docs/PHASE5_VERIFICATION.md)。本轮完成后等待Phase 5验收，不进入Phase 6。
+Phase 0～5已验收。Phase 6提供原生Windows远程维护工作台，通过统一 `/api/v1` 和WebSocket使用设备、任务、文件、工具与Maintenance能力。Windows入口及构建见[使用说明](windows/README.md)，正式API见[API](docs/API.md)，交付事实见[PROJECT_STATUS](docs/PROJECT_STATUS.md)和[Phase 6验证](docs/PHASE6_VERIFICATION.md)。本轮Windows UI提交推送后等待验收。
 
 ## 系统关系
 
@@ -55,7 +55,7 @@ curl -X POST http://127.0.0.1:8080/api/v1/tasks \
 
 ## 当前不能做什么
 
-仓库目前不支持Probe/Server进程重启后的任务恢复、Process Manager、通用Tunnel或任意端口，也不提供UI、操作CLI、MCP或AI Agent。认证、TLS、RBAC和完整审计仍为后续设计点；当前API用于可信本机或受保护管理网络。
+仓库目前不支持Probe/Server进程重启后的任务恢复、Process Manager、通用Tunnel或任意端口，也不提供Web UI、微信小程序、操作CLI、MCP或AI Agent。认证、TLS、RBAC和完整审计仍为后续设计点；当前API用于可信本机或受保护管理网络。
 
 ## 文档导航
 

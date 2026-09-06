@@ -2,6 +2,8 @@
 
 本文件维护Phase 5已实现的 `/api/v1` HTTP/WebSocket规范及原内部Service契约。实现入口 `internal/api`，业务来源为 `management.Server` 与已有 Service。没有新的 Probe 消息或 Tunnel 数据面。
 
+Phase 6 Windows UI已消费本文件公开契约，生产API无补充或修改。客户端首连/重连HTTP同步、维护与Exec/文件/工具动作、相同键显式重试及入口启动规则见[PHASE6_DESIGN](PHASE6_DESIGN.md)与[Windows使用说明](../windows/README.md)。Windows UI不能直接调用下文内部Go接口。
+
 ## 部署与生命周期
 
 `cmd/server -http-listen 127.0.0.1:8080` 默认启用独立 HTTP listener。控制 TCP 仍为 `-listen :9000`，Maintenance data 与入口配置保持 Phase 4。HTTP 包括命令执行、文件与设备断开能力，仅用于可信本机或受保护管理网络。非 loopback 绑定由部署者显式配置；远程访问由部署层完成 TLS、认证和网络访问限制。当前没有内置用户、租户、RBAC 或完整审计，不能把 loopback、Origin 校验或 Tunnel 配对 token 当成用户认证。
@@ -166,7 +168,7 @@ HTTP最多32个并行handler，超额503；原生Serve监听同时最多 `MaxReq
 
 `gateway.Config.DeviceHistoryLimit` 为每设备已结束 Session 保留数：0 使用默认 64，正数自定义，负数使 New 返回错误；当前 Session 不占历史槽位。淘汰最旧历史时增加 EvictedSessions，Task/File 记录不受影响。设备清单本身不自动淘汰，没有持久化，Server 重启后为空。
 
-每次查询在 Device Service 的读锁内取得一致快照，所有嵌套 Session 和 capabilities 都是独立副本；调用方修改返回值不会改变 Service。多次查询之间可发生状态变化，不提供跨调用事务或可重放事件流。Phase 5外部HTTP/WebSocket调用这些查询；未实现UI/MCP。
+每次查询在 Device Service 的读锁内取得一致快照，所有嵌套 Session 和 capabilities 都是独立副本；调用方修改返回值不会改变 Service。多次查询之间可发生状态变化，不提供跨调用事务或可重放事件流。Phase 5外部HTTP/WebSocket调用这些查询，Phase 6 Windows UI仅消费外部契约；MCP未实现。
 
 ## Phase 3 内部 Repository 与管理接口
 

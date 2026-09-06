@@ -2,6 +2,18 @@
 
 本文件使用轻量 ADR 记录重要设计决定与待确认草案。仅 Accepted 条目构成已确认决定；Proposed 条目不得被实现推断为已接受。状态为 Accepted 的决定不得被实现静默改变；需要变更时，应新增取代决策并说明迁移与影响。
 
+## ADR-024 Phase 6 Windows 桌面客户端
+
+- 状态：Accepted（2026-09-06 用户验收Phase 5，明确授权Windows UI，并授权自行选择技术栈和现有客户端调用方式）。
+- 起点：`57c2b1f8f6da1069e4a2eb988224b94bafe9cf84`，fetch后HEAD/main/origin/main一致，初始工作区干净。旧阶段停止限制属于状态过期，依当前用户授权更新；本ADR补充客户端实现选择，不取代ADR-009～023。
+- 技术：C# / .NET 10 LTS Windows Forms，原生控件，自包含Windows x64发布。独立Core项目只包含公开API DTO/HTTP、配置、连接生命周期与启动参数；WinForms项目拥有展示和用户动作。无WebView/Node、第三方NuGet库或客户端业务状态机。
+- 工作流：设备及Session → 默认240分钟/正自定义租期Maintenance → Web/SSH/Telnet三个入口与剩余时间；另有Task/Exec、File/Tool/版本/兼容产物及既有投放。UI以Server状态为准；剩余时间只作显示估计，到期回查，不伪造closed或Task成功。
+- 连接：每Server连接独立HttpClient/ClientWebSocket、取消和在途任务集合；容量1刷新通知合并、单快照worker，首连和重连HTTP同步，5秒恢复刷新，禁止历史重放假设。UI只应用当前连接/选择版本的返回。切换和退出取消并await所有网络与worker，外部程序由用户拥有。
+- 幂等：所有POST/PUT绑定固定请求字节和新随机键，不自动重试写入。重复点击准入及Windows双击防抖；响应不确定保留原请求，明确确认Server未重启后才同键重试。非空task_id与dispatch_uncertain一并显示，下载Committed/Released不替代RESULT。未决请求不跨切换/进程持久化。
+- 外部入口：Web调用系统浏览器；SSH默认Windows OpenSSH，Telnet默认Windows Telnet Client，也可指定已有PuTTY及参数模式。绝对exe路径和ArgumentList传参，不拼Shell、不处理密码、不关闭SSH主机密钥验证、不实现SSH/Telnet或Tunnel协议。
+- 边界：API/Server/Probe生产代码无变更；认证/TLS/RBAC仍由部署及后续设计负责，配置schema_version和集中网络层为未来扩展入口。无内部token/connection_id、Web/微信UI、MCP/AI或新数据面。
+- 验证与依据：PHASE6_DESIGN、PHASE6_VERIFICATION及windows/README；[WinForms官方说明](https://learn.microsoft.com/en-us/dotnet/desktop/winforms/overview/)、[.NET支持策略](https://dotnet.microsoft.com/en-us/platform/support/policy)、[单文件发布](https://learn.microsoft.com/en-us/dotnet/core/deploying/single-file/overview)。独立commit推送main后停止等待验收。
+
 ## ADR-023 Phase 5 HTTP / WebSocket Adapter
 
 - 状态：Accepted（2026-09-06 用户明确确认Phase 4验收，并授权自行确定Phase 5 REST、实时模型、错误、输入、并发、关闭语义及必要ADR）。

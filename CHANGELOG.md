@@ -28,6 +28,9 @@
 
 ### Added
 
+- Phase 6 Windows远程维护工作台：C# / .NET 10 LTS Windows Forms、自包含x64发布；Server设置、设备列表/Session、默认240分钟或正自定义租期Maintenance、三入口和主动关闭、Exec结果及文件/工具/版本/兼容产物/投放。
+- Windows UI仅调用现有HTTP/WebSocket；首连/重连HTTP同步、状态失效刷新、响应不确定保留原幂等请求、重复点击防护、切换Server与退出异步释放资源。Web交系统浏览器，SSH/Telnet使用系统客户端或用户指定PuTTY，不缓存密码或Tunnel私有身份。Phase 5已验收，当前范围按ADR-024进入Windows UI交付，Server/Probe业务契约保持。
+
 - Phase 5统一 `/api/v1` HTTP API：Device/Session、exec/Task及结果/原身份重发、文件资产与上传/下载导入、Tool/版本/Artifact/兼容/投放、Maintenance创建/查询/关闭和三入口。
 - 独立HTTP监听默认127.0.0.1:8080；一致JSON/错误/分页、异步202及有界Idempotency-Key账本。HTTP取消不撤销成功创建的长期业务对象，不确定派发保留task_id；默认4096项不淘汰账本，满后拒绝新键。
 - WebSocket `/api/v1/events`提供devices/tasks/files/maintenance状态变更通知，首连/重连重新同步；固定容量、多客户端隔离、慢消费者断开和Server关闭回收。files包括Repository目录变更。默认可信部署边界、容量和后续认证/TLS/RBAC设计点见ADR-023/API.md。
