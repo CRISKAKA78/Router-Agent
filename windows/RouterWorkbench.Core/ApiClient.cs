@@ -37,7 +37,7 @@ public sealed class ApiClient : IDisposable
     {
         using var request = new HttpRequestMessage(HttpMethod.Get, path);
         var data = await SendAsync(request, ct).ConfigureAwait(false);
-        return data.Deserialize<T>(Wire.Json) ?? throw new InvalidDataException("API data 为空");
+        return data.Deserialize<T>(Wire.Json) ?? throw new InvalidDataException("API 数据为空");
     }
     public async Task<T[]> ListAsync<T>(string path, CancellationToken ct)
     {
@@ -50,7 +50,7 @@ public sealed class ApiClient : IDisposable
             offset += page.Items.Length;
             if (offset >= page.Total || page.Items.Length == 0) return items.ToArray();
             // Explicit failure instead of silently presenting a truncated inventory.
-            if (offset >= 10000) throw new InvalidDataException("列表超过 10000 项，客户端未完成快照，请缩小 Server 管理范围。");
+            if (offset >= 10000) throw new InvalidDataException("列表超过 10000 项，客户端未完成快照，请缩小服务器管理范围。");
         }
     }
     public async Task<JsonElement> ExecuteAsync(Mutation mutation, CancellationToken ct)

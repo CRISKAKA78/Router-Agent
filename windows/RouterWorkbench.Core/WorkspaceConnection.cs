@@ -95,7 +95,7 @@ public sealed class WorkspaceConnection : IAsyncDisposable
             using var abort = lifetime.Token.Register(socket.Abort);
             try
             {
-                ConnectionChanged?.Invoke(failures == 0 ? "正在连接 Server…" : "实时连接中断，正在重连…");
+                ConnectionChanged?.Invoke(failures == 0 ? "正在连接服务器…" : "实时连接中断，正在重连…");
                 var uri = new UriBuilder(new Uri(api.BaseUri, "api/v1/events")) { Scheme = api.BaseUri.Scheme == "https" ? "wss" : "ws" }.Uri;
                 using var connect = CancellationTokenSource.CreateLinkedTokenSource(lifetime.Token);
                 connect.CancelAfter(TimeSpan.FromSeconds(10));
@@ -134,7 +134,7 @@ public sealed class WorkspaceConnection : IAsyncDisposable
             {
                 socketConnected = false;
                 if (lifetime.IsCancellationRequested) break;
-                ConnectionChanged?.Invoke("Server 不可达或 WebSocket 中断；快照可能过期，正在重连。");
+                ConnectionChanged?.Invoke("服务器不可达或 WebSocket 中断；快照可能过期，正在重连。");
             }
             try { await Task.Delay(TimeSpan.FromMilliseconds(Math.Min(30000, reconnectDelay.TotalMilliseconds * Math.Pow(2, Math.Min(failures++, 5)))), lifetime.Token).ConfigureAwait(false); }
             catch (OperationCanceledException) { break; }

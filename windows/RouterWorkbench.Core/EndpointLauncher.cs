@@ -27,7 +27,7 @@ public static partial class EndpointLauncher
             executable = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.System), ssh ? @"OpenSSH\ssh.exe" : "telnet.exe");
         }
         if (!Path.IsPathFullyQualified(executable) || !File.Exists(executable) || !string.Equals(Path.GetExtension(executable), ".exe", StringComparison.OrdinalIgnoreCase))
-            throw new FileNotFoundException(ssh ? "未找到 SSH 客户端，请启用 Windows OpenSSH 或在设置中选择 PuTTY。" : "未找到 Telnet 客户端，请在设置中选择已有 PuTTY 或启用 Windows Telnet Client。", executable);
+            throw new FileNotFoundException(ssh ? "未找到 SSH 客户端，请启用 Windows OpenSSH 或在设置中选择 PuTTY。" : "未找到 Telnet 客户端，请在设置中选择已有 PuTTY 或启用 Windows Telnet 客户端。", executable);
         var info = new ProcessStartInfo(executable) { UseShellExecute = false, CreateNoWindow = false };
         if (putty)
         {

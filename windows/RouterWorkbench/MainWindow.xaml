@@ -1,0 +1,110 @@
+<Window x:Class="RouterWorkbench.MainWindow"
+ xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+ xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+ <Grid x:Name="Root" RequestedTheme="Default">
+  <Grid.RowDefinitions><RowDefinition Height="48" /><RowDefinition Height="*" /></Grid.RowDefinitions>
+  <Grid x:Name="TitleRegion" Margin="20,0,148,0" ColumnSpacing="12">
+   <Grid.ColumnDefinitions><ColumnDefinition Width="Auto" /><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
+   <FontIcon Glyph="&#xE839;" FontSize="18" Foreground="{ThemeResource AccentTextFillColorPrimaryBrush}" VerticalAlignment="Center" />
+   <TextBlock Grid.Column="1" Text="远程维护工作台" FontSize="13" VerticalAlignment="Center" />
+   <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
+    <Ellipse x:Name="ConnectionDot" Width="7" Height="7" Fill="{ThemeResource TextFillColorTertiaryBrush}" />
+    <TextBlock x:Name="ConnectionLabel" Text="未连接" Style="{StaticResource Secondary}" FontSize="12" />
+   </StackPanel>
+  </Grid>
+  <Grid Grid.Row="1">
+   <Grid.ColumnDefinitions><ColumnDefinition x:Name="SidebarColumn" Width="272" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
+   <Grid Margin="12,12,12,16" RowSpacing="16">
+    <Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /><RowDefinition Height="*" /><RowDefinition Height="Auto" /></Grid.RowDefinitions>
+    <Grid Margin="12,8,12,0"><TextBlock Text="设备" FontSize="20" FontWeight="SemiBold" /><TextBlock x:Name="DeviceCount" HorizontalAlignment="Right" VerticalAlignment="Center" Style="{StaticResource Secondary}" /></Grid>
+    <AutoSuggestBox x:Name="Search" Grid.Row="1" PlaceholderText="搜索名称、型号或编号" QueryIcon="Find" TextChanged="Search_Changed" AutomationProperties.Name="搜索设备" />
+    <ListView x:Name="DeviceList" Grid.Row="2" SelectionChanged="Device_Changed" SelectionMode="Single" HorizontalContentAlignment="Stretch">
+     <ListView.ItemTemplate><DataTemplate>
+      <Grid Padding="4,12" RowSpacing="5"><Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /></Grid.RowDefinitions>
+       <Grid ColumnSpacing="8"><Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions><TextBlock Text="{Binding Name}" FontWeight="SemiBold" TextTrimming="CharacterEllipsis" /><TextBlock Grid.Column="1" Text="{Binding Status}" FontSize="12" Foreground="{ThemeResource AccentTextFillColorPrimaryBrush}" /></Grid>
+       <TextBlock Grid.Row="1" Text="{Binding Subtitle}" FontSize="12" Style="{StaticResource Secondary}" TextTrimming="CharacterEllipsis" MaxLines="1" />
+       <TextBlock Grid.Row="2" Text="{Binding MaintenanceStatus}" FontSize="12" Style="{StaticResource Secondary}" />
+      </Grid>
+     </DataTemplate></ListView.ItemTemplate>
+    </ListView>
+    <StackPanel Grid.Row="3" Spacing="6"><Button x:Name="ConnectButton" Content="连接服务器" HorizontalAlignment="Stretch" Click="Connect_Click" Style="{StaticResource AccentButtonStyle}" /><Button HorizontalAlignment="Stretch" Click="Settings_Click"><StackPanel Orientation="Horizontal" Spacing="12"><FontIcon Glyph="&#xE713;" FontSize="16" /><TextBlock Text="设置" /></StackPanel></Button></StackPanel>
+   </Grid>
+   <Border Grid.Column="1" Background="{ThemeResource LayerFillColorDefaultBrush}" CornerRadius="12,0,0,0" BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}" BorderThickness="1,1,0,0">
+    <Grid><Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /><RowDefinition Height="*" /></Grid.RowDefinitions>
+     <StackPanel Margin="32,24,32,8" Spacing="8">
+      <TextBlock x:Name="DeviceTitle" Text="准备好连接设备" FontSize="28" FontWeight="SemiBold" TextTrimming="CharacterEllipsis" />
+      <TextBlock x:Name="DeviceSubtitle" Text="连接管理服务器，即可开始远程维护。" Style="{StaticResource Secondary}" />
+     </StackPanel>
+     <StackPanel Grid.Row="1" Margin="32,8,32,8" Spacing="8">
+      <InfoBar x:Name="ConnectionBar" IsOpen="False" IsClosable="False" Severity="Warning" Title="连接正在恢复" Message="当前信息可能过期，操作将在快照同步后恢复。" />
+      <InfoBar x:Name="NoticeBar" IsOpen="False" IsClosable="True"><InfoBar.ActionButton><Button x:Name="ErrorDetailsButton" Content="详细信息" Click="ErrorDetails_Click" Visibility="Collapsed" /></InfoBar.ActionButton></InfoBar>
+      <InfoBar x:Name="PendingBar" IsOpen="False" IsClosable="False" Severity="Warning" Title="上次操作的响应不确定" Message="先核对当前状态；重试会使用原请求编号。服务器重启后请勿盲目重试。">
+       <InfoBar.ActionButton><Button Content="处理请求" Click="Pending_Click" /></InfoBar.ActionButton>
+      </InfoBar>
+      <ProgressBar x:Name="BusyBar" IsIndeterminate="True" Visibility="Collapsed" Height="2" />
+     </StackPanel>
+     <NavigationView x:Name="Sections" Grid.Row="2" PaneDisplayMode="Top" IsBackButtonVisible="Collapsed" IsSettingsVisible="False" SelectionChanged="Section_Changed" AlwaysShowHeader="False">
+      <NavigationView.MenuItems>
+       <NavigationViewItem Content="设备概览" Tag="overview" IsSelected="True"><NavigationViewItem.Icon><FontIcon Glyph="&#xE80F;" /></NavigationViewItem.Icon></NavigationViewItem>
+       <NavigationViewItem Content="命令与任务" Tag="tasks"><NavigationViewItem.Icon><FontIcon Glyph="&#xE756;" /></NavigationViewItem.Icon></NavigationViewItem>
+       <NavigationViewItem Content="文件" Tag="files"><NavigationViewItem.Icon><FontIcon Glyph="&#xE8B7;" /></NavigationViewItem.Icon></NavigationViewItem>
+       <NavigationViewItem Content="工具与版本" Tag="tools"><NavigationViewItem.Icon><FontIcon Glyph="&#xE90F;" /></NavigationViewItem.Icon></NavigationViewItem>
+      </NavigationView.MenuItems>
+      <ScrollViewer x:Name="PageScroll" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+       <Grid Margin="32,16,32,32" MaxWidth="1120" HorizontalAlignment="Stretch">
+        <StackPanel x:Name="OverviewPage" Spacing="24">
+         <Border Style="{StaticResource Card}">
+          <StackPanel Spacing="20">
+           <Grid ColumnSpacing="16"><Grid.ColumnDefinitions><ColumnDefinition Width="48" /><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
+            <Border Background="{ThemeResource AccentFillColorDefaultBrush}" CornerRadius="12" Width="48" Height="48"><FontIcon Glyph="&#xE839;" FontSize="24" Foreground="{ThemeResource TextOnAccentFillColorPrimaryBrush}" /></Border>
+            <StackPanel Grid.Column="1" Spacing="4"><TextBlock Text="远程维护" Style="{StaticResource SectionTitle}" /><TextBlock x:Name="MaintenanceState" Text="尚未开启" Style="{StaticResource Secondary}" /></StackPanel>
+            <Button x:Name="MaintenanceDetailsButton" Grid.Column="2" Content="详细信息" Click="MaintenanceDetails_Click" VerticalAlignment="Top" Style="{StaticResource SubtleButtonStyle}" />
+           </Grid>
+           <TextBlock x:Name="RemainingLabel" Text="按需开启，结束后自动回收入口" FontSize="24" FontWeight="SemiBold" TextWrapping="Wrap" />
+           <Grid x:Name="EndpointRows" RowSpacing="8" ColumnSpacing="16">
+            <Grid.ColumnDefinitions><ColumnDefinition Width="24" /><ColumnDefinition Width="72" /><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
+            <Grid.RowDefinitions><RowDefinition Height="44" /><RowDefinition Height="44" /><RowDefinition Height="44" /></Grid.RowDefinitions>
+            <FontIcon Glyph="&#xE774;" FontSize="18" /><TextBlock Grid.Column="1" Text="Web" VerticalAlignment="Center" /><TextBlock x:Name="WebAddress" Grid.Column="2" Text="开启后显示临时地址" VerticalAlignment="Center" IsTextSelectionEnabled="True" TextTrimming="CharacterEllipsis" Style="{StaticResource Secondary}" /><Button x:Name="WebButton" Grid.Column="3" Content="打开网页" Tag="web" Click="Endpoint_Click" />
+            <FontIcon Grid.Row="1" Glyph="&#xE756;" FontSize="18" /><TextBlock Grid.Row="1" Grid.Column="1" Text="SSH" VerticalAlignment="Center" /><TextBlock x:Name="SshAddress" Grid.Row="1" Grid.Column="2" Text="—" VerticalAlignment="Center" IsTextSelectionEnabled="True" TextTrimming="CharacterEllipsis" Style="{StaticResource Secondary}" /><Button x:Name="SshButton" Grid.Row="1" Grid.Column="3" Content="连接 SSH" Tag="ssh" Click="Endpoint_Click" />
+            <FontIcon Grid.Row="2" Glyph="&#xE756;" FontSize="18" /><TextBlock Grid.Row="2" Grid.Column="1" Text="Telnet" VerticalAlignment="Center" /><TextBlock x:Name="TelnetAddress" Grid.Row="2" Grid.Column="2" Text="—" VerticalAlignment="Center" IsTextSelectionEnabled="True" TextTrimming="CharacterEllipsis" Style="{StaticResource Secondary}" /><Button x:Name="TelnetButton" Grid.Row="2" Grid.Column="3" Content="连接 Telnet" Tag="telnet" Click="Endpoint_Click" />
+           </Grid>
+           <Grid ColumnSpacing="12"><Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
+            <StackPanel Orientation="Horizontal" Spacing="8"><Button x:Name="StartMaintenance" Content="开启远程维护" Click="StartMaintenance_Click" Style="{StaticResource AccentButtonStyle}" /><Button x:Name="StopMaintenance" Content="关闭维护" Click="StopMaintenance_Click" /></StackPanel>
+            <Button x:Name="LeaseButton" Grid.Column="1" Content="240 分钟 · 调整" Click="Lease_Click" Style="{StaticResource SubtleButtonStyle}" />
+           </Grid>
+          </StackPanel>
+         </Border>
+         <StackPanel Spacing="12"><TextBlock Text="设备信息" Style="{StaticResource SectionTitle}" /><Border Style="{StaticResource Card}"><Grid ColumnSpacing="32" RowSpacing="20">
+          <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions><Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /></Grid.RowDefinitions>
+          <StackPanel Spacing="6"><TextBlock Text="型号与主机名" Style="{StaticResource Secondary}" /><TextBlock x:Name="ModelLabel" Text="—" TextWrapping="Wrap" /></StackPanel>
+          <StackPanel Grid.Column="1" Spacing="6"><TextBlock Text="固件与探针版本" Style="{StaticResource Secondary}" /><TextBlock x:Name="FirmwareLabel" Text="—" TextWrapping="Wrap" /></StackPanel>
+          <StackPanel Grid.Row="1" Spacing="6"><TextBlock Text="处理器与运行环境" Style="{StaticResource Secondary}" /><TextBlock x:Name="ArchitectureLabel" Text="—" TextWrapping="Wrap" /></StackPanel>
+          <StackPanel Grid.Row="1" Grid.Column="1" Spacing="6"><TextBlock Text="最近通信" Style="{StaticResource Secondary}" /><TextBlock x:Name="LastSeenLabel" Text="—" /><Button Content="查看会话与设备详情" Click="DeviceDetails_Click" Style="{StaticResource SubtleButtonStyle}" Padding="0,4" /></StackPanel>
+         </Grid></Border></StackPanel>
+        </StackPanel>
+        <StackPanel x:Name="TasksPage" Visibility="Collapsed" Spacing="20">
+         <Border Style="{StaticResource Card}"><StackPanel Spacing="16"><TextBlock Text="执行命令" Style="{StaticResource SectionTitle}" /><TextBlock Text="命令在当前设备执行，结果由服务器返回。" Style="{StaticResource Secondary}" /><TextBox x:Name="CommandBox" Header="命令" Text="uname -a" AcceptsReturn="True" TextWrapping="Wrap" MinHeight="84" FontFamily="Cascadia Mono,Consolas" /><StackPanel Orientation="Horizontal" Spacing="16"><NumberBox x:Name="TimeoutBox" Header="超时（秒）" Value="30" Minimum="1" Maximum="4294967295" Width="160" SpinButtonPlacementMode="Compact" /><Button x:Name="ExecButton" Content="执行命令" Style="{StaticResource AccentButtonStyle}" Click="Exec_Click" VerticalAlignment="Bottom" /></StackPanel></StackPanel></Border>
+         <TextBlock Text="任务记录" Style="{StaticResource SectionTitle}" /><ListView x:Name="TaskList" SelectionChanged="Task_Changed" MaxHeight="260" HorizontalContentAlignment="Stretch" />
+         <Border Style="{StaticResource Card}"><StackPanel Spacing="12"><TextBlock x:Name="TaskHeading" Text="选择任务查看结果" FontSize="18" FontWeight="SemiBold" /><TextBlock x:Name="TaskSummaryLabel" Style="{StaticResource Secondary}" /><TextBox x:Name="TaskOutput" IsReadOnly="True" AcceptsReturn="True" TextWrapping="Wrap" MinHeight="120" MaxHeight="400" FontFamily="Cascadia Mono,Consolas" AutomationProperties.Name="任务输出" /><StackPanel Orientation="Horizontal" Spacing="8"><Button Content="刷新结果" Click="RefreshTask_Click" /><Button x:Name="ResendButton" Content="重发原任务" Click="Resend_Click" /><Button x:Name="CompleteDownloadButton" Content="导入已完成下载" Click="CompleteDownload_Click" /><Button x:Name="CleanupDownloadButton" Content="清理下载暂存" Click="CleanupDownload_Click" /></StackPanel><Expander Header="任务详细信息" HorizontalAlignment="Stretch"><TextBlock x:Name="TaskDetails" TextWrapping="Wrap" IsTextSelectionEnabled="True" /></Expander></StackPanel></Border>
+        </StackPanel>
+        <StackPanel x:Name="FilesPage" Visibility="Collapsed" Spacing="20">
+         <Grid><TextBlock Text="文件仓库" Style="{StaticResource SectionTitle}" /><Button x:Name="ImportButton" Content="导入本地文件" HorizontalAlignment="Right" Style="{StaticResource AccentButtonStyle}" Click="Import_Click" /></Grid>
+         <TextBlock Text="集中保存维护文件，并按需上传到所选设备。" Style="{StaticResource Secondary}" />
+         <ListView x:Name="AssetList" MaxHeight="330" SelectionChanged="Asset_Changed" HorizontalContentAlignment="Stretch" />
+         <Border Style="{StaticResource Card}"><StackPanel Spacing="16"><TextBlock x:Name="AssetHeading" Text="选择文件" FontSize="18" FontWeight="SemiBold" /><TextBlock x:Name="AssetSummary" Style="{StaticResource Secondary}" /><StackPanel Orientation="Horizontal" Spacing="8"><Button x:Name="UploadButton" Content="上传到设备" Click="Upload_Click" /><Button x:Name="SaveButton" Content="另存到本机" Click="Save_Click" /><Button x:Name="ArchiveAssetButton" Content="归档文件" Click="ArchiveAsset_Click" /></StackPanel><Expander Header="文件详细信息" HorizontalAlignment="Stretch"><TextBlock x:Name="AssetDetails" TextWrapping="Wrap" IsTextSelectionEnabled="True" /></Expander></StackPanel></Border>
+         <Border Style="{StaticResource Card}"><Grid ColumnSpacing="16"><Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions><StackPanel Spacing="6"><TextBlock Text="从设备获取文件" FontSize="18" FontWeight="SemiBold" /><TextBlock Text="下载完成后，在任务页导入仓库或清理暂存。" Style="{StaticResource Secondary}" /></StackPanel><Button x:Name="DownloadButton" Grid.Column="1" Content="从设备下载" Click="Download_Click" VerticalAlignment="Center" /></Grid></Border>
+        </StackPanel>
+        <StackPanel x:Name="ToolsPage" Visibility="Collapsed" Spacing="20">
+         <Grid><TextBlock Text="维护工具" Style="{StaticResource SectionTitle}" /><Button x:Name="CreateToolButton" Content="创建工具" Style="{StaticResource AccentButtonStyle}" HorizontalAlignment="Right" Click="CreateTool_Click" /></Grid>
+         <TextBlock Text="选择工具和版本，查看服务器确认的设备兼容性，再投放产物。" Style="{StaticResource Secondary}" />
+         <ListView x:Name="ToolList" SelectionChanged="Tool_Changed" MaxHeight="230" HorizontalContentAlignment="Stretch" />
+         <Border Style="{StaticResource Card}"><StackPanel Spacing="16"><TextBlock x:Name="ToolHeading" Text="选择工具" FontSize="18" FontWeight="SemiBold" /><StackPanel Orientation="Horizontal" Spacing="8"><ComboBox x:Name="VersionList" Header="版本" MinWidth="160" DisplayMemberPath="Version" SelectionChanged="Version_Changed" /><Button x:Name="PublishButton" Content="发布版本" Click="Publish_Click" VerticalAlignment="Bottom" /><Button x:Name="ArchiveToolButton" Content="归档工具" Click="ArchiveTool_Click" VerticalAlignment="Bottom" /><Button x:Name="ArchiveVersionButton" Content="归档版本" Click="ArchiveVersion_Click" VerticalAlignment="Bottom" /></StackPanel><ListView x:Name="ArtifactList" MaxHeight="230" SelectionChanged="Artifact_Changed" HorizontalContentAlignment="Stretch" /><TextBlock x:Name="CompatibilityLabel" Text="选择设备以查看兼容性。" Style="{StaticResource Secondary}" IsTextSelectionEnabled="True" /><Button x:Name="DeployButton" Content="投放所选产物" Style="{StaticResource AccentButtonStyle}" Click="Deploy_Click" /><Expander Header="产物详细信息" HorizontalAlignment="Stretch"><TextBlock x:Name="ArtifactDetails" TextWrapping="Wrap" IsTextSelectionEnabled="True" /></Expander></StackPanel></Border>
+        </StackPanel>
+       </Grid>
+      </ScrollViewer>
+     </NavigationView>
+    </Grid>
+   </Border>
+  </Grid>
+ </Grid>
+</Window>

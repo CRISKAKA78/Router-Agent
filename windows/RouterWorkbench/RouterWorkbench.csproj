@@ -1,10 +1,39 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
     <OutputType>WinExe</OutputType>
-    <TargetFramework>net10.0-windows</TargetFramework>
-    <UseWindowsForms>true</UseWindowsForms>
+    <TargetFramework>net10.0-windows10.0.19041.0</TargetFramework>
+    <TargetPlatformMinVersion>10.0.19041.0</TargetPlatformMinVersion>
+    <UseWinUI>true</UseWinUI>
+    <WindowsPackageType>None</WindowsPackageType>
+    <WindowsAppSDKSelfContained>true</WindowsAppSDKSelfContained>
+    <RuntimeIdentifier>win-x64</RuntimeIdentifier>
+    <PlatformTarget>x64</PlatformTarget>
+    <SelfContained>true</SelfContained>
     <ApplicationManifest>app.manifest</ApplicationManifest>
     <AssemblyName>RouterWorkbench</AssemblyName>
   </PropertyGroup>
   <ItemGroup><ProjectReference Include="../RouterWorkbench.Core/RouterWorkbench.Core.csproj" /></ItemGroup>
+  <ItemGroup>
+    <PackageReference Include="Microsoft.WindowsAppSDK.WinUI" Version="2.3.6" />
+    <PackageReference Include="Microsoft.WindowsAppSDK.InteractiveExperiences" Version="2.1.6" />
+    <PackageReference Include="Microsoft.Windows.SDK.BuildTools" Version="10.0.26100.9169" />
+  </ItemGroup>
+  <PropertyGroup Condition="'$(VerifyUI)' == 'true'"><DefineConstants>$(DefineConstants);VERIFY_UI</DefineConstants></PropertyGroup>
+  <ItemGroup Condition="'$(VerifyUI)' == 'true'">
+    <Compile Include="../RouterWorkbench.Tests/UiVerification.cs" Link="Verification/UiVerification.cs" />
+    <Compile Include="../RouterWorkbench.Tests/TestProbe.cs" Link="Verification/TestProbe.cs" />
+    <Compile Include="../RouterWorkbench.Tests/MockEvents.cs" Link="Verification/MockEvents.cs" />
+  </ItemGroup>
+  <!-- Unpackaged modular WinUI builds produce loose XBF/PRI files that the
+       .NET publish item set does not include automatically. Keep their paths. -->
+  <Target Name="PublishWinUIResources" AfterTargets="ComputeFilesToPublish">
+    <ItemGroup>
+      <WorkbenchXamlResource Include="$(TargetDir)**/*.xbf;$(TargetDir)$(AssemblyName).pri" />
+      <ResolvedFileToPublish Include="@(WorkbenchXamlResource)">
+        <RelativePath>%(RecursiveDir)%(Filename)%(Extension)</RelativePath>
+        <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
+      </ResolvedFileToPublish>
+    </ItemGroup>
+    <Error Condition="!Exists('$(TargetDir)App.xbf') Or !Exists('$(TargetDir)$(AssemblyName).pri')" Text="WinUI compiled resources are missing." />
+  </Target>
 </Project>

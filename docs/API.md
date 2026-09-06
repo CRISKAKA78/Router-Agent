@@ -2,7 +2,7 @@
 
 本文件维护Phase 5已实现的 `/api/v1` HTTP/WebSocket规范及原内部Service契约。实现入口 `internal/api`，业务来源为 `management.Server` 与已有 Service。没有新的 Probe 消息或 Tunnel 数据面。
 
-Phase 6 Windows UI已消费本文件公开契约，生产API无补充或修改。客户端首连/重连HTTP同步、维护与Exec/文件/工具动作、相同键显式重试及入口启动规则见[PHASE6_DESIGN](PHASE6_DESIGN.md)与[Windows使用说明](../windows/README.md)。Windows UI不能直接调用下文内部Go接口。
+Phase 6 WinUI 3 Windows客户端复用本文件公开契约（ADR-025），生产API无补充或修改。客户端首连/重连HTTP同步、维护与Exec/文件/工具动作、相同键显式重试及入口启动规则见[PHASE6_DESIGN](PHASE6_DESIGN.md)与[Windows使用说明](../windows/README.md)。Windows UI不能直接调用下文内部Go接口。
 
 ## 部署与生命周期
 

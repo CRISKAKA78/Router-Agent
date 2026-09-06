@@ -16,7 +16,7 @@ internal sealed class MockEvents : IAsyncDisposable
     public WebSocket? Socket;
     public int Connections;
     public int DeviceReads;
-    public TaskCompletionSource? HoldDevices;
+    public TaskCompletionSource? HoldDevices = null;
     public string DeviceId = "old";
     public Uri Uri { get; }
     public MockEvents()

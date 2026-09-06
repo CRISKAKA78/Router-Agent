@@ -160,16 +160,16 @@ Protocol v1 的 14 项验收基线已映射至可运行测试，完整结果见 
 
 ## Phase 6 User Interfaces
 
-状态：Windows UI已实现并通过规定验证，待用户验收；Web与微信未开始。用户授权从57c2b1f基线优先Windows桌面客户端，采用Accepted ADR-024。
+状态：Windows UI已实现并通过规定验证，待用户验收；Web与微信未开始。首版f8d099d6后，用户明确要求C# + WinUI 3正式重构，采用Accepted ADR-025。
 
-- [x] Windows UI：C# / .NET 10 LTS Windows Forms，自包含x64发布。
+- [x] Windows UI：C# / .NET 10 LTS WinUI 3，中文Fluent界面与自包含x64目录发布。
 - [x] Server连接设置、设备/Session、Maintenance三入口/租期/关闭、Exec结果与File/Tool/版本/兼容产物/投放。
 - [x] WebSocket重连HTTP同步、原请求幂等重试、错误区分、重复点击和连接/退出资源回收。
-- [x] Windows原生控件与真实API验证、Phase 1～5全量回归和平台检查；记录见PHASE6_VERIFICATION。
+- [x] WinUI原生控件/弹窗、Light/Dark、100%/200% XAML、窗口缩放与真实API验证、Phase 1～5全量回归和平台检查；记录见PHASE6_VERIFICATION。
 - [ ] Web 管理界面（未授权）。
 - [ ] 微信小程序（未授权）。
 
-本轮独立Phase 6 Windows UI commit推送main后停止等待验收。Web/微信技术栈及后续实施仍TBD，不进入Phase 7/8。
+本轮独立Phase 6 WinUI 3重构commit推送main后停止等待验收。Web/微信技术栈及后续实施仍TBD，不进入Phase 7/8。
 
 ## Phase 7 MCP
 

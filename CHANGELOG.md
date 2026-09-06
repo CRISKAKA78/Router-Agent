@@ -10,6 +10,12 @@
 
 ## Unreleased
 
+### Changed
+
+- Phase 6 Windows界面以C# + WinUI 3正式替换WinForms：中文Fluent工作台、设备侧栏、突出远程维护卡片，浅色/深色/系统主题、Mica与自适应布局；服务器地址移入设置，维护/会话编号及释放原因移入详情。
+- 命令、文件和工具使用列表与详情，原生弹窗和文件选择器支持桌面流程；错误主摘要中文化，原始API诊断放入详情。HTTP/WebSocket、幂等和系统浏览器/SSH/Telnet启动策略继续复用，后端契约不变。
+- Windows发布改为包含.NET与所需WinUI组件的x64目录包，替代旧单文件包；需要保留整个目录及目标机Visual C++运行库。架构选择按ADR-025取代ADR-024的界面/部署部分。
+
 ### Fixed
 
 - Phase 4：维护端口释放后默认隔离24小时，独立于关闭历史；新增 `ReusableAfter` 和 `-tunnel-port-reuse-delay`，池满拒绝提前复用。有限隔离不提供超窗或重启后的永久旧地址隔离，部署边界见ADR-022。
@@ -28,8 +34,8 @@
 
 ### Added
 
-- Phase 6 Windows远程维护工作台：C# / .NET 10 LTS Windows Forms、自包含x64发布；Server设置、设备列表/Session、默认240分钟或正自定义租期Maintenance、三入口和主动关闭、Exec结果及文件/工具/版本/兼容产物/投放。
-- Windows UI仅调用现有HTTP/WebSocket；首连/重连HTTP同步、状态失效刷新、响应不确定保留原幂等请求、重复点击防护、切换Server与退出异步释放资源。Web交系统浏览器，SSH/Telnet使用系统客户端或用户指定PuTTY，不缓存密码或Tunnel私有身份。Phase 5已验收，当前范围按ADR-024进入Windows UI交付，Server/Probe业务契约保持。
+- Phase 6首版Windows远程维护工作台（f8d099d6，界面已由上述WinUI重构取代）：C# / .NET 10 LTS Windows Forms、自包含x64发布；Server设置、设备列表/Session、默认240分钟或正自定义租期Maintenance、三入口和主动关闭、Exec结果及文件/工具/版本/兼容产物/投放。
+- Windows UI仅调用现有HTTP/WebSocket；首连/重连HTTP同步、状态失效刷新、响应不确定保留原幂等请求、重复点击防护、切换Server与退出异步释放资源。Web交系统浏览器，SSH/Telnet使用系统客户端或用户指定PuTTY，不缓存密码或Tunnel私有身份。Phase 5已验收，首版按ADR-024进入Windows UI交付，Server/Probe业务契约保持。
 
 - Phase 5统一 `/api/v1` HTTP API：Device/Session、exec/Task及结果/原身份重发、文件资产与上传/下载导入、Tool/版本/Artifact/兼容/投放、Maintenance创建/查询/关闭和三入口。
 - 独立HTTP监听默认127.0.0.1:8080；一致JSON/错误/分页、异步202及有界Idempotency-Key账本。HTTP取消不撤销成功创建的长期业务对象，不确定派发保留task_id；默认4096项不淘汰账本，满后拒绝新键。

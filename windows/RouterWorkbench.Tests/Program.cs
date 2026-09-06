@@ -1,6 +1,6 @@
 using System.Diagnostics;
 using System.Net;
-using System.Reflection;
+
 using System.Text;
 using System.Text.Json;
 using RouterWorkbench.Core;
@@ -25,9 +25,9 @@ internal static class Program
         {
             StartServer(Path.GetFullPath(args[0]));
             Task.Run(CoreTestsAsync).GetAwaiter().GetResult();
-            ApplicationConfiguration.Initialize();
-            UiTests();
-            Console.WriteLine($"PASS: {assertions} assertions; client/HTTP/WebSocket/UI integration.");
+
+
+            Console.WriteLine($"PASS: {assertions} assertions; client/HTTP/WebSocket integration.");
             return 0;
         }
         catch (Exception e) { Console.Error.WriteLine(e); return 1; }
@@ -211,73 +211,5 @@ internal static class Program
         Assert(response.GetProperty("task_id").GetString() == "original-task" && response.GetProperty("dispatch_uncertain").GetBoolean(), "nonempty task with uncertain dispatch retained");
         Assert(handler.Keys.Distinct().Count() == 1 && handler.Bodies[0].SequenceEqual(handler.Bodies[1]), "retry identical key and bytes");
         Assert(c.Pending == null, "response settles pending request");
-    }
-    private static T Field<T>(MainForm form, string name) => (T)typeof(MainForm).GetField(name, BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(form)!;
-    private static IEnumerable<Control> Descendants(Control root)
-    { foreach (Control child in root.Controls) { yield return child; foreach (var nested in Descendants(child)) yield return nested; } }
-    private static Button Button(MainForm form, string label) => Descendants(form).OfType<Button>().Single(b => b.Text == label);
-    private static void UiTests()
-    {
-        Exception? failure = null; var launches = new List<string>();
-        using var loop = new ApplicationContext();
-        using var form = new MainForm(Path.Combine(output, "ui-profile.json"), (endpoint, _) => launches.Add(endpoint.Service));
-        form.ShowInTaskbar = false; form.StartPosition = FormStartPosition.Manual; form.Location = new Point(-3000, -3000);
-        form.Shown += async (_, _) =>
-        {
-            await using var probe = new TestProbe();
-            try
-            {
-                await probe.StartAsync(controlPort, "ui-device");
-                Field<TextBox>(form, "serverUrl").Text = profile.ServerUrl; Button(form, "连接 / 切换").PerformClick();
-                var grid = Field<DataGridView>(form, "devices");
-                await UntilAsync(() => grid.Rows.Count >= 2 && Field<WorkspaceConnection>(form, "connection").IsSynchronized, "UI connect and devices");
-                foreach (DataGridViewRow row in grid.Rows) if ((string?)row.Cells[0].Value == "ui-device") grid.CurrentCell = row.Cells[0];
-                Button(form, "开启远程维护").PerformClick(); Button(form, "开启远程维护").PerformClick();
-                var maintenanceGrid = Field<DataGridView>(form, "maintenance");
-                await UntilAsync(() => maintenanceGrid.Rows.Count == 1 && Button(form, "打开 WEB").Enabled, "UI duplicate create only one maintenance");
-                Button(form, "开启远程维护").PerformClick();
-                Assert(maintenanceGrid.Rows.Count == 1, "rapid second click after response stays suppressed");
-                foreach (var service in new[] { "WEB", "SSH", "TELNET" })
-                { Button(form, "打开 " + service).PerformClick(); await UntilAsync(() => launches.Contains(service.ToLowerInvariant()), "UI opens " + service); }
-                using (var bitmap = new Bitmap(form.Width, form.Height)) { form.DrawToBitmap(bitmap, new Rectangle(Point.Empty, form.Size)); bitmap.Save(Path.Combine(output, "maintenance.png")); }
-                var tab = Field<TabControl>(form, "tabs"); tab.SelectedIndex = 2;
-                Button(form, "执行 Exec").PerformClick(); Button(form, "执行 Exec").PerformClick();
-                await UntilAsync(() => Field<RichTextBox>(form, "taskOutput").Text.Contains("中文结果"), "UI exec result rendered");
-                Assert(probe.Executions == 1, "UI double click no duplicate exec");
-                tab.SelectedIndex = 0; Button(form, "关闭所选维护").PerformClick();
-                await UntilAsync(() => (maintenanceGrid.CurrentRow?.DataBoundItem as Maintenance)?.Released == true, "UI closes maintenance");
-                Field<CheckBox>(form, "defaultLease").Checked = false; Field<TextBox>(form, "lease").Text = "150"; Field<ComboBox>(form, "leaseUnit").SelectedIndex = 1;
-                await Task.Delay(SystemInformation.DoubleClickTime + 30);
-                Button(form, "开启远程维护").PerformClick();
-                await UntilAsync(() => maintenanceGrid.Rows.Count == 2 && maintenanceGrid.Rows.Cast<DataGridViewRow>().All(r => (r.DataBoundItem as Maintenance)?.Released == true), "UI custom lease expires and refreshes");
-                Assert((maintenanceGrid.CurrentRow?.DataBoundItem as Maintenance)?.ExpiresAt - (maintenanceGrid.CurrentRow?.DataBoundItem as Maintenance)?.CreatedAt == TimeSpan.FromMilliseconds(150), "new maintenance automatically selected");
-                Field<TextBox>(form, "lease").Text = "0";
-                await Task.Delay(SystemInformation.DoubleClickTime + 30); Button(form, "开启远程维护").PerformClick();
-                await UntilAsync(() => Field<Label>(form, "errorStatus").Text.Contains("租期"), "UI invalid lease error visible");
-                Assert(maintenanceGrid.Rows.Count == 2, "invalid lease creates nothing");
-                tab.SelectedIndex = 3;
-                Assert(Field<DataGridView>(form, "assets").Rows.Count >= 2, "UI file repository rows");
-                tab.SelectedIndex = 4;
-                Assert(Field<DataGridView>(form, "toolsGrid").Rows.Count >= 1, "UI tool repository rows");
-                using (var bitmap = new Bitmap(form.Width, form.Height)) { form.DrawToBitmap(bitmap, new Rectangle(Point.Empty, form.Size)); bitmap.Save(Path.Combine(output, "tools.png")); }
-                await using var replacement = new TestProbe(); await replacement.StartAsync(controlPort, "ui-device");
-                await UntilAsync(() => Field<RichTextBox>(form, "deviceDetails").Text.Contains(replacement.SessionId), "UI Session replacement refreshed");
-                await using var other = new MockEvents(); var old = Field<WorkspaceConnection>(form, "connection");
-                Field<TextBox>(form, "serverUrl").Text = other.Uri.AbsoluteUri; Button(form, "连接 / 切换").PerformClick();
-                await UntilAsync(() => grid.Rows.Count == 1 && (string?)grid.Rows[0].Cells[0].Value == "old", "UI switches server snapshot");
-                Assert(!old.IsSynchronized, "old connection disposed on switch");
-                Assert(Field<RichTextBox>(form, "taskOutput").Text == "" && maintenanceGrid.Rows.Count == 0, "no cross-server task/maintenance data");
-                Button(form, "断开").PerformClick(); await UntilAsync(() => grid.Rows.Count == 0, "UI disconnect clears state");
-                Button(form, "连接 / 切换").PerformClick(); await UntilAsync(() => grid.Rows.Count == 1, "UI reconnect");
-                var finalConnection = Field<WorkspaceConnection>(form, "connection"); form.Close();
-                await UntilAsync(() => form.IsDisposed, "UI async application close"); Assert(!finalConnection.IsSynchronized, "UI close releases connection");
-                Console.WriteLine("PASS UI: native controls, repeated clicks, entries, expiry, exec, session, server switch and shutdown");
-            }
-            catch (Exception e) { failure = e; form.Close(); }
-            finally { loop.ExitThread(); }
-        };
-        form.Show();
-        Application.Run(loop);
-        if (failure != null) throw new InvalidOperationException("UI verification", failure);
     }
 }

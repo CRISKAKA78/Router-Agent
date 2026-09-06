@@ -13,13 +13,14 @@ public sealed record ServerProfile
     public bool SshUsePutty { get; init; }
     public bool TelnetUsePutty { get; init; }
     public string SshUser { get; init; } = "root";
+    public string Theme { get; init; } = "Default";
 
     public Uri BaseUri()
     {
         if (!Uri.TryCreate(ServerUrl.Trim(), UriKind.Absolute, out var uri) ||
             (uri.Scheme != "http" && uri.Scheme != "https") || uri.UserInfo.Length != 0 ||
             uri.Query.Length != 0 || uri.Fragment.Length != 0 || uri.AbsolutePath != "/")
-            throw new ArgumentException("Server 地址须为 http(s)://主机:端口，不含账号、查询或路径。" );
+            throw new ArgumentException("服务器地址须为 http(s)://主机:端口，不含账号、查询或路径。" );
         return uri;
     }
     public static string DefaultPath => Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "RouterWorkbench", "profile.json");

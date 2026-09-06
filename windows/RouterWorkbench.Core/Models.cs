@@ -42,26 +42,28 @@ public sealed class ApiException(string code, string message, int status = 0) : 
 }
 public static class Errors
 {
+    public static string Summary(Exception error, string operation) => error is ApiException e
+        ? $"{operation}：{Meaning(e.Code, operation)}。" : Describe(error, operation);
     public static string Describe(Exception error, string operation) => error switch
     {
         ApiException e => $"{operation}：{Meaning(e.Code, operation)} [{e.Code}, HTTP {e.Status}] {e.Message}",
-        HttpRequestException => $"{operation}：Server 不可达或连接中断，请检查地址和网络。",
+        HttpRequestException => $"{operation}：服务器不可达或连接中断，请检查地址和网络。",
         OperationCanceledException => $"{operation}：请求超时或连接已关闭。",
         _ => $"{operation}：{error.Message}"
     };
     private static string Meaning(string code, string operation) => code switch
     {
         "device_offline" => "设备离线",
-        "session_changed" => "Session 已替换或当前 Session 不支持维护，请刷新设备",
-        "capacity_exhausted" when operation.Contains("维护") => "维护端口池或 Server 容量不足",
-        "capacity_exhausted" => "Server 容量不足",
-        "idempotency_capacity" => "Server 幂等账本已满，请联系管理员",
-        "conflict" when operation.Contains("维护") => "Maintenance 创建失败：设备可能已有维护，请查看当前维护",
+        "session_changed" => "会话已替换或当前会话不支持维护，请刷新设备",
+        "capacity_exhausted" when operation.Contains("维护") => "维护端口池或服务器容量不足",
+        "capacity_exhausted" => "服务器容量不足",
+        "idempotency_capacity" => "服务器幂等账本已满，请联系管理员",
+        "conflict" when operation.Contains("维护") => "维护创建失败：设备可能已有维护，请查看当前维护",
         "incompatible" => "工具产物不兼容或无法唯一选择",
-        "maintenance_disabled" => "Server 未启用 Maintenance",
-        "not_found" => "资源不存在、已被清理或 Server 已重启",
+        "maintenance_disabled" => "服务器未启用远程维护",
+        "not_found" => "资源不存在、已被清理或服务器已重启",
         "invalid_request" => "输入不符合 API 契约",
-        "operation_timeout" => "Server 操作超时",
+        "operation_timeout" => "服务器操作超时",
         _ => "API 业务错误"
     };
 }

@@ -2,6 +2,18 @@
 
 本文件使用轻量 ADR 记录重要设计决定与待确认草案。仅 Accepted 条目构成已确认决定；Proposed 条目不得被实现推断为已接受。状态为 Accepted 的决定不得被实现静默改变；需要变更时，应新增取代决策并说明迁移与影响。
 
+## ADR-025 Phase 6 WinUI 3 正式界面重构
+
+- 状态：Accepted（2026-09-06 用户明确要求以 C# + WinUI 3 替换 WinForms，授权调整界面组织与部署方式）。
+- 起点：`f8d099d6bb6ac4830199b122755cbf37f6a9e849`，HEAD/main/origin/main 一致、初始工作区干净。
+- 取代范围：取代 ADR-024 的 Windows Forms 界面、无 NuGet UI 依赖及单文件发布选择；保留该 ADR 的 API Only、幂等、连接生命周期、外部客户端、安全和阶段边界。ADR-009～023 均保持，不修改历史决定。
+- 技术：C# / .NET 10 LTS / WinUI 3，Windows App SDK 2.4 稳定发行的模块化 WinUI 2.3.6、InteractiveExperiences 2.1.6，SDK BuildTools 10.0.26100.9169。不引入无关 AI／ML、前端构建链或额外 MVVM 框架。WinUI 的 WebView2 接口传递依赖不代表应用使用 Web UI。
+- 展示：Fluent、Mica、NavigationView、InfoBar、ContentDialog、中文操作与状态；设备侧栏、首要维护卡片、任务／文件／工具列表及详情。连接配置与编号／释放原因等技术信息移入设置或详情，支持浅色、深色、系统主题和 DPI 布局。
+- 分层：Core 复用正确的 DTO／HTTP／WebSocket／外部启动逻辑；WorkbenchViewModel 协调服务器快照、选择、提示和交互准入，窗口负责展示与调度。页面切换不重复订阅，不计算业务状态或兼容性。
+- 部署：非 MSIX、自包含 Windows x64 目录，携带 .NET 和所需 Windows App SDK 组件，保留 DLL／资源；目标机需要 Visual C++ x64 运行库。桌面文件选择器使用 Microsoft.Windows.Storage.Pickers，支持管理员进程。
+- 验证：真实 WinUI 控件／文件对话框、浅深主题、窗口缩放、实际 XAML 200% 光栅化和生命周期；继续 Phase 1～5／真实 Probe／Tunnel 全量回归。记录见 PHASE6_VERIFICATION。
+- 停止点：独立 WinUI 重构 commit 推送 main 后等待验收，不进入 Web、微信、MCP、AI 或新数据面。
+
 ## ADR-024 Phase 6 Windows 桌面客户端
 
 - 状态：Accepted（2026-09-06 用户验收Phase 5，明确授权Windows UI，并授权自行选择技术栈和现有客户端调用方式）。
