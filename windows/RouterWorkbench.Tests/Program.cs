@@ -8,6 +8,7 @@ internal static class Program
  static void Assert(bool value, string label) { if (!value) throw new Exception(label); Console.WriteLine("PASS " + label); }
  static void Reject(Action f, string label) { try { f(); } catch (ArgumentException) { Assert(true, label); return; } throw new Exception(label); }
  static async Task Main(string[] args) {
+  if(args.FirstOrDefault()=="--terminal-services"){await TerminalServiceChecks.RunAsync(args[1]);return;}
   var origin = new Uri("http://127.0.0.1:18080/"); var root = Path.GetFullPath("frontend/dist");
   Assert(ShellPolicy.IsDocument("http://127.0.0.1:18080/__workbench/index.html#tasks", origin), "local SPA document");
   foreach (var url in new[] { "https://evil.test/__workbench/index.html", "http://127.0.0.1:18080/api/v1/devices", "http://127.0.0.1:18080/__workbench/index.html?external=1", "file:///C:/test.html" }) Assert(!ShellPolicy.IsDocument(url, origin), "reject navigation " + url);
@@ -23,6 +24,7 @@ internal static class Program
   Assert(launch.UseShellExecute && launch.FileName == "http://127.0.0.1:32000/", "system browser launch");
   var systemSsh = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.System), "OpenSSH/ssh.exe");
   if (File.Exists(systemSsh)) { var ssh = EndpointLauncher.Build(new("ssh", "127.0.0.1", 32001, "", "ready", null), new()); Assert(ssh.ArgumentList.SequenceEqual(new[] { "-p", "32001", "-l", "root", "127.0.0.1" }), "SSH independent arguments"); }
+  await VerifyTerminalAsync();
   if (args.Length == 0) return;
   var saveRoot=Path.Combine(Path.GetTempPath(),"workbench-save-test-"+Guid.NewGuid().ToString("N"));Directory.CreateDirectory(saveRoot);
   var saved=Path.Combine(saveRoot,"result.txt");
@@ -53,5 +55,42 @@ internal static class Program
     request.Response.StatusCode = 200; request.Response.Close(); if(path=="/stop") break;
    }
   } finally { await probe.DisposeAsync(); if(!server.HasExited) { server.Kill(true); await server.WaitForExitAsync(); } }
+ }
+ static async Task VerifyTerminalAsync() {
+  Reject(() => ShellPolicy.Parse("{\"id\":\"1\",\"method\":\"terminalOpen\",\"args\":{\"command\":\"cmd.exe\"}}"), "terminal bridge rejects arbitrary process");
+  Reject(() => EmbeddedTerminal.ValidateSize(0,24), "terminal size bounded");
+  var client = new ProcessStartInfo(Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.System), "cmd.exe"));
+  client.ArgumentList.Add("/q");
+  await using (var terminal = new EmbeddedTerminal(client,80,24)) {
+   terminal.Resize(100,30);
+   terminal.Write("chcp 65001\recho terminal-中文-verified\r");
+   var output = new MemoryStream(); var deadline = DateTime.UtcNow.AddSeconds(10);
+   while (DateTime.UtcNow < deadline) {
+    var value=JsonSerializer.SerializeToElement(terminal.Read());output.Write(Convert.FromBase64String(value.GetProperty("base64").GetString()!));
+    if(System.Text.Encoding.UTF8.GetString(output.ToArray()).Contains("terminal-中文-verified"))break;
+    await Task.Delay(25);
+   }
+   Assert(System.Text.Encoding.UTF8.GetString(output.ToArray()).Contains("terminal-中文-verified"),"ConPTY UTF-8 input/output and resize");
+   terminal.Write("for /l %i in (1,1,5000) do @echo final-tail-%i\rexit\r");
+   var exited=false; deadline=DateTime.UtcNow.AddSeconds(10);
+   while(DateTime.UtcNow<deadline) {
+    var value=JsonSerializer.SerializeToElement(terminal.Read());output.Write(Convert.FromBase64String(value.GetProperty("base64").GetString()!));
+    if(value.GetProperty("exited").GetBoolean()){exited=true;break;}
+    await Task.Delay(10);
+   }
+   Assert(exited && System.Text.Encoding.UTF8.GetString(output.ToArray()).Contains("final-tail-5000"),"natural client exit drains final bounded output");
+  }
+  var flood = new EmbeddedTerminal(client,80,24);
+  flood.Write("for /l %i in (1,1,100000) do @echo 012345678901234567890123456789012345678901234567890123456789\r");
+  await Task.Delay(300);
+  await flood.DisposeAsync().AsTask().WaitAsync(TimeSpan.FromSeconds(10));
+  Assert(true,"ConPTY closes with blocked bounded output");
+  await using var sessions=new TerminalSessions();
+  var ssh=Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.System),"OpenSSH/ssh.exe");
+  if(File.Exists(ssh)) {
+   var id=await sessions.OpenAsync(new("ssh","127.0.0.1",9,"127.0.0.1:9","ready",null),new(),DateTimeOffset.UtcNow.AddMilliseconds(200),80,24);
+   await Task.Delay(1200);
+   try {await sessions.InvokeAsync(id);throw new Exception("expired terminal accepted");} catch(ArgumentException){Assert(true,"native lease expiry releases terminal");}
+  }
  }
 }

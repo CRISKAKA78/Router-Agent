@@ -17,7 +17,7 @@ for (let attempt = 0; !browser; attempt++) {
 const page = browser.contexts()[0].pages()[0];
 page.setDefaultTimeout(12000);
 await page.waitForURL(/\/__workbench\/index\.html/, { timeout: 30000 });
-await page.getByRole("heading", { name: "远程维护", exact: true }).waitFor();
+await page.getByRole("heading", { name: "设备工作台", exact: true }).waitFor();
 await page.addInitScript(() => {
   window.__testSockets = [];
   const Original = window.WebSocket;
@@ -38,11 +38,7 @@ function check(value, label) {
 }
 const api = async (p) =>
   (await (await fetch("http://127.0.0.1:18080/api/v1/" + p)).json()).data;
-const nav = (label) =>
-  page
-    .getByRole("navigation")
-    .getByRole("button", { name: label, exact: true })
-    .click();
+const nav = (label) => page.getByRole("navigation").getByRole("button", {name:label==="设备管理"?/^设备管理/:label,exact:label!=="设备管理"}).click();
 const tab = (label) =>
   page.getByRole("tab", { name: label, exact: true }).click();
 const submit = () =>
@@ -53,13 +49,13 @@ const submit = () =>
 try {
   await page.reload();
   await expect(
-    page.getByRole("heading", { name: "远程维护", exact: true }),
+    page.getByRole("heading", { name: "设备工作台", exact: true }),
   ).toBeVisible();
   check(true, "production React resources loaded in actual WebView2");
-  await nav("系统设置");
+  await nav("设置");
   await page.getByRole("button", { name: "保存并连接" }).click();
-  await expect(page.locator(".connection-text")).toContainText("已连接");
-  await nav("设备列表");
+  await expect(page.locator(".demo-connection")).toContainText("已连接");
+  await nav("设备管理");
   await expect(page.locator(".device-item")).toContainText("ui-device");
   check(true, "native profile bridge and real HTTP / WebSocket connection");
   const bridge = async (method, args = {}) =>
@@ -133,7 +129,8 @@ try {
       b.click();
       b.click();
     });
-  await expect(page.locator(".maintenance-card .badge")).toHaveText("已开启");
+  await page.getByRole('dialog').getByRole('button',{name:'确定',exact:true}).evaluate(b=>{b.click();b.click();});
+  await expect(page.locator(".expanded-maintenance > .overview-heading .overview-status")).toHaveText("维护已开启");
   let ms = (await api("maintenance")).items;
   const m = ms.find((x) => !x.released);
   check(
@@ -146,20 +143,38 @@ try {
   );
   check(m.endpoints.length === 3, "Web SSH Telnet endpoints present");
   await page.screenshot({ path: path.join(out, "overview-light.png") });
-  await page.locator(".endpoint").nth(0).getByRole("button").click();
-  await page.locator(".endpoint").nth(1).getByRole("button").click();
-  await page.locator(".endpoint").nth(2).getByRole("button").click();
-  await expect
-    .poll(async () => await readFile(path.join(out, "launches.txt"), "utf8"))
-    .toContain("web\nssh\ntelnet\n");
-  check(
-    true,
-    "three entry buttons recheck API then invoke the native launch boundary",
-  );
-  await page.getByRole("button", { name: "切换主题" }).click();
+  await page.getByRole('button',{name:/^Web 管理/}).click();
+  await tab('远程维护');
+  await page.evaluate(()=>{window.__terminalHandles=[];window.chrome.webview.addEventListener('message',e=>{if(typeof e.data.result==='string'&&/^[a-f0-9]{32}$/.test(e.data.result))window.__terminalHandles.push(e.data.result);});});
+  await page.getByRole('button',{name:'连接 SSH',exact:false}).click();
+  await expect(page.locator('.production-terminal-host .xterm')).toHaveCount(1);
+  await expect.poll(()=>page.evaluate(()=>window.__terminalHandles.length)).toBe(1);
+  const handle=await page.evaluate(()=>window.__terminalHandles[0]);
+  check(!(await bridge('terminalResize',{handle,columns:90,rows:25})).error,'embedded SSH client starts inside WebView2 and accepts resize');
+  await page.getByRole('tab',{name:/^Telnet/}).click();
+  await expect(page.locator('.production-terminal-host .xterm')).toHaveCount(2);
+  await expect.poll(()=>page.evaluate(()=>window.__terminalHandles.length)).toBe(2);
+  const telnetHandle=await page.evaluate(()=>window.__terminalHandles[1]);
+  check(!(await bridge('terminalWrite',{handle:telnetHandle,text:'\r'})).error,'embedded Telnet client accepts input');
+  await page.getByRole('tab',{name:/^SSH/}).click();
+  await page.getByRole('button',{name:'新建会话'}).click();
+  await page.getByRole('button',{name:'外部 SSH 工具'}).click();
+  await page.getByRole('button',{name:'新建会话'}).click();
+  await page.getByRole('button',{name:'外部 Telnet 工具'}).click();
+  await expect.poll(async()=>await readFile(path.join(out,'launches.txt'),'utf8')).toContain('web\nssh\ntelnet\n');
+  check(true,'default embedded shell and optional external entries recheck real maintenance');
+  await page.getByRole('button',{name:'刷新远程文件列表'}).click();
+  await expect(page.locator('.remote-file-row')).toHaveCount(2);
+  check(true,'remote directory uses a task result, including newline filename');
+  await page.screenshot({path:path.join(out,'maintenance.png')});
+  await tab('设备概览');
+  await expect.poll(async()=>(await bridge('terminalRead',{handle})).error).toBeTruthy();
+  await expect.poll(async()=>(await bridge('terminalRead',{handle:telnetHandle})).error).toBeTruthy();
+  check(true,'leaving maintenance closes both native process handles');
+  await page.getByRole("button", { name: "切换浅色或深色主题" }).click();
   await expect(page.locator("html")).toHaveAttribute("data-theme", "dark");
   await page.screenshot({ path: path.join(out, "overview-dark.png") });
-  await page.getByRole("button", { name: "切换主题" }).click();
+  await page.getByRole("button", { name: "切换浅色或深色主题" }).click();
   check(true, "light and dark themes");
   const cdp = await browser.contexts()[0].newCDPSession(page);
   await cdp.send("Emulation.setDeviceMetricsOverride", {
@@ -177,7 +192,7 @@ try {
   );
   await cdp.send("Emulation.clearDeviceMetricsOverride");
   await page
-    .getByRole("button", { name: "新建 Exec 任务", exact: true })
+    .getByRole("button", { name: /^执行命令/ })
     .click();
   await page
     .getByRole("dialog")
@@ -185,21 +200,22 @@ try {
     .fill("echo shared-frontend");
   await submit();
   await expect(page.getByRole("dialog")).toHaveCount(0);
-  await expect(page.locator("tbody tr")).toHaveCount(1);
-  await page.getByRole("button", { name: "结果", exact: true }).click();
-  await expect(page.locator(".terminal")).toContainText("中文结果");
+  await expect(page.locator(".task-table tbody tr")).toHaveCount(2);
+  await page.locator(".task-table tbody tr").filter({hasText:"echo shared-frontend"}).click();
+  await expect(page.locator(".task-result-box")).toContainText("中文结果");
   check(true, "Exec / ACK / final result through shared UI");
   await page.screenshot({ path: path.join(out, "tasks.png") });
-  await tab("文件管理");
+  await nav("文件管理");
   const file = path.join(out, "fixture.txt");
   await writeFile(file, "shared frontend file\n中文");
-  const chooser = page.waitForEvent("filechooser");
   await page.getByRole("button", { name: "导入文件", exact: true }).click();
-  await (await chooser).setFiles(file);
+  await page.getByLabel('选择导入文件').setInputFiles(file);
+  await page.getByRole('dialog').getByRole('button',{name:'导入文件',exact:true}).click();
+  await expect(page.getByRole('dialog')).toHaveCount(0);
   await expect(page.locator("tbody")).toContainText("fixture.txt");
   check(true, "native file selection and raw upload");
   const saved = path.join(out, "saved.txt");
-  await page.getByRole("button", { name: "另存", exact: true }).click();
+  await page.getByRole("button", { name: "保存到本地", exact: true }).click();
   await promisify(execFile)(
     "powershell.exe",
     [
@@ -221,8 +237,8 @@ try {
     .poll(async () => await readFile(saved, "utf8").catch(() => ""))
     .toBe("shared frontend file\n中文");
   check(true, "Windows save dialog and content bytes match");
-  await page.getByRole("button", { name: "上传", exact: true }).click();
-  await submit();
+  await page.getByRole("button", { name: "上传到设备", exact: true }).click();
+  await page.getByRole("dialog").getByRole("button",{name:"创建传输"}).click();
   await expect(page.getByRole("dialog")).toHaveCount(0);
   await expect
     .poll(async () =>
@@ -232,17 +248,17 @@ try {
     )
     .toBe(true);
   check(true, "asset upload task success");
-  await tab("文件管理");
+  await nav("文件管理");
   await page.getByRole("button", { name: "从设备下载", exact: true }).click();
   await page
     .getByRole("dialog")
-    .getByLabel("设备文件路径")
+    .getByLabel("传输文件路径")
     .fill("/tmp/fixture.txt");
   await page
     .getByRole("dialog")
-    .getByLabel("仓库文件名称")
+    .getByLabel("入库文件名")
     .fill("downloaded.txt");
-  await submit();
+  await page.getByRole("dialog").getByRole("button",{name:"创建传输"}).click();
   await expect(page.getByRole("dialog")).toHaveCount(0);
   await expect
     .poll(async () =>
@@ -252,15 +268,8 @@ try {
     )
     .toBe(true);
   const dt = (await api("tasks")).items.find((t) => t.type === "download");
-  await page
-    .locator("tbody tr")
-    .filter({ hasText: dt.task_id })
-    .getByRole("button", { name: "结果" })
-    .click();
-  await expect(
-    page.getByRole("button", { name: "导入已提交下载" }),
-  ).toBeEnabled();
-  await page.getByRole("button", { name: "导入已提交下载" }).click();
+  await page.getByRole('tab',{name:/传输记录/}).click();
+  await page.locator('.transfer-table tbody tr').filter({hasText:dt.task_id}).getByRole('button',{name:'导入仓库'}).click();
   await expect(
     page.getByRole("dialog", { name: "下载导入结果" }),
   ).toBeVisible();
@@ -269,18 +278,20 @@ try {
     (await api("assets")).items.some((a) => a.name === "downloaded.txt"),
     "download committed/released and explicit stable asset import",
   );
-  await tab("工具 / 版本");
+  await nav("工具仓库");
   await page.getByRole("button", { name: "创建工具" }).click();
-  await page.getByRole("dialog").getByLabel("工具名称").fill("网络诊断工具");
-  await submit();
+  await page.getByRole("dialog").getByLabel("新工具名称").fill("网络诊断工具");
+  await page.getByRole("dialog").getByRole("button",{name:"创建工具",exact:true}).click();
   await expect(page.getByRole("dialog")).toHaveCount(0);
-  await page.getByRole("button", { name: "发布版本" }).click();
-  await page.getByRole("dialog").getByLabel("版本标签").fill("1.0");
-  await submit();
+  await page.getByRole("button", { name: "发布版本", exact: true }).click();
+  await page.getByRole("dialog").getByLabel("发布版本标签").fill("1.0");
+  await page.getByLabel("产物架构").selectOption("any");
+  await page.getByRole("dialog").getByRole("button",{name:"发布版本",exact:true}).click();
   await expect(page.getByRole("dialog")).toHaveCount(0);
-  await expect(page.locator(".artifact")).toContainText("兼容");
-  await page.getByRole("button", { name: "投放", exact: true }).click();
-  await submit();
+  await expect(page.locator(".repo-artifact")).toContainText("兼容");
+  await page.locator(".repo-artifact").first().click();
+  await page.getByRole("button", { name: "投放到设备", exact: true }).click();
+  await page.getByRole("dialog").getByRole("button",{name:"创建传输"}).click();
   await expect(page.getByRole("dialog")).toHaveCount(0);
   await expect
     .poll(
@@ -291,9 +302,13 @@ try {
     )
     .toBe(2);
   check(true, "tool/version/artifact/compatibility/deployment real API flow");
-  await tab("工具 / 版本");
+  await nav('任务中心');
+  await page.getByRole('tab',{name:/工具投放/}).click();
+  await expect(page.locator('.task-table tbody tr')).toHaveCount(1);
+  check(true,'task center classifies deployments from server operation metadata');
+  await nav("工具仓库");
   await page.screenshot({ path: path.join(out, "tools.png") });
-  await tab("概览");
+  await nav("设备管理");
   const before = (await api("devices")).items[0].current_session.session_id;
   await cdp.send("Network.enable");
   await cdp.send("Network.emulateNetworkConditions", {
@@ -303,7 +318,7 @@ try {
     uploadThroughput: 0,
   });
   await page.evaluate(() => window.__testSockets.forEach((s) => s.close()));
-  await expect(page.locator(".connection-text")).toContainText("连接中断");
+  await expect(page.locator(".demo-connection")).toContainText("连接中断");
   await fetch("http://127.0.0.1:18082/replace");
   await cdp.send("Network.emulateNetworkConditions", {
     offline: false,
@@ -311,10 +326,10 @@ try {
     downloadThroughput: -1,
     uploadThroughput: -1,
   });
-  await expect(page.locator(".connection-text")).toContainText("已连接", {
+  await expect(page.locator(".demo-connection")).toContainText("已连接", {
     timeout: 20000,
   });
-  await expect(page.locator(".maintenance-card .badge")).toHaveText("已关闭", {
+  await expect(page.locator(".expanded-maintenance > .overview-heading .overview-status")).toHaveText("未开启", {
     timeout: 20000,
   });
   check(
@@ -325,8 +340,9 @@ try {
     await page.evaluate(() => window.__testSockets.length >= 2),
     "WebSocket closed and a new socket connected",
   );
-  await page.getByLabel("维护时长（分钟）").fill("0.005");
   await page.getByRole("button", { name: "开启维护", exact: true }).click();
+  await page.getByLabel("维护时长（分钟）").fill("0.005");
+  await submit();
   await expect
     .poll(async () =>
       (await api("maintenance")).items.some(
@@ -336,9 +352,10 @@ try {
     )
     .toBe(true);
   check(true, "custom 300ms lease expires on server");
-  await page.getByLabel("维护时长（分钟）").fill("1000");
   await page.getByRole("button", { name: "开启维护", exact: true }).click();
-  await expect(page.locator(".maintenance-card .badge")).toHaveText("已开启");
+  await page.getByLabel("维护时长（分钟）").fill("1000");
+  await submit();
+  await expect(page.locator(".expanded-maintenance > .overview-heading .overview-status")).toHaveText("维护已开启");
   check(
     (await api("maintenance")).items.some(
       (x) => new Date(x.expires_at) - new Date(x.created_at) === 60000000,
@@ -346,23 +363,30 @@ try {
     "custom lease above 360 minutes",
   );
   await page.getByRole("button", { name: "关闭维护", exact: true }).click();
-  await expect(page.locator(".maintenance-card .badge")).toHaveText("已关闭");
+  await submit();
+  await expect(page.locator(".expanded-maintenance > .overview-heading .overview-status")).toHaveText("未开启");
   check(true, "explicit maintenance close");
-  await nav("系统设置");
+  await nav("设置");
   await page.getByLabel("管理服务器地址").fill("http://127.0.0.1:18083");
   await page.getByRole("button", { name: "保存并连接" }).click();
   await expect(page).toHaveURL(/18083/);
   await expect(page.locator(".device-item")).toHaveCount(0);
   check(true, "server switch unloads old device/task state");
-  await nav("系统设置");
+  await nav("设置");
   await page.getByLabel("管理服务器地址").fill("http://127.0.0.1:18080");
   await page.getByRole("button", { name: "保存并连接" }).click();
   await expect(page).toHaveURL(/18080/);
-  await expect(page.locator(".connection-text")).toContainText("已连接", {
+  await expect(page.locator(".demo-connection")).toContainText("已连接", {
     timeout: 20000,
   });
   check(true, "switch back reconnects new owner");
-  check(!failures.length, "no React runtime errors");
+  await nav('设备管理');
+  await page.getByRole('button',{name:'开启维护',exact:true}).click();
+  await submit();
+  await tab('远程维护');
+  await page.getByRole('button',{name:'连接 SSH',exact:false}).click();
+  await expect(page.locator('.shell-context')).toContainText('会话已打开');
+  check(!failures.length, "no React runtime errors; leave native shell active for WM_CLOSE verification");
   await writeFile(
     path.join(out, "ui-result.txt"),
     `PASS ${checks} native WebView2 integration checks\n`,

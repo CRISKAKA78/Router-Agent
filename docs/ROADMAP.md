@@ -160,6 +160,20 @@ Protocol v1 的 14 项验收基线已映射至可运行测试，完整结果见 
 
 ## Phase 6 User Interfaces
 
+当前工作（2026-09-07）：UI Freeze + Production Integration。
+
+- [x] 用户确认已完成视觉设计，冻结实际 React 页面，记录 UI_FREEZE。
+- [x] 用户确认默认内置 Shell，同时允许外部客户端，新增 Accepted ADR-027。
+- [x] 正式入口复用冻结页面结构与样式，保留独立视觉参照。
+- [x] ConPTY 平台适配编译及中文 I/O、尺寸、积压关闭、原生租期释放检查。
+- [x] 设备/Session、Maintenance、Exec/Task、File/Tool 全流程真实 WebView2 验证。
+- [x] 内置客户端/外部入口、错误/并发/断线/重连/退出检查；隔离 OpenSSH/Telnet 命令往返与远端尺寸更新。
+- [x] 本轮完整 Windows 发布、13 项前端测试、27 项原生检查、31 项 WebView2 集成及 Phase 1～5 适用回归。
+- [x] 同步实际证据并形成正式仓库源码与文档；独立提交/推送以 Git 记录为准。
+- [ ] 用户实机与最终产品验收；不主动进入下一阶段。
+
+以下为上一稳定 React 重构基线 `404b083` 的已完成里程碑，不替代本轮接入验证：
+
 状态：用户授权从 6f0ce71 将 Windows 客户端迁移为共享 React UI + WinUI 3 WebView2 Thin Shell，采用 Accepted ADR-026。React 是今后 Windows 与 Web 的统一产品 UI 基线，公网 Web 部署尚未开始。
 
 - [x] React / TypeScript / Vite / Tailwind / Lucide 工作台及 Light/Dark/系统主题。
@@ -173,7 +187,7 @@ Protocol v1 的 14 项验收基线已映射至可运行测试，完整结果见 
 - [ ] 正式 Web 管理界面部署（未授权；复用当前 React 基线）。
 - [ ] 微信小程序（未授权）。
 
-按用户最终指定的本机范围完成验证后，独立 commit 推送 main，停止等待验收，不进入 Phase 7/8。
+本轮按用户确认的视觉冻结与正式接入推进；保持开发预览运行，不进入 Phase 7/8。
 
 ## Phase 7 MCP
 

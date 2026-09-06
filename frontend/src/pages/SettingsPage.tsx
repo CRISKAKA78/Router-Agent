@@ -99,7 +99,7 @@ export function SettingsPage({ model }: { model: Workbench }) {
           ))}
         </div>
         <p className="subtle">
-          Web 在系统浏览器打开；SSH 与 Telnet 使用系统客户端或你选择的 PuTTY。
+          SSH/Telnet 默认使用页面内终端，依赖本机命令行客户端。新建会话菜单可调用已选择的外部客户端；GUI PuTTY 仅作为外部入口。Web 在系统浏览器打开。
         </p>
       </Card>
     </div>

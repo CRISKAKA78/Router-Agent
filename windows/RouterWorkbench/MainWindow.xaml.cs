@@ -20,6 +20,7 @@ public sealed partial class MainWindow : Window
  private int navigation;
  private PickedFileSave? saving;
  private Task? initialization;
+ private readonly TerminalSessions terminals = new();
  internal MainWindow(string? configurationPath = null) {
   InitializeComponent(); Title = "远程维护工作台";
   profilePath = configurationPath ?? ServerProfile.DefaultPath;
@@ -32,10 +33,12 @@ public sealed partial class MainWindow : Window
    try {
     if(initialization!=null)await initialization;
     // Runtime.evaluate awaits promises; ExecuteScriptAsync does not await JS teardown.
-    if (Web.CoreWebView2 != null) await Web.CoreWebView2.CallDevToolsProtocolMethodAsync("Runtime.evaluate", "{\"expression\":\"window.workbenchShutdown?.()\",\"awaitPromise\":true}");
+    await terminals.CloseAsync();
+    if (Web.CoreWebView2 != null) await Web.CoreWebView2.CallDevToolsProtocolMethodAsync("Runtime.evaluate", "{\"expression\":\"window.workbenchShutdown?.(true)\",\"awaitPromise\":true}");
     await Task.WhenAll(active.ToArray());
     if(saving!=null){await saving.DisposeAsync();saving=null;}
    } catch (Exception e2) { Log(e2); }
+   await terminals.DisposeAsync();
    Web.Close(); lifetime.Dispose(); closeReady = true; Close();
   };
   Root.Loaded += async (_, _) => { initialization ??= InitializeAsync(); await initialization; };
@@ -59,7 +62,7 @@ public sealed partial class MainWindow : Window
    core.Settings.IsWebMessageEnabled = true;
    core.AddWebResourceRequestedFilter("*", CoreWebView2WebResourceContext.All, CoreWebView2WebResourceRequestSourceKinds.All);
    core.WebResourceRequested += ResourceRequested;
-   core.NavigationStarting += (_, e) => { if (!ShellPolicy.IsDocument(e.Uri, origin) || bridgeBusy || saving != null) e.Cancel = true; else navigation++; };
+   core.NavigationStarting += (_, e) => { if (!ShellPolicy.IsDocument(e.Uri, origin) || bridgeBusy || saving != null) e.Cancel = true; else { navigation++; TrackTerminalClose(); } };
    core.FrameNavigationStarting += (_, e) => e.Cancel = true;
    core.NewWindowRequested += (_, e) => e.Handled = true;
    core.PermissionRequested += (_, e) => e.State = CoreWebView2PermissionState.Deny;
@@ -73,7 +76,7 @@ public sealed partial class MainWindow : Window
     if (e.IsSuccess) Startup.Visibility = Visibility.Collapsed;
     else { Loading.IsActive = false; StartupMessage.Text = "工作台加载失败：" + e.WebErrorStatus; Startup.Visibility = Visibility.Visible; }
    };
-   core.ProcessFailed += (_, e) => { Loading.IsActive = false; Startup.Visibility = Visibility.Visible; StartupMessage.Text = "WebView2 进程已退出，请重新启动工作台。"; Log(new Exception(e.ProcessFailedKind.ToString())); };
+   core.ProcessFailed += (_, e) => { TrackTerminalClose(); Loading.IsActive = false; Startup.Visibility = Visibility.Visible; StartupMessage.Text = "WebView2 进程已退出，请重新启动工作台。"; Log(new Exception(e.ProcessFailedKind.ToString())); };
    core.Navigate(new Uri(origin, "__workbench/index.html").AbsoluteUri);
   } catch (Exception e) { Loading.IsActive = false; StartupMessage.Text = "无法加载工作台。请检查完整发布目录及 Microsoft Edge WebView2 Runtime。\n" + e.Message; Log(e); }
  }
@@ -97,6 +100,19 @@ public sealed partial class MainWindow : Window
     if (envelope.RootElement.TryGetProperty("id", out var identity) && identity.ValueKind == JsonValueKind.String && identity.GetString() is { Length: > 0 and <= 64 } candidate && candidate.All(char.IsAsciiDigit)) id = candidate;
    }
    var message = ShellPolicy.Parse(json); id = message.Id;
+   // Terminal traffic has independent bounded queues; a native file picker must not block it.
+   if (message.Method.StartsWith("terminal", StringComparison.Ordinal) && message.Method != "terminalOpen") {
+    object? terminalResult = null;
+    var handle = message.Method == "terminalCloseAll" ? null : message.Args.GetProperty("handle").GetString();
+    switch(message.Method) {
+     case "terminalRead": terminalResult = await terminals.InvokeAsync(handle!); break;
+     case "terminalWrite": await terminals.InvokeAsync(handle!, terminal => terminal.Write(message.Args.GetProperty("text").GetString()!)); break;
+     case "terminalResize": await terminals.InvokeAsync(handle!, terminal => terminal.Resize(message.Args.GetProperty("columns").GetInt32(), message.Args.GetProperty("rows").GetInt32())); break;
+     case "terminalClose": case "terminalCloseAll": await terminals.CloseAsync(handle); break;
+    }
+    if (!closing && epoch == navigation) Web.CoreWebView2.PostWebMessageAsJson(JsonSerializer.Serialize(new {id, result = terminalResult}, Wire.Json));
+    return;
+   }
    if (bridgeBusy) throw new InvalidOperationException("平台操作正在进行。");
    bridgeBusy = true; object? result = null; Uri? navigate = null;
    try {
@@ -107,6 +123,7 @@ public sealed partial class MainWindow : Window
       await next.SaveAsync(profilePath); profile = next;
       Root.RequestedTheme = profile.Theme == "Dark" ? ElementTheme.Dark : profile.Theme == "Light" ? ElementTheme.Light : ElementTheme.Default; break;
      case "connect":
+      await terminals.CloseAsync();
       var url = message.Args.GetProperty("server_url").GetString()!;
       var requested = (profile with { ServerUrl = url }).BaseUri();
       if (requested != profile.BaseUri()) throw new ArgumentException("先保存连接配置。");
@@ -128,6 +145,10 @@ public sealed partial class MainWindow : Window
       if(saving==null||message.Args.GetProperty("handle").GetString()!=saving.Id)throw new ArgumentException("保存句柄无效。");
       if(message.Method=="saveChunk")await saving.WriteAsync(message.Args.GetProperty("offset").GetInt64(),message.Args.GetProperty("base64").GetString()!,lifetime.Token);
       else {try {if(message.Method=="finishSave")await saving.CompleteAsync(lifetime.Token);}finally{await saving.DisposeAsync();saving=null;}}
+      break;
+     case "terminalOpen":
+      result = await terminals.OpenAsync(message.Args.GetProperty("endpoint").Deserialize<Endpoint>(Wire.Json)!, profile,
+       message.Args.GetProperty("expires_at").GetDateTimeOffset(), message.Args.GetProperty("columns").GetInt32(), message.Args.GetProperty("rows").GetInt32());
       break;
      case "openEndpoint":
       var endpoint = message.Args.Deserialize<Endpoint>(Wire.Json)!; ShellPolicy.ValidateEndpoint(endpoint);
@@ -156,6 +177,10 @@ public sealed partial class MainWindow : Window
   } catch (Exception e) {
    if (!closing && epoch == navigation) Web.CoreWebView2.PostWebMessageAsJson(JsonSerializer.Serialize(new { id, error = e is OperationCanceledException ? "操作已取消" : e.Message }, Wire.Json));
   }
+ }
+ private void TrackTerminalClose() {
+  var task = terminals.CloseAsync(); active.Add(task);
+  _ = task.ContinueWith(completed => DispatcherQueue.TryEnqueue(() => { active.Remove(task); if(completed.Exception != null) Log(completed.Exception); }));
  }
  private static void Log(Exception e) { try { Directory.CreateDirectory(Path.GetDirectoryName(ServerProfile.DefaultPath)!); File.WriteAllText(Path.Combine(Path.GetDirectoryName(ServerProfile.DefaultPath)!, "last-error.log"), e.ToString()); } catch (IOException) { } }
 }

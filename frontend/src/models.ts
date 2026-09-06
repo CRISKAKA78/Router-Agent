@@ -43,7 +43,9 @@ export interface TaskDetail extends TaskSummary {
   command: string;
   cwd: string;
   timeout_seconds: number;
-  last_session_id: string;
+  last_session_id: string | null;
+  env?: Record<string, string>;
+  params?: Record<string, unknown>;
   dispatch_count: number;
   result: null | {
     status: string;

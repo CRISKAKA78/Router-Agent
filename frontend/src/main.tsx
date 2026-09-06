@@ -1,7 +1,8 @@
 import React from "react";
 import { createRoot } from "react-dom/client";
 import { App } from "./App";
-import "./style.css";
+import "./ui/preview.css";
+import "./ui/production.css";
 class ErrorBoundary extends React.Component<
   React.PropsWithChildren,
   { error: string }

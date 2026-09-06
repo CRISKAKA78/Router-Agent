@@ -11,7 +11,7 @@ declare global {
         ) => void;
       };
     };
-    workbenchShutdown?: () => Promise<void>;
+    workbenchShutdown?: (nativeClosing?: boolean) => Promise<void>;
   }
 }
 const bridge = window.chrome?.webview;
@@ -39,6 +39,15 @@ export function nativeCall<T>(method: string, args: unknown = {}): Promise<T> {
   });
 }
 export const platform = {
+  embeddedTerminal: !!bridge,
+  async closeTerminals() { if (bridge) await nativeCall("terminalCloseAll"); },
+  terminalOpen(endpoint: Endpoint, expires_at: string, columns: number, rows: number) {
+    return nativeCall<string>("terminalOpen", {endpoint, expires_at, columns, rows});
+  },
+  terminalRead(handle: string) { return nativeCall<{base64:string;exited:boolean;exit_code:number|null}>("terminalRead",{handle}); },
+  terminalWrite(handle: string, text: string) { return nativeCall<void>("terminalWrite",{handle,text}); },
+  terminalResize(handle: string, columns:number, rows:number) { return nativeCall<void>("terminalResize",{handle,columns,rows}); },
+  terminalClose(handle: string) { return nativeCall<void>("terminalClose",{handle}); },
   dispose() {
     for (const cancel of pickers) cancel();
     pickers.clear();

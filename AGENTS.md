@@ -58,6 +58,8 @@ Phase 0～5已验收。用户于2026-09-06明确授权从main稳定基线 `57c2b
 
 用户于2026-09-06进一步明确授权从main稳定基线 `6f0ce71a5027b57d51e9a6c807794be45f7633b5` 采用Accepted ADR-026，当前明确使用C# / WinUI 3 Thin Shell + WebView2 + React / TypeScript Shared Frontend。React是今后Windows与Web的统一产品UI基线，替代旧XAML业务页与C#业务网络层；Shell仅保留受限平台Bridge、本地资源、窗口及配置能力。中文Fluent界面、Light/Dark/系统主题，设备侧栏与首要维护卡片；地址进入设置，维护/会话编号和释放原因进入详情。可自行组织合理UI分层并复用已有API/WS/DTO/外部SSH及Telnet启动逻辑。维护默认240分钟，可自定义正租期。WebSocket首连/重连回查HTTP快照；网络请求异步，切换Server/退出取消并等待旧资源释放。必要API缺口只允许最小补充，不重构Server。认证、TLS、RBAC、租户和完整审计仍为后续边界；配置保留合理扩展入口，不构建账号体系。不得缓存或显示Tunnel token、connection_id或data私有细节。
 
+用户于2026-09-07确认当前React实际页面视觉完成，进入UI Freeze + Production Integration。以docs/UI_FREEZE.md为视觉基线，不主动重新设计布局或更换视觉语言。用户进一步确认默认内置Shell、允许外部工具，按Accepted ADR-027扩展ADR-026的终端平台适配：xterm.js + Windows ConPTY承载本机SSH/Telnet命令行客户端，保留外部入口，不自研协议或新增Tunnel数据面。目录使用有界单次只读Exec，内容传输继续走既有File API；未提供遥测如实显示未提供。
+
 必须完成Windows客户端连接/断线/重连、设备实时更新/Session replacement、Maintenance创建/关闭/默认与自定义租期/到期/三入口、Exec结果、File/Tool、API错误、重复点击/并发和退出资源验证；保留Phase 1～5全量测试、Go race/vet、C++ CTest/sanitizers、Linux Probe与Windows/Linux Server适用验证。同步API/ARCHITECTURE/DECISIONS/PROJECT_STATUS/HANDOFF/ROADMAP/CHANGELOG及PHASE6_VERIFICATION。全部通过后独立Phase 6 Windows UI commit推送GitHub main，停止等待验收，不进入Web UI、微信小程序、MCP、AI Agent、通用端口转发、新Tunnel数据面、自研SSH/Telnet或任意目标端口。
 
 ## 任务执行要求

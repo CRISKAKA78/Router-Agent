@@ -14,9 +14,14 @@ try {
     Push-Location (Join-Path $repoRoot 'frontend')
     try {node tests/native.mjs $output $ui.Id; if($LASTEXITCODE -ne 0){throw "WebView2 tests failed: $output"}}
     finally {Pop-Location}
+    $ownedShells = @(Get-CimInstance Win32_Process -Filter "ParentProcessId=$($ui.Id)" | Where-Object Name -in 'ssh.exe','telnet.exe')
+    if (!$ownedShells.Count) { throw 'Expected an active embedded client for exit verification' }
     if(!$ui.CloseMainWindow() -or !$ui.WaitForExit(15000) -or $ui.ExitCode -ne 0){throw 'Native app did not release and exit normally'}
+    foreach ($client in $ownedShells) {
+        if (Get-Process -Id $client.ProcessId -ErrorAction SilentlyContinue) { throw 'Embedded client survived application shutdown' }
+    }
     Get-Content (Join-Path $output 'native.log'),(Join-Path $output 'ui-result.txt')
-    'PASS native WM_CLOSE and resource release'
+    'PASS native WM_CLOSE and embedded client process release'
 } finally {
     if($ui -and !$ui.HasExited){$ui.Kill()}; if($ui){$ui.Dispose()}
     if(!$fixture.HasExited){try{Invoke-WebRequest http://127.0.0.1:18082/stop | Out-Null}catch{};if(!$fixture.WaitForExit(10000)){$fixture.Kill($true)}}

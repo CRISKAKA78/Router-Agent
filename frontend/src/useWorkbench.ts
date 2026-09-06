@@ -57,7 +57,7 @@ import { Badge, Card, FormDialog, stateName } from "./components";
 import { platform } from "./platform";
 import { useQuery } from "./useQuery";
 
-type Page = "overview" | "tasks" | "files" | "tools" | "details" | "settings";
+type Page = "maintenance" | "overview" | "tasks" | "files" | "tools" | "details" | "settings";
 const tabs: [Page, string, typeof Home][] = [
   ["overview", "概览", Home],
   ["tasks", "任务 / Exec", Terminal],
@@ -76,6 +76,7 @@ export function useWorkbench() {
       const p = location.hash.slice(1);
       return [
         "overview",
+        "maintenance",
         "tasks",
         "files",
         "tools",
@@ -103,6 +104,7 @@ export function useWorkbench() {
   });
   const owner = useRef<Connection | null>(null),
     actionGate = useRef(false),
+    actionNotice = useRef(""),
     lastAction = useRef({ label: "", at: 0 }),
     generation = useRef(0);
   const [dialog, setDialog] = useState<{
@@ -158,7 +160,8 @@ export function useWorkbench() {
     setSelected("");
     setDialog(null);
     setInspect(null);
-    await old?.dispose();
+    try { await platform.closeTerminals(); }
+    finally { await old?.dispose(); }
   }
   async function connect(p: Profile) {
     const url = baseUrl(p.server_url);
@@ -186,8 +189,9 @@ export function useWorkbench() {
       })
       .catch((e) => setError(describe(e)));
     const timer = setInterval(() => setNow(Date.now()), 1000);
-    window.workbenchShutdown = async () => {
+    window.workbenchShutdown = async (nativeClosing = false) => {
       generation.current++;
+      if (!nativeClosing) await platform.closeTerminals();
       platform.dispose();
       await owner.current?.dispose();
     };
@@ -291,12 +295,13 @@ export function useWorkbench() {
     )
       return;
     actionGate.current = true;
+    actionNotice.current = "";
     setBusy(true);
     setError("");
     const g = generation.current;
     try {
       await fn();
-      if (g === generation.current) setNotice(label + "完成");
+      if (g === generation.current) setNotice(actionNotice.current || label + "完成");
     } catch (e) {
       if (g === generation.current) setError(describe(e));
     } finally {
@@ -310,8 +315,10 @@ export function useWorkbench() {
     if (!c) throw new Error("请先连接服务器");
     const data = await c.execute(m);
     if (owner.current !== c) throw new Error("连接已切换");
-    if (data?.dispatch_uncertain)
-      setNotice(`派发响应不确定，已保留任务 ${data.task_id}；请查询原任务`);
+    if (data?.dispatch_uncertain) {
+      actionNotice.current = `派发响应不确定，已保留任务 ${data.task_id}；请查询原任务`;
+      setNotice(actionNotice.current);
+    }
     return data;
   }
   function form(
@@ -446,7 +453,7 @@ export function useWorkbench() {
       },
     );
   }
-  async function open(m: Maintenance, service: string) {
+  async function endpointFor(m: Maintenance, service: string) {
     const c = owner.current;
     if (!c) throw Error("请连接服务器");
     const current = await c.track(() =>
@@ -464,6 +471,10 @@ export function useWorkbench() {
       throw Error("维护已关闭或会话已变化，请刷新");
     const endpoint = current.endpoints.find((e) => e.service === service);
     if (!endpoint || endpoint.state !== "ready") throw Error("维护入口不可用");
+    return {endpoint, current};
+  }
+  async function open(m: Maintenance, service: string) {
+    const {endpoint}=await endpointFor(m,service);
     await (
       service === "web"
         ? platform.openWeb
@@ -533,6 +544,7 @@ export function useWorkbench() {
     download,
     publish,
     open,
+    endpointFor,
     devices,
     selectedTool,
     remaining,

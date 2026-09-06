@@ -8,11 +8,13 @@ Phase 4 新增 `internal/tunnel.Service` 与 C++11 `TunnelManager`，采用 Acce
 
 **React Shared Frontend 是今后 Windows 与 Web 的统一产品 UI 基线。** 采用 Accepted ADR-026：frontend/ 是唯一业务 UI、HTTP/WS Client、DTO、快照恢复、状态与设计系统；Windows 以 WinUI 3 + WebView2 加载随包静态资源。旧 XAML 业务页、C# ApiClient 与 WorkspaceConnection 已删除。
 
-Shell 仅管理窗口、本地内容、配置、受限平台 Bridge、Windows 文件选择与保存，以及浏览器/SSH/Telnet 启动。Core 无业务网络层；所有设备/任务/文件/工具/Maintenance 操作仍通过公开 /api/v1。Frontend 不引用 Server 内部实现、不重建状态机。
+Shell 管理窗口、本地内容、配置、受限平台 Bridge、Windows 文件选择与保存，以及浏览器/SSH/Telnet 启动。Accepted ADR-027 增加 ConPTY 本地终端适配：默认内置 xterm.js 终端承载命令行 SSH/Telnet，保留外部客户端入口。Core 无业务网络层；所有设备/任务/文件/工具/Maintenance 操作仍通过公开 /api/v1。Frontend 不引用 Server 内部实现、不重建状态机。
 
 为保留现有 Origin 契约，Shell 在选定 Server origin 的 /__workbench/ 路径拦截并返回本地静态资源，页面直接调用同源 API/WS，不增加 C# API 代理。文档与静态脚本受本地资源和导航白名单控制，Bridge 核对当前入口文档来源；外部网页不能进入主 WebView2。Browser 平台共享相同 UI，未来正式部署需同源服务/反向代理，本轮不发布 Web。
 
-每个 Connection 拥有请求取消源、WebSocket、单快照 worker、dirty 合并及 5 秒恢复刷新。首连/重连重新 HTTP 全分页同步；查询结果按连接与选择隔离。原 Mutation 键和字节在不确定响应后保留，明确核对 Server 进程后重试。切换/退出取消并等待请求/socket/worker；WinUI await JS shutdown 再释放 WebView2。外部程序与 Server 已创建资源保持各自生命周期。
+每个 Connection 拥有请求取消源、WebSocket、单快照 worker、dirty 合并及 5 秒恢复刷新。首连/重连重新 HTTP 全分页同步；查询结果按连接与选择隔离。原 Mutation 键和字节在不确定响应后保留，明确核对 Server 进程后重试。切换/退出取消并等待请求/socket/worker；WinUI 先关闭内置进程、等待 JS shutdown，再释放 WebView2。内置终端按维护租期、Session 和页面生命周期关闭，原生层独立回收到期句柄；外部程序与 Server 已创建资源保持各自生命周期。
+
+2026-09-07 用户确认的实际 React UI 已冻结，基线见 UI_FREEZE。正式入口使用 frontend/src/ui/，preview/ 只保留视觉参照。目录浏览是最多 250 项、NUL 分隔的单次只读 Exec，内容传输继续使用 File API；不存在新的目录服务、持续终端代理或 Tunnel 数据面。未知遥测字段显示未提供。
 
 发布目录包含 .NET、WinUI、React production assets 和固定 WebView2 Runtime，不需 Node。平台方法、页面层级、资产与任务事实分离、租期与安全细节见 [PHASE6_DESIGN](PHASE6_DESIGN.md)、[windows/README](../windows/README.md)。
 

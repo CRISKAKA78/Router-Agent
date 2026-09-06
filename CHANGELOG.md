@@ -10,7 +10,16 @@
 
 ## Unreleased
 
+### Added
+
+- Windows 远程维护默认使用内置 xterm.js / ConPTY Shell，承载本机 SSH/Telnet 命令行客户端；支持输入、尺寸、字号、清屏、复制、会话切换与重新连接，同时保留外部客户端入口。维护到期、Session 替换、切页和退出释放内置进程；不保存密码，不自研 SSH/Telnet 或新增 Tunnel 数据面（ADR-027）。
+- 远程文件面板通过有界单次 Exec 读取真实目录，支持选择/拖入文件并创建上传任务、选中文件创建下载任务；文件内容仍通过既有 File/Repository API，完整提交且释放后显式入库。
+- 文件管理接入资产内容校验、Windows 保存、上传/下载、完整下载入库、暂存清理和归档；工具仓库接入版本/多产物、服务端兼容判断与显式投放。任务中心接入最终输出、原任务重发、状态筛选和 Operation 关联的工具投放分类。
+- `preview.html` 和 `frontend/src/preview/` 保留已确认视觉的独立 Mock 参照，不进入 production bundle。
+
 ### Changed
+
+- 用户确认 UI Freeze；正式 React 入口采用已确认的导航、紧凑设备列表、概览、铺满高度的维护区、任务中心、文件管理和工具仓库布局，复用同一 API/WS 层，不再进行主动视觉设计。未提供的遥测与缺失数据如实显示，不回退到 Mock。
 
 - Phase 6 产品 UI 正式迁移为共享 React / TypeScript 工作台，WinUI 3 作为 WebView2 薄 Shell；Windows 与未来 Web 共用页面、设计系统、HTTP/WebSocket 与状态管理，依据 ADR-026。
 - 按确认截图实现一级导航、设备列表、维护主卡片和中文浅色/深色界面；保留 Exec、文件、工具版本/产物/兼容/投放与全部既有 API 语义。移除旧 XAML 业务页面和 C# 业务网络层。

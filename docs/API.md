@@ -2,7 +2,9 @@
 
 本文件维护Phase 5已实现的 `/api/v1` HTTP/WebSocket规范及原内部Service契约。实现入口 `internal/api`，业务来源为 `management.Server` 与已有 Service。没有新的 Probe 消息或 Tunnel 数据面。
 
-Phase 6 React Shared Frontend / Windows WebView2 Shell复用本文件公开契约（ADR-026），生产API无补充或修改。客户端首连/重连HTTP同步、维护与Exec/文件/工具动作、相同键显式重试及入口启动规则见[PHASE6_DESIGN](PHASE6_DESIGN.md)与[Windows使用说明](../windows/README.md)。Windows UI不能直接调用下文内部Go接口。
+Phase 6 React Shared Frontend / Windows WebView2 Shell复用本文件公开契约（ADR-026/027），生产API无补充或修改。客户端首连/重连HTTP同步、维护与Exec/文件/工具动作、相同键显式重试及入口启动规则见[PHASE6_DESIGN](PHASE6_DESIGN.md)与[Windows使用说明](../windows/README.md)。Windows UI不能直接调用下文内部Go接口。
+
+冻结 UI 的内置 Shell 通过本机 SSH/Telnet 客户端连接重新查询的 Maintenance 公共入口，不通过 HTTP Exec 或 WebSocket 传送持续终端字节。右侧目录使用有界单次 Exec，文件内容通过 uploads/downloads/complete；工具投放列表从 tasks/{id}/operation 的 tool_id 关联得出。当前无 CPU、内存、磁盘、4G、端口遥测 API，界面相应字段显示未提供，不以推测数据替代。
 
 ## 部署与生命周期
 

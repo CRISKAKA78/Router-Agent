@@ -1,13 +1,19 @@
 # 项目接管手册
 
-Phase 0～5 已验收。当前为用户授权的 Phase 6 Shared React / WebView2 重构，起点 `6f0ce71a5027b57d51e9a6c807794be45f7633b5`，正式架构依据 ADR-026；不以此前纯 XAML 实现继续开发。
+当前任务（2026-09-07）：用户确认 UI Freeze + Production Integration，默认内置 Shell，保留外部客户端选择。冻结参考为 `frontend/src/preview/`，正式入口已迁移为 `frontend/src/App.tsx` 与 `frontend/src/ui/`，不得恢复视觉迭代或重新排版。
+
+先读 [UI_FREEZE](UI_FREEZE.md)、Accepted ADR-027，再检查实际 Git 与测试。内置终端在 `EmbeddedTerminal.cs` / `TerminalSessions.cs`、受限 Bridge、`EmbeddedShell.tsx`；目录通过有界单次 Exec，传输仍走 File API。本轮实现与验证已通过，停止等待用户验收；提交/推送以 Git 为准，不恢复 Mock 迭代。
+
+保持 `http://127.0.0.1:5173/` Vite；`preview.html` 只作视觉参照。构建使用本机 `build/dotnet/dotnet.exe`（系统 PATH 的 dotnet 没有 SDK）。本轮 13 项前端测试、27 项原生检查、31 项 WebView2 集成、正式发布、Linux Release/ASan/race 和 Windows Go 适用回归通过。`windows/verify-terminal-services.ps1` 单独验证真实 SSH/Telnet 命令往返与远端 resize，需 Docker 隔离服务；详见 PHASE6_VERIFICATION。实际厂商设备登录、物理多屏 DPI 与干净目标机范围不应夸大。
+
+Phase 0～5 已验收。当前为用户授权的 Phase 6 Shared React / WebView2 重构，起点 `6f0ce71a5027b57d51e9a6c807794be45f7633b5`，正式架构依据 ADR-026 / ADR-027；不以此前纯 XAML 实现继续开发。
 
 依次阅读 AGENTS → 本文件 → PROJECT_STATUS → ARCHITECTURE → ROADMAP → 相关 API/PROTOCOL/DECISIONS，再核对实际代码、Git 和验证结果。
 
 **React Shared Frontend 是今后 Windows 与 Web 的统一产品 UI 基线。**
 
 - `frontend/`：React、TypeScript、Vite、Tailwind、Lucide；唯一的业务 HTTP/WS Client、状态与页面。
-- `windows/RouterWorkbench/`：WinUI 薄 Shell 和 WebView2 本地资源；`RouterWorkbench.Core/` 只有平台策略、配置、外部启动。
+- `windows/RouterWorkbench/`：WinUI 薄 Shell 和 WebView2 本地资源；`RouterWorkbench.Core/` 负责平台策略、配置、外部启动与受限 ConPTY 终端。
 - [PHASE6_DESIGN](PHASE6_DESIGN.md)：同源本地内容加载、Bridge、语义迁移和生命周期。
 - [Windows README](../windows/README.md)、`windows/build.ps1`：构建、离线目录、运行要求。
 - [PHASE6_VERIFICATION](PHASE6_VERIFICATION.md)：本轮测试命令与实际结果；不能用旧纯 XAML 的 61/98 项结果代替本轮证据。

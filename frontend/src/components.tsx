@@ -8,6 +8,7 @@ export const stateName = (s: string) =>
     closed: "已关闭",
     closing: "关闭中",
     success: "成功",
+    received: "待确认",
     failed: "失败",
     running: "运行中",
     queued: "排队中",

@@ -53,7 +53,7 @@ internal sealed class TestProbe : IAsyncDisposable
                     await SendAsync(0x11, new { reply_to = message, task_id = id, accepted = true, state = results.ContainsKey(id) ? "success" : "queued" }, 1);
                     if (results.TryGetValue(id, out var old)) { await SendAsync(0x12, old); continue; }
                     var taskType = value.GetProperty("type").GetString();
-                    if (taskType == "exec") { Executions++; await ResultAsync(value, "fixture stdout\n中文结果", "fixture stderr", new { }); }
+                    if (taskType == "exec") { Executions++; var directory=value.GetProperty("params").GetProperty("command").GetString()!.StartsWith("cd "); await ResultAsync(value, directory ? "f\0"+"12\0"+"1788700000\0"+"network\0"+"f\0"+"0\0"+"1788700000\0"+"line\nname\0" : "fixture stdout\n中文结果", directory ? "" : "fixture stderr", new { }); }
                     else
                     {
                         fileTask = value.Clone();

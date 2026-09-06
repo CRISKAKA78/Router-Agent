@@ -108,7 +108,7 @@ export class ApiClient {
       redirect: "error",
       credentials: "omit",
       cache: "no-store",
-      signal: AbortSignal.any([this.signal, deadline]),
+      signal: AbortSignal.any([this.signal, deadline, ...(init.signal ? [init.signal] : [])]),
     });
     if (raw && r.ok) return r.blob();
     const envelope = await r.json();
@@ -119,8 +119,8 @@ export class ApiClient {
     if (!("data" in envelope)) throw new Error("API 响应缺少 data");
     return envelope.data;
   }
-  get<T>(path: string): Promise<T> {
-    return this.request(path);
+  get<T>(path: string, signal?: AbortSignal): Promise<T> {
+    return this.request(path, {signal});
   }
   async list<T>(path: string): Promise<T[]> {
     const items: T[] = [];

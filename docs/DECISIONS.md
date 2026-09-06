@@ -378,3 +378,19 @@ Task Service 继续拥有任务规格、ACK/RESULT 关联与幂等；File Transf
 - 发布：Windows x64 自包含 .NET/WinUI 目录，包含 React production assets、Fixed Version WebView2 Runtime、包内 VC DLL 的 app-local 副本和可选离线 VC++ 安装器，不依赖 Node/Vite 服务或目标机提权安装。固定 Runtime/VC DLL 由发布者随应用更新并验证；不引入自动升级系统。
 - 保留：ADR-009～023、Phase 4 Maintenance/端口隔离/数据面和 ADR-019 身份/资产规则全部保持。没有后端契约、Probe 或 Tunnel 生产变更；认证/TLS/RBAC、MCP、AI、微信和通用转发仍不在本轮。
 - 实施与证据：PHASE6_DESIGN、PHASE6_VERIFICATION、windows/README；历史纯 XAML 验证不能冒充本轮验证。
+
+
+## ADR-027 UI Freeze 与默认内置终端平台适配
+
+- 状态：Accepted。
+- 日期：2026-09-07。
+- 确认依据：用户明确确认当前 React 实际页面视觉完成，进入 UI Freeze + Production Integration，并明确“默认使用内置shell，允许用户调用外部其他shell工具”。
+- Supersedes：ADR-026 的仅外部 SSH/Telnet 启动及 Bridge 方法范围；其余共享 React、WinUI Thin Shell、API First、同源资源、安全边界与资源释放要求不变。历史 ADR 不改写。
+- 视觉基线：docs/UI_FREEZE.md 所列已确认页面结构、样式与图片。生产入口复用该布局；只做真实数据、状态、错误、空态及必要业务交互接入。
+- 内置终端：React 使用 xterm.js 呈现终端；Windows ConPTY 承载本机安装或原生选择器授权的命令行 ssh.exe / telnet.exe。不实现 SSH/Telnet 协议，不通过 Exec 模拟交互 Shell，不增加服务器终端代理。GUI PuTTY 保留为外部入口；缺少命令行客户端时显示明确依赖错误，不能伪装连接成功。
+- 数据路径：客户端直接连接已复核的 Maintenance SSH/Telnet 公共入口，仍分别固定映射 Probe 127.0.0.1:22/23。Web 仍交系统浏览器。既有独立 Tunnel 数据 TCP、绑定、端口隔离及 Probe 流限制均不变。
+- Bridge：新增 terminalOpen/Read/Write/Resize/Close/CloseAll。Open 只接受结构化已验证入口、租期和终端尺寸，不接受命令行、客户端路径或任意程序。其余操作使用本窗口内存句柄；最多 4 个终端、有界输入/输出队列、有限回读批次。终端文本不作为 HTML 执行。
+- 生命周期：React 复核 Maintenance 与当前设备 Session，维护关闭/到期、Session replacement、切换设备/Server 与退出触发关闭；原生层独立按租期关闭，即使渲染器停顿，进程、管道和 ConPTY 也必须释放。关闭后等待输出排空与本地进程退出。
+- 凭据：由 SSH/Telnet 客户端在终端内交互；不进入配置或日志，不保存终端录制。SSH 主机密钥使用客户端原生验证，不自动接受未知或变化的密钥。
+- 目录浏览：以明确的单次只读 Exec 请求读取目录，字段使用 NUL 分隔并限制数量，按真实最终结果展示；不引入目录服务或复制 File 状态机。文件内容上传/下载仍走现有 File/Repository API。API 未提供的设备遥测保留未提供状态。
+- 验证要求：终端交互/尺寸/有界输出/错误/退出/到期与设备替换测试，真实页面及 WebView2 检查；必须区分已编译、集成通过与真实 SSH/Telnet 端到端成功。

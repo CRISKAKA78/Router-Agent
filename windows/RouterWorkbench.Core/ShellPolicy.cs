@@ -29,6 +29,13 @@ public static class ShellPolicy
    case "finishSave": case "cancelSave": Exact(args, "handle"); break;
    case "saveProfile": Exact(args, "schema_version", "server_url", "theme", "ssh_user", "ssh_executable", "telnet_executable", "ssh_use_putty", "telnet_use_putty"); break;
    case "openEndpoint": Exact(args, "service", "host", "port", "address", "state", "url"); break;
+   case "terminalOpen":
+    Exact(args, "endpoint", "expires_at", "columns", "rows");
+    Exact(args.GetProperty("endpoint"), "service", "host", "port", "address", "state", "url"); break;
+   case "terminalRead": case "terminalClose": Exact(args, "handle"); break;
+   case "terminalWrite": Exact(args, "handle", "text"); break;
+   case "terminalResize": Exact(args, "handle", "columns", "rows"); break;
+   case "terminalCloseAll": Exact(args); break;
    default: throw new ArgumentException("不允许的 Bridge 操作。");
   }
   return new(id, method!, args.Clone());
