@@ -1,6 +1,16 @@
 # 项目接管手册
 
-项目由跨平台 Go Management Server 与轻量 C++11 Probe 组成。Phase 0、Phase 1A～1E 与 Phase 2 Device Management 已交付。Phase 3 已按 Accepted ADR-019 R1～R6 及用户身份补充完成实现与自动化验收，Phase 1/2 全量回归通过；验收事实见 PROJECT_STATUS 和 [PHASE3_VERIFICATION](PHASE3_VERIFICATION.md)。独立 Phase 3 commit 推送后停止等待用户验收，不进入 Phase 4 或外部 API/UI/MCP/AI Agent。
+项目由跨平台Go Management Server与轻量C++11 Probe组成。Phase 0～3已交付；本轮从用户确认的Phase 3基线 `ceaaab791850746911f965167c885789444efd4c` 实现Phase 4极简自研TCP Maintenance，放弃FRP/xfrpc。当前验证与交付状态见PROJECT_STATUS和[PHASE4_VERIFICATION](PHASE4_VERIFICATION.md)。Phase 4独立提交推送后停止，不进入Phase 5。
+
+## Phase 4 接管入口
+
+先读Accepted ADR-021、[PHASE4_DESIGN](PHASE4_DESIGN.md)、PROTOCOL的Phase 4章节与API内部Maintenance契约。`management.Server.Maintenance()`提供Create/Get/List/CloseMaintenance；一次创建三个固定入口，默认240分钟。data listener与控制TCP独立；C++ TunnelManager不包含HTTP/SSH/Telnet实现或第三方Tunnel程序。
+
+重要文件：`internal/tunnel`（租约/端口/配对/Relay）、`internal/gateway/tunnel.go`（可撤销Session绑定及发送准入）、`probe/src/tunnel.cpp`（固定目标/worker/取消/half-close）、`tests/integration/phase4_test.go`（真实协议/负载/故障验收）。运行配置集中在`cmd/server`的`-tunnel-*`及Probe的`--tunnel-connections`。
+
+默认loopback绑定和advertised host；远程部署必须配置Probe可达的data数值IP、维护入口host及bind。创建接口当前仅内部Go Service，没有Phase 5 HTTP API。closed历史端口可能已复用，使用前检查State；Released是Server本地资源释放，不表示跨网络收到Probe释放ACK。
+
+启动核对时存在上一轮未提交FRP PoC，完整保存至Git stash `preserve previous FRP Phase 4 PoC before minimal TCP Tunnel`后确认干净基线。该stash保留，不恢复覆盖新实现；旧PoC源码/验证结论未被复用。
 
 ## 接管顺序与事实来源
 
@@ -58,7 +68,7 @@ Probe 默认四个 exec workers；TCP 断线后 exec 继续执行，完成结果
 
 完整 Release C++/Go/真实 Probe、Go race/vet、C++ ASan/UBSan/LSan、TSan 单测与真实 Probe 全量集成、Windows Server 原生适用测试均通过；精确命令和时长见验收记录。通用构建命令见 README。
 
-Phase 3 最终普通全量集成 152.691 秒，Go race + TSan Probe 全量集成 159.799 秒；Release/ASan/TSan CTest 均 3/3，Linux/Windows 构建和 vet 通过。测试映射与本阶段限制见 PHASE3_VERIFICATION。已具备申请 Phase 4 的基础，但须用户验收与另行授权；本次交付后停止。
+Phase 3历史普通全量集成152.691秒，Go race + TSan Probe全量集成159.799秒，各CTest 3/3。Phase 4最终验证以PHASE4_VERIFICATION为准，旧阶段停止授权已由ADR-021更新。
 
 - 已接受身份和结果保留，不淘汰；Probe 默认 128 身份、8 MiB 计费预算。Server 保留内存任务/派发历史，暂无历史清理或持久化。
 - Probe 每连接最多 1024 未确认心跳；满后按既有重连流程处理，旧关联不在在线会话中被淘汰。

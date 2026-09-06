@@ -2,6 +2,21 @@
 
 本文定义 Management Server、Probe、对外客户端和传输通道之间的长期边界。Phase 1 已实现 TCP Session、并发 exec、进程内幂等、跨 TCP 结果补报与双向文件传输；Phase 2 已实现 Device Inventory 和内部查询；Phase 3 已实现持久 File/Tool Repository、兼容判断和管理端文件投放/下载导入，验证状态见 PROJECT_STATUS。其他模块仍是架构约束和后续实现方向，不表示已经实现。
 
+Phase 4 新增 `internal/tunnel.Service` 与 C++11 `TunnelManager`，采用 Accepted ADR-021 的极简 TCP Maintenance，不使用 FRP/xfrpc。验证状态以 PROJECT_STATUS 为准。
+
+## Phase 4 模块与生命周期
+
+- `management.Server` 组合 Repository、Gateway、可选 Maintenance Service，通过 `Maintenance()` 暴露用例。程序 `cmd/server` 默认启用独立 data listener；嵌入式旧调用方 `Config.Tunnel=nil` 保持原行为。
+- `internal/tunnel` 拥有维护/入口模型、租期、固定三服务、端口池、随机流身份和一次性 token、并发准入、配对、Relay、释放和有界关闭历史。它只依赖 Control 接口，不能读取 Gateway 内部映射。
+- Gateway 在 Session 发布后可返回 BindTunnel 撤销句柄；结束、替换、Disconnect、writer失败及Server关闭同步使旧句柄失效。发送在 writer 准入时复核当前 Session；状态按收到消息的连接身份调用 Service.Report。无可丢事件依赖；Device/Task/File 既有契约不变。
+- Gateway → Device 的原锁序保持。Tunnel 调用 Bind/Send 时不持 Tunnel 锁；Gateway 不回调 Tunnel 进行网络 I/O。Tunnel 锁保护准入、流表、token消费、状态与端口池；关闭 listener/socket 是本地撤销，数据复制和控制发送在锁外。WaitGroup Add 在准入锁内完成，closing 后不能新增被等待操作。
+- Maintenance 先绑定Session再分配三端口，创建发布前复核；监听失败全部回滚。每个 accept 单独申请 pending+active 配额，超额直接关闭。共享 data listener 的无身份握手另有容量和期限，不能无限建立 goroutine。
+- pending期限有独立watcher，控制writer阻塞也按期关闭外部及已登记data socket。流退出先关闭socket，再最佳努力通知Probe取消；等待watcher和控制派发完成后才释放流配额，不能靠慢writer积累额外worker。
+- 关闭顺序：状态closing → listener.Close → cancel及pending/active socket.Close → 最佳努力Probe取消 → 等待listener/dispatch/已配对握手/Relay worker → 归还端口 → closed/Released。未知身份的未完成data握手属于Server全局资源，由握手期限和Server Close管理；不可冒充某个Maintenance阻止释放。
+- Probe 每控制Session一个TunnelManager，固定目标查表，建流worker持有自己的两个socket，以可取消poll实现connect、握手与Relay；fd设置CLOEXEC与ExecForkMutex同步，发送使用MSG_NOSIGNAL，不改变Probe/exec的SIGPIPE disposition。控制Reader只验证并准入、取消或回收已完成worker，不执行Relay和DNS。
+- Server每方向32KiB、Probe每方向16KiB，socket发送/接收有界；慢端使另一端停止读。EOF在已缓存数据写完后传播SHUT_WR，反向仍可传输；关闭/错误/租约和空闲超时终止活动连接。Probe取消轮询最长20ms（调度时间另计），控制Session析构先取消Tunnel再收敛FileManager。
+- Maintenance、配对token、流、监听与历史均为进程内状态；重启清空，新Session不能继承。仅固定loopback 80/22/23，不实现外部Adapter或通用映射。
+
 ## 项目目标
 
 项目提供一套面向路由器和嵌入式 Linux 设备的远程运维平台。Management Server 统一管理设备连接、任务、文件与工具、临时 Tunnel 和对外 API；Probe 运行在设备侧，通过轻量、通用的控制原语执行管理端下发的操作。
@@ -122,7 +137,7 @@ Management Server -- TASK open_tunnel --> Probe
                                SSH / Telnet / Web traffic
 ~~~
 
-该边界防止一个阻塞的交互会话或大量数据流量影响设备心跳和管理命令。Tunnel 的具体数据面协议、Relay 拓扑、认证和生命周期仍为 TBD。
+该边界防止一个阻塞的交互会话或大量数据流量影响设备心跳和管理命令。Phase 4固定三服务数据面与生命周期由ADR-021及本文开头决定；通用Tunnel和平台认证仍未设计。
 
 ## API First 与多前端
 
@@ -223,7 +238,7 @@ Device/Session 生命周期、历史保留、进程内存储与 Gateway 边界�
 - Management Server 的内置持久化方案、数据模型、备份和迁移策略。
 - 平台认证、授权、设备认证、链路加密、密钥管理和审计策略。
 - mipsel、ARM、ARM64 的具体交叉工具链版本，以及最低内核与 libc 兼容矩阵。
-- Tunnel 数据面协议、Relay 部署拓扑、访问控制和租约模型。
+- 通用Tunnel及平台访问控制；固定三服务的Relay/租约已由ADR-021决定。
 - Probe 自身重启后的 task_id 缓存、未上报结果和任务恢复策略。
 - Server 重启后的任务与会话恢复策略。
 - Repository 之外的长期存储、在线备份/迁移、物理 GC 与跨平台实机兼容矩阵仍待后续阶段；Phase 3 范围已由 Accepted ADR-019 决定。真实 Probe 目前省略 libc/kernel/model，兼容判断不能假定这些资料已知。

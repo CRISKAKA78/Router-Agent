@@ -9,6 +9,7 @@ find_package(Threads REQUIRED)
 
 add_library(rmp_probe_core STATIC
     src/client.cpp
+    src/tunnel.cpp
     src/frame.cpp
     src/json.cpp
     src/task.cpp
@@ -29,6 +30,10 @@ target_link_libraries(router-probe PRIVATE rmp_probe_core)
 
 include(CTest)
 if(BUILD_TESTING)
+    add_executable(tunnel_tests tests/tunnel_tests.cpp)
+    target_link_libraries(tunnel_tests PRIVATE rmp_probe_core)
+    add_test(NAME tunnel_tests COMMAND tunnel_tests)
+    set_tests_properties(tunnel_tests PROPERTIES TIMEOUT 10)
     add_executable(file_tests tests/file_tests.cpp)
     target_link_libraries(file_tests PRIVATE rmp_probe_core)
     add_test(NAME file_tests COMMAND file_tests)

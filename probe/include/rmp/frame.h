@@ -24,6 +24,9 @@ static const std::uint8_t kTypeFileChunk=0x31;
 static const std::uint8_t kTypeFileEnd=0x32;
 static const std::uint8_t kTypeFileAck=0x33;
 static const std::uint8_t kTypeError = 0xFE;
+static const std::uint8_t kTypeTunnelConnect = 0x40;
+static const std::uint8_t kTypeTunnelClose = 0x41;
+static const std::uint8_t kTypeTunnelStatus = 0x42;
 
 static const std::uint16_t kFlagResponse = 1U << 0;
 static const std::uint16_t kFlagBinary = 1U << 1;

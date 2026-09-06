@@ -52,11 +52,11 @@ Phase 0 完成后，仓库内 Markdown 文档成为项目持续维护的当前�
 
 ## 当前阶段限制
 
-Phase 0、Phase 1A～1E 与 Phase 2 已交付。用户本次明确授权 Phase 3 File and Tool Repository：以 main 实际代码为基础，完成文件资产管理、工具元数据/版本/设备兼容性，以及工具投放和既有文件传输的管理端闭环。建立正式 File / Tool Repository Service，复用 Phase 1 upload/download；资产和工具信息不得进入 Probe 协议，Repository 业务不得进入 Gateway 或 Probe。
+Phase 0～3 已交付。2026-09-06 用户确认 Phase 3 基线 `ceaaab791850746911f965167c885789444efd4c`，授权完整 Phase 4 极简自研 TCP Tunnel，明确放弃 FRP/xfrpc。当前范围以 Accepted ADR-021、PROTOCOL.md、PHASE4_DESIGN.md 及用户指令为准。维护会话固定 Web/SSH/Telnet → 127.0.0.1:80/22/23，默认 240 分钟，可自定义正租期；数据使用独立 TCP，与创建时 Device Session 严格绑定。
 
 保留 Accepted ADR-009～018、Phase 1/2 的连接、设备、Session、任务、文件和幂等行为。具体资产模型、版本模型、目录结构和内部接口可自行设计；涉及资产持久化和存储目录、元数据持久化、版本唯一性与升级关系、arch/libc/kernel/model 匹配、去重/SHA-256/资产身份、删除/版本保留/清理的长期设计，先记录问题、原因、影响和推荐方案，等待用户明确确认。ADR-019 R1～R6 已获用户明确确认，状态为 Accepted。artifact_id 为全 Repository 唯一的不透明 UUID；tool_id、asset_id、artifact_id 均为稳定业务身份，不因归档、去重或存储路径变化重用。
 
-完成完整单元测试、必要的真实 Probe 工具投放集成、Phase 1/2 全量回归，以及 C++、Go、race、vet 和 Windows Server 适用验证后同步必要文档和 ADR。只有实际验收通过才能将 Phase 3 标记完成。创建独立 Phase 3 commit 并推送 GitHub，然后停止等待验收。不得进入 Phase 4 Tunnel、HTTP/WebSocket API、UI、MCP、AI Agent 或与 Repository 无关的 Protocol v1 扩展。
+Phase 4 必须验证撤销全部入口与活动数据连接、一次性配对、half-close、背压、有界资源、Session 替换/断线、租约、端口释放复用，以及真实 HTTP/SSH/Telnet 与控制/文件流量隔离。运行 Phase 1～3 全量回归、Go race/vet、C++ CTest/sanitizers、Linux Probe 和 Windows/Linux Management Server 适用验证，更新全部必要文档后才能标记完成。形成独立 Phase 4 commit 推送 GitHub main 后停止等待验收，不进入 Phase 5、HTTP/WebSocket API、UI、MCP、AI Agent、任意目标端口或通用端口映射。
 
 ## 任务执行要求
 

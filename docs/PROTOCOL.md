@@ -2,8 +2,9 @@
 
 协议版本：Protocol v1  
 基线来源：v0.2 Word 设计输入  
-日期：2026-09-05  
-状态：已确认的互操作设计；Phase 1A～1D 子集已实现，Phase 1E 完整验收通过
+日期：2026-09-06
+
+状态：已确认的互操作设计；Phase 1完整验收通过，Phase 4新增固定三服务Maintenance控制及独立data协议
 
 本文是 [路由器探针_TCP长连接控制协议设计_v0.2.docx](../路由器探针_TCP长连接控制协议设计_v0.2.docx) 中 TCP 协议部分的仓库内维护版本，并包含 Phase 0 最终确认的 Protocol v1 互操作细化。这些规则不改变 TCP 长连接、20-byte Header、JSON Control 和 Binary FILE_CHUNK 的核心设计。
 
@@ -29,7 +30,7 @@ Phase 0 完成后，本文是持续维护的当前协议基线。Word v0.2 保�
 - Web 管理界面和用户权限体系。
 - AI Agent 的具体推理流程。
 - MCP 工具的最终接口清单。
-- SSH、Telnet、Web Tunnel 的数据面协议细节。
+- 通用Tunnel；固定SSH、Telnet、Web的数据面细节见Phase 4章节。
 - 完整的安全、认证、加密和审计策略。
 
 ## 设计原则
@@ -158,6 +159,8 @@ Protocol v1 的 JSON Payload 遵循以下规则：
 
 ## 消息类型
 
+Phase 4 新增下表后的 0x40/0x41/0x42，完整规范见文末“Phase 4 Maintenance 控制与数据协议”；历史任务示例中的 open_tunnel/close_tunnel 未作为 TASK 实现，正式维护生命周期不进入 Task 缓存。
+
 | Type | 名称 | 方向 | Payload | 用途 |
 | --- | --- | --- | --- | --- |
 | 0x01 | REGISTER | Probe -> Server | JSON | 连接建立后的设备注册 |
@@ -173,6 +176,9 @@ Protocol v1 的 JSON Payload 遵循以下规则：
 | 0x31 | FILE_CHUNK | 双向 | Binary | 文件数据块 |
 | 0x32 | FILE_END | 双向 | JSON | 文件发送完毕 |
 | 0x33 | FILE_ACK | 双向 | JSON | 文件接收状态或最终确认 |
+| 0x40 | TUNNEL_CONNECT | Server -> Probe | JSON | 为一个外部客户端建立独立数据流 |
+| 0x41 | TUNNEL_CLOSE | Server -> Probe | JSON | 取消一条流或整个维护会话的流 |
+| 0x42 | TUNNEL_STATUS | Probe -> Server | JSON | 当前Session建流失败状态 |
 | 0xFE | ERROR | 双向 | JSON | 协议级或通用错误 |
 
 ## 注册与设备会话
@@ -600,7 +606,7 @@ Tunnel TCP : actual remote interactive traffic
 | 重连成功 | 重新 REGISTER，获得新 session_id；上报 running_tasks 摘要 | 将新连接绑定到同一 device_id |
 | 一次性 exec 正在运行 | 同一 Probe 进程内继续执行并缓存结果，连接恢复后补报 RESULT | 按 task_id 接受迟到结果 |
 | 文件传输中断 | 第一版将旧 transfer_id 标记 failed，重新发起新的 task_id 和 transfer_id | 结束旧 transfer_id；第一版不实现 resume |
-| Tunnel 数据连接断开 | Tunnel Manager 单独重连或结束 Tunnel，不影响控制 TCP | 根据 Tunnel 状态决定是否重新创建 |
+| Tunnel 数据连接断开 | 结束本条流，不自动重连，不影响控制TCP或其他流 | 维护有效时下次客户端连接创建新流 |
 | Probe 进程重启 | task_id 缓存、未上报结果和任务恢复规则仍为 TBD | 不得仅根据旧 TCP Session 推断任务状态 |
 
 ## EVENT 与 ERROR
@@ -667,7 +673,7 @@ Probe
 └─ LocalStateStore
 ~~~
 
-ConnectionManager 不处理 exec 或 Tunnel 的具体业务。TaskManager 负责生命周期、并发、timeout 和 task_id 去重。各 Manager 通过统一结果对象返回给 TaskManager，再由协议层序列化 TASK_RESULT。LocalStateStore 只允许保存必要的小规模持久状态。
+ConnectionManager 不处理 exec 或 Tunnel 的具体业务。TaskManager 负责任务生命周期、并发、timeout 和 task_id 去重。任务Manager通过统一结果对象返回TASK_RESULT；Phase 4 TunnelManager独立管理控制Session内的数据worker，通过TUNNEL_STATUS报告建流失败，不进入Task缓存。LocalStateStore只允许保存必要的小规模持久状态。
 
 device_id、Server 地址和基础配置是本地持久化的基本候选。未上报 TASK_RESULT、已完成 task_id、正在执行的任务和文件传输状态是否持久化仍为 TBD。
 
@@ -781,7 +787,7 @@ Phase 0 最终细化已经解决 message_id、reply_to 与 RESPONSE、BINARY 与
 | BINARY/type 不一致等协议错误的严重程度 | 返回 ERROR 还是直接关闭连接的逐错误矩阵尚未决定 |
 | Probe 进程重启后的缓存 | Phase 1C 进程内有界且不淘汰；跨进程持久化仍未决定 |
 
-Tunnel 数据面、Relay 架构、数据库存储、OpenAPI 正式资源模型和 WebSocket 事件协议不在本协议中设计，分别继续由 ARCHITECTURE 和 API 文档标记为 TBD。
+固定三服务Tunnel数据面由Phase 4章节和ADR-021定义；数据库存储、OpenAPI正式资源模型、WebSocket与通用Tunnel仍由ARCHITECTURE/API维护后续边界。
 
 ### Phase 1C 重复任务与跨连接结果契约（2026-09-05）
 
@@ -897,6 +903,34 @@ Probe ClientConfig.file_queue_capacity 默认 8（等待槽位，不含一个 ac
 文件 I/O 在独立 worker 执行；每条连接接收文件邮箱最多 16 帧。chunk_size 默认 64 KiB，硬上限 512 KiB（不含 28-byte 前缀）。两端发送缓冲目标 64 KiB，OS 可调整实际容量；控制优先只在完整帧边界生效，不承诺抢占 TCP 已排入字节或不可中断的内核 I/O。Probe deadline watcher 负责超时断开 socket。
 
 无覆盖发布要求目标文件系统支持同目录 hard link；不支持时任务失败，不退化为覆盖或复制不完整文件。Windows Server 使用本地路径，Probe remote_path 使用 Linux 绝对路径。进程崩溃后的临时文件清理、状态恢复与持久化仍未实现。
+
+## Phase 4 Maintenance 控制与数据协议
+
+状态：Accepted ADR-021。固定三服务的本节取代前文有关 Tunnel 数据面尚未展开的描述；通用 Tunnel、平台认证和加密仍不在范围内。REGISTER.capabilities 新增 `tunnel`；不声明该能力时 Server 拒绝新 Maintenance。
+
+0x40 CONNECT、0x41 CLOSE、0x42 STATUS 均为 UTF-8 JSON object，flags=0（无 RESPONSE/reply_to），沿用控制连接双向 message_id 顺序；不是 TASK，不存 task_id，不跨 Session 补报/重发。CONNECT/CLOSE 最多4096bytes，仍受协商控制载荷上限限制。
+
+| CONNECT必选字段 | 类型与约束 |
+| --- | --- |
+| session_id | 必须精确等于本控制Session REGISTER_ACK的session_id |
+| maintenance_id / connection_id | 各32个小写hex，Server分别以128-bit安全随机值生成，不重用 |
+| service | 仅web、ssh、telnet，Probe内部固定映射127.0.0.1:80/22/23；wire不得指定target host/port |
+| token | 64个小写hex，256-bit安全随机值，只用于本条流的一次配对 |
+| data_host / data_port | Server可达数值IPv4/IPv6字符串 / 1～65535整数，Probe不做DNS |
+| timeout_ms | 1～60000整数，总建流期限，包括本地连接、data连接和握手，默认10000 |
+| idle_ms | 1～86400000整数，活动I/O空闲期限，默认300000 |
+
+Probe先连接本地目标，再主动连接data_host:data_port；使用独立socket，不在控制帧承载数据。本地连接失败上报local_unavailable，data连接/握手失败上报data_failed，worker配额满上报busy；STATUS必选maintenance_id、connection_id、state。Server按当前来源Session与pending流校验；已关闭、迟到、不属于该Session的状态不改变当前连接或其他服务。错误state/缺少身份为协议错误。
+
+CLOSE必选maintenance_id、connection_id；后者为空字符串表示取消整个Maintenance，否则仅取消指定流。未知或重复CLOSE幂等无操作。Probe立即标记取消，worker退出前关闭本地及data socket；控制Session结束也取消并join全部Tunnel worker。既有exec跨TCP继续、文件断线失败的语义保持。CLOSE不依赖ACK完成Server本地撤销；Released是Server资源释放事实，不声称收到Probe释放ACK。
+
+独立data TCP不使用RMP1帧。第一段精确132bytes：`RMT1`（4 ASCII bytes）+ maintenance_id（32 ASCII bytes）+ connection_id（32 ASCII bytes）+ token（64 ASCII bytes）。无分隔符、换行或JSON；Server精确读取132bytes，不吞掉后续业务字节。Server在配对锁内校验maintenance仍有效、创建时Session未撤销、connection处于pending且未超时、token完全匹配，再原子消费token；成功回复一个字节0x01，其后即双向原始TCP。非法/重复/错配/迟到连接直接关闭，错误token不得消费真正pending token。
+
+Server未配对握手默认5s；外部accept起pending总时限默认10s，包含控制派发排队；到期关闭外部socket并使该token永久失效，后续建立须新connection_id。Probe不自动重连data流；重启不恢复任何Maintenance。Server租期默认240分钟、0选默认，自定义至少1ms；到期始终撤销全部listener和pending/active流。
+
+任意业务字节保持原样，不解析HTTP/SSH/Telnet，不改Host/Location/Cookie，不终止TLS。正常EOF在已读字节写完后传播写半关闭，反向持续至EOF/错误/关闭/空闲时限。Server每方向32KiB缓冲且读写分别受idle期限；Probe每方向16KiB、任一方向进展刷新本地空闲计时，Server仍执行方向时限。读取服从写入背压，不保存完整流或无界队列。
+
+服务状态ready表示Server入口已监听，本地可达性在建流时才确定；某次local_unavailable使该服务unavailable，其他服务保持原状态，后续配对成功恢复ready。关闭全部closed。错误data建流只失败本客户端，不关闭控制TCP或其他通道。配额、端口池及详细生命周期为内部API配置，见API.md；没有新增HTTP/WebSocket endpoint。
 
 ### Phase 1E 验收与本地资源配置
 

@@ -11,18 +11,21 @@ const (
 	HeaderSize       = 20
 	Version1   uint8 = 1
 
-	TypeRegister     uint8 = 0x01
-	TypeRegisterAck  uint8 = 0x02
-	TypeHeartbeat    uint8 = 0x03
-	TypeHeartbeatAck uint8 = 0x04
-	TypeTask         uint8 = 0x10
-	TypeTaskAck      uint8 = 0x11
-	TypeTaskResult   uint8 = 0x12
-	TypeFileBegin    uint8 = 0x30
-	TypeFileChunk    uint8 = 0x31
-	TypeFileEnd      uint8 = 0x32
-	TypeFileAck      uint8 = 0x33
-	TypeError        uint8 = 0xFE
+	TypeRegister      uint8 = 0x01
+	TypeRegisterAck   uint8 = 0x02
+	TypeHeartbeat     uint8 = 0x03
+	TypeHeartbeatAck  uint8 = 0x04
+	TypeTask          uint8 = 0x10
+	TypeTaskAck       uint8 = 0x11
+	TypeTaskResult    uint8 = 0x12
+	TypeFileBegin     uint8 = 0x30
+	TypeFileChunk     uint8 = 0x31
+	TypeFileEnd       uint8 = 0x32
+	TypeFileAck       uint8 = 0x33
+	TypeError         uint8 = 0xFE
+	TypeTunnelConnect uint8 = 0x40
+	TypeTunnelClose   uint8 = 0x41
+	TypeTunnelStatus  uint8 = 0x42
 
 	FlagResponse uint16 = 1 << 0
 	FlagBinary   uint16 = 1 << 1

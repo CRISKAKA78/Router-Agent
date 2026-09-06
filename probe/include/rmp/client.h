@@ -8,6 +8,7 @@
 namespace rmp {
 
 struct ClientConfig {
+    std::size_t tunnel_connections = 64;
     std::size_t file_queue_capacity = 8;
     unsigned task_workers = 4;
     std::size_t task_capacity = 128;

@@ -50,7 +50,7 @@ WebSocket 或等价实时接口负责向客户端推送：
 | tasks | 创建、查询、取消任务及读取结果 | 未设计 |
 | files | 文件资产、上传、下载与传输状态 | Phase 3 内部 Service 已实现；HTTP 未设计 |
 | tools | 工具元数据、版本、兼容性与投放 | Phase 3 内部 Service 已实现；HTTP 未设计 |
-| tunnels | 创建、查询和关闭临时 Tunnel | 未设计 |
+| tunnels | 一键创建、查询和关闭固定三服务Maintenance | Phase 4内部Service已实现；HTTP未设计 |
 
 这些分类可以在正式设计中调整。任何调整都必须保持 API First 和 Service 复用原则。
 
@@ -98,7 +98,7 @@ Protocol v1 的 Phase 1 不实现 TASK_CANCEL。未来 API 是否提供任务取
 - 幂等请求、超时和长任务的异步交互方式。
 - 文件上传下载方式、大小限制、校验和断点续传策略。
 - WebSocket 的鉴权、事件格式、订阅、顺序、重连和补发语义。
-- Tunnel 的访问凭证、租约、暴露地址和关闭语义。
+- 平台用户对Tunnel的认证与授权；内部租约、地址和关闭语义见Phase 4章节。
 - OpenAPI 是否作为正式契约及其生成和校验流程。
 - API 兼容与废弃策略。
 - 浏览器跨域、限流、审计和可观测性要求。
@@ -195,3 +195,24 @@ CompleteDownload 要求 `Committed=true`、`Released=true` 和登记的暂存路
 Repository 与 Device/Task 查询返回副本。Repository 的 WithAsset/WithArtifact 为内部使用的准入回调：持仓库读锁完成内容校验与派发准备，阻止并发归档/关闭；回调不得重入 Repository。此锁可以跨文件准备与派发 I/O，但不是 Device/Gateway 连接表锁。Device/Gateway 锁仍不跨磁盘或网络 I/O。
 
 Repository 元数据/字节跨进程保留；Operation、下载导入的 task_id 关联、Task/transfer、Device/Session 不持久化。没有公开 HTTP/WebSocket 或其他 Adapter 契约。
+
+## Phase 4 内部 Maintenance API
+
+`management.Config.Tunnel *tunnel.Config` 启用维护服务；nil保留旧嵌入式调用方行为（不启动data listener）。`management.Server.Maintenance()` 返回已组合的 `*tunnel.Service`，未启用时nil。`cmd/server` 默认启用；外部Adapter以后只调用Service。
+
+| 方法 | 契约 |
+| --- | --- |
+| `Create(ctx, deviceID, lease time.Duration) (Snapshot,error)` | 在线且声明tunnel能力；一次原子创建web/ssh/telnet三个入口。lease=0选240分钟，正值至少1ms；同设备已有未释放Maintenance时返回冲突，不修改原租期。创建失败返回空快照、释放部分端口；成功后ctx取消不关闭Maintenance |
+| `Get(maintenanceID)` / `List()` | 查询独立快照；List按ID排序，关闭历史按配置保留，淘汰后Get返回ErrNotFound |
+| `CloseMaintenance(maintenanceID) error` | 并发/重复调用幂等，等待Server listener、pending/active socket、accept/派发/已配对握手/Relay worker释放后返回；未知/历史已淘汰ID同样成功，保证重启或历史淘汰后重复关闭无副作用 |
+| `Close() error` | 幂等关闭整个Service，另关闭data listener和所有未握手socket，等待全部worker；management.Server.Close会调用 |
+
+Snapshot为ID、DeviceID、SessionID、State、Reason、CreatedAt、ExpiresAt、Released、Connections、Endpoints。State为ready/closing/closed；失败创建不产生可查询ID。Connections统计pending+active；Endpoint为Service、Host、Port、State，Address()返回正确IPv4/IPv6 host:port。端点顺序固定web/ssh/telnet，状态ready/unavailable/closed；ready仅表示Server监听及最近建流状态，不承诺设备本地服务持续存在。网络失败影响本次连接，后续客户端可重新尝试。
+
+Close先撤监听再终止流，Released是Server资源回收事实；Probe取消通过控制CLOSE或Session终止执行，没有跨网络释放ACK。Session失效后准入和配对同步拒绝，watcher立即发起关闭；新Session不继承。已Closed历史中的端口仅是历史值，可已被新Maintenance复用，调用方必须同时检查State/Released。
+
+配置默认值：BindHost/AdvertisedHost/DataHost均127.0.0.1；DataListen=127.0.0.1:9001；PortFirst/PortLast=20000/20199；MaxMaintenance=64；PerMaintenance=32、PerDevice=64、TotalConnections=512；Handshakes=64；History=128；PendingTimeout=10s、HandshakeTimeout=5s、IdleTimeout=5min。数值0选择默认，非法负数/范围启动报错。DataHost必须数值IP；AdvertisedHost可为部署者提供的域名。各限制不提供无界关闭选项。
+
+Server flags：`-tunnel-bind`、`-tunnel-host`、`-tunnel-data-listen`、`-tunnel-data-host`、`-tunnel-port-first`、`-tunnel-port-last`、`-tunnel-max-sessions`、`-tunnel-session-connections`、`-tunnel-device-connections`、`-tunnel-total-connections`、`-tunnel-handshakes`、`-tunnel-history`、`-tunnel-connect-timeout`、`-tunnel-handshake-timeout`、`-tunnel-idle-timeout`。Probe `--tunnel-connections`默认64，允许1～1024。公网绑定、可达地址、NAT和防火墙由部署者配置；程序不自动配置。
+
+固定目标为Probe的127.0.0.1:80/22/23。Maintenance/connection/token不持久化；无跨进程恢复、续租、任意端口、UDP/SOCKS/VPN/P2P、HTTP反向代理、TLS终止或通用映射管理；没有新增外部任务CLI/API/UI/MCP。

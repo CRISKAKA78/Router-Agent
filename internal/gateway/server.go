@@ -17,6 +17,7 @@ import (
 	"routerprobe/internal/filetransfer"
 	"routerprobe/internal/protocol"
 	"routerprobe/internal/task"
+	"routerprobe/internal/tunnel"
 )
 
 type Config struct {
@@ -66,6 +67,7 @@ type SessionEvent struct {
 }
 
 type session struct {
+	lifetime  chan struct{}
 	done      chan struct{}
 	deviceID  string
 	sessionID string
@@ -90,16 +92,17 @@ var ErrDispatchUncertain = errors.New("task dispatch outcome is uncertain")
 type Server struct {
 	config Config
 
-	mu          sync.Mutex
-	listener    net.Listener
-	sessions    map[string]*session
-	connections map[net.Conn]struct{}
-	closed      bool
-	events      chan SessionEvent
-	tasks       *task.Service
-	files       *filetransfer.Service
-	devices     *device.Service
-	wg          sync.WaitGroup
+	mu           sync.Mutex
+	listener     net.Listener
+	sessions     map[string]*session
+	connections  map[net.Conn]struct{}
+	closed       bool
+	events       chan SessionEvent
+	tasks        *task.Service
+	files        *filetransfer.Service
+	devices      *device.Service
+	wg           sync.WaitGroup
+	tunnelStatus func(string, tunnel.Status) error // configured before Serve
 }
 
 func New(config Config) (*Server, error) {
@@ -141,6 +144,9 @@ func (s *Server) endSessionLocked(active *session, reason device.EndReason) bool
 		reason = device.ServerClosed
 	}
 	delete(s.sessions, active.deviceID)
+	if active.lifetime != nil {
+		close(active.lifetime)
+	}
 	s.devices.End(active.deviceID, active.sessionID, reason, time.Now())
 	s.emit(SessionEvent{Type: EventDisconnected, DeviceID: active.deviceID, SessionID: active.sessionID})
 	return true
@@ -512,7 +518,7 @@ func (s *Server) handleConnection(conn net.Conn) {
 						s.config.Logger.Printf("session_id_error=%v", err)
 						return
 					}
-					candidate := &session{deviceID: register.DeviceID, sessionID: sessionID, transport: writer, done: done}
+					candidate := &session{deviceID: register.DeviceID, sessionID: sessionID, transport: writer, done: done, lifetime: make(chan struct{})}
 					writer.onFailure = func() { s.endSession(candidate, device.WriteError) }
 					ack := registerAckSuccess{
 						ReplyTo: frame.Header.MessageID, Success: true, SessionID: sessionID,
@@ -532,6 +538,9 @@ func (s *Server) handleConnection(conn net.Conn) {
 						return
 					}
 					previous := s.sessions[register.DeviceID]
+					if previous != nil && previous.lifetime != nil {
+						close(previous.lifetime)
+					}
 					s.sessions[register.DeviceID] = candidate
 					active = candidate
 					registered = true
@@ -547,6 +556,15 @@ func (s *Server) handleConnection(conn net.Conn) {
 				}
 
 				switch frame.Header.Type {
+				case protocol.TypeTunnelStatus:
+					var status tunnel.Status
+					if frame.Header.Flags != 0 || !protocol.ValidUnicodeJSON(frame.Payload) || json.Unmarshal(frame.Payload, &status) != nil || s.tunnelStatus == nil {
+						return
+					}
+					if err := s.tunnelStatus(active.sessionID, status); err != nil {
+						return
+					}
+					lastSeen = s.recordActivity(active)
 				case protocol.TypeHeartbeat:
 					if frame.Header.Flags != 0 {
 						_ = s.sendError(writer, frame.Header.MessageID, "INVALID_PAYLOAD", "HEARTBEAT flags must be zero")

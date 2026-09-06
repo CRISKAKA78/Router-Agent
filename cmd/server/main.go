@@ -13,6 +13,7 @@ import (
 	"routerprobe/internal/gateway"
 	"routerprobe/internal/management"
 	"routerprobe/internal/repository"
+	"routerprobe/internal/tunnel"
 )
 
 func main() {
@@ -21,6 +22,22 @@ func main() {
 	maxControlPayload := flag.Uint("max-control-payload", 1024*1024, "maximum JSON control payload in bytes")
 	fileChunkSize := flag.Uint("file-chunk-size", 64*1024, "negotiated file chunk size in bytes")
 	repositoryDirectory := flag.String("repository-dir", repository.DefaultDirectory, "persistent local file/tool repository directory")
+	tunnelConfig := tunnel.Config{}
+	flag.StringVar(&tunnelConfig.BindHost, "tunnel-bind", "127.0.0.1", "maintenance listeners bind IP")
+	flag.StringVar(&tunnelConfig.AdvertisedHost, "tunnel-host", "127.0.0.1", "maintenance entry advertised host")
+	flag.StringVar(&tunnelConfig.DataListen, "tunnel-data-listen", "127.0.0.1:9001", "independent data listener")
+	flag.StringVar(&tunnelConfig.DataHost, "tunnel-data-host", "127.0.0.1", "numeric data IP reachable by Probe")
+	flag.IntVar(&tunnelConfig.PortFirst, "tunnel-port-first", 20000, "first maintenance pool port")
+	flag.IntVar(&tunnelConfig.PortLast, "tunnel-port-last", 20199, "last maintenance pool port")
+	flag.IntVar(&tunnelConfig.PerMaintenance, "tunnel-session-connections", 32, "pending and active connections per maintenance")
+	flag.IntVar(&tunnelConfig.PerDevice, "tunnel-device-connections", 64, "pending and active connections per device")
+	flag.IntVar(&tunnelConfig.TotalConnections, "tunnel-total-connections", 512, "total pending and active connections")
+	flag.IntVar(&tunnelConfig.MaxMaintenance, "tunnel-max-sessions", 64, "maximum unreleased maintenance sessions")
+	flag.IntVar(&tunnelConfig.Handshakes, "tunnel-handshakes", 64, "maximum unpaired data handshakes")
+	flag.IntVar(&tunnelConfig.History, "tunnel-history", 128, "retained closed maintenance snapshots")
+	flag.DurationVar(&tunnelConfig.PendingTimeout, "tunnel-connect-timeout", 10*time.Second, "total stream establishment timeout")
+	flag.DurationVar(&tunnelConfig.HandshakeTimeout, "tunnel-handshake-timeout", 5*time.Second, "unpaired data handshake timeout")
+	flag.DurationVar(&tunnelConfig.IdleTimeout, "tunnel-idle-timeout", 5*time.Minute, "stream I/O idle timeout")
 	flag.Parse()
 
 	if *maxControlPayload > uint(^uint32(0)) || *fileChunkSize > uint(^uint32(0)) {
@@ -32,7 +49,7 @@ func main() {
 	defer stop()
 
 	logger := log.New(os.Stdout, "server ", log.LstdFlags|log.Lmicroseconds)
-	err := management.Run(ctx, *listenAddress, management.Config{RepositoryDirectory: *repositoryDirectory, Gateway: gateway.Config{
+	err := management.Run(ctx, *listenAddress, management.Config{RepositoryDirectory: *repositoryDirectory, Tunnel: &tunnelConfig, Gateway: gateway.Config{
 		HeartbeatInterval: time.Duration(*heartbeatSeconds) * time.Second,
 		MaxControlPayload: uint32(*maxControlPayload),
 		FileChunkSize:     uint32(*fileChunkSize),

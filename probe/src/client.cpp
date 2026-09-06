@@ -1,4 +1,5 @@
 #include "rmp/file_manager.h"
+#include "rmp/tunnel.h"
 #include "rmp/priority_gate.h"
 #include "rmp/pending_heartbeats.h"
 #include "rmp/client.h"
@@ -125,7 +126,7 @@ std::string RegisterPayload(const ClientConfig& config) {
     }
     output << ",\"arch\":" << EscapeJsonString(config.arch)
            << ",\"boot_id\":" << EscapeJsonString(config.boot_id)
-           << ",\"capabilities\":[\"exec\",\"file\"]}";
+           << ",\"capabilities\":[\"exec\",\"file\",\"tunnel\"]}";
     return output.str();
 }
 
@@ -278,6 +279,7 @@ bool HandleOnlineFrames(const std::vector<Frame>& frames,
                         SessionWriter* writer,
                         TaskManager* task_worker,
                         FileManager* files,
+                        TunnelManager* tunnels,
                         std::uint32_t file_chunk_size,
                         std::uint32_t max_payload,
                         SteadyClock::time_point* last_seen,
@@ -290,6 +292,10 @@ bool HandleOnlineFrames(const std::vector<Frame>& frames,
         }
         if (!ValidateIncomingMessageID(*frame, expected_server_message_id, error)) {
             return false;
+        }
+        if (frame->header.type==kTypeTunnelConnect || frame->header.type==kTypeTunnelClose) {
+            if(!tunnels->Feed(*frame,error))return false;
+            *last_seen=SteadyClock::now();continue;
         }
         if (frame->header.type>=kTypeFileBegin && frame->header.type<=kTypeFileAck) {
             if(!files->Feed(*frame,error)) return false;
@@ -436,6 +442,7 @@ SessionResult RunSession(int socket_fd, const ClientConfig& config, TaskManager&
     writer.SetLimit(register_ack.max_control_payload);
     task_worker.BeginSession();
     FileManager files(task_worker,[&writer](std::uint8_t t,std::uint16_t f,const std::string&p,std::uint64_t*id){return writer.Send(t,f,p,id);},[socket_fd]{shutdown(socket_fd,SHUT_RDWR);},register_ack.file_chunk_size);
+    TunnelManager tunnels(register_ack.session_id,config.tunnel_connections,[&writer](const std::string& p){std::uint64_t id=0;return writer.Send(kTypeTunnelStatus,0,p,&id);});
     const std::chrono::seconds heartbeat_interval(register_ack.heartbeat_interval);
     SteadyClock::time_point last_seen = SteadyClock::now();
     SteadyClock::time_point next_heartbeat = last_seen + heartbeat_interval;
@@ -443,7 +450,7 @@ SessionResult RunSession(int socket_fd, const ClientConfig& config, TaskManager&
     while (true) {
         if (!frames.empty()) {
             if (!HandleOnlineFrames(frames, &expected_server_message_id, &pending_heartbeats,
-                                    &writer, &task_worker, &files, register_ack.file_chunk_size, register_ack.max_control_payload, &last_seen, &validation_error)) {
+                                    &writer, &task_worker, &files, &tunnels, register_ack.file_chunk_size, register_ack.max_control_payload, &last_seen, &validation_error)) {
                 std::cerr << "state=PROTOCOL_ERROR detail=" << validation_error << std::endl;
                 return result;
             }
@@ -489,7 +496,7 @@ SessionResult RunSession(int socket_fd, const ClientConfig& config, TaskManager&
                 }
                 if (!frames.empty() &&
                     !HandleOnlineFrames(frames, &expected_server_message_id, &pending_heartbeats,
-                                        &writer, &task_worker, &files, register_ack.file_chunk_size, register_ack.max_control_payload, &last_seen, &validation_error)) {
+                                        &writer, &task_worker, &files, &tunnels, register_ack.file_chunk_size, register_ack.max_control_payload, &last_seen, &validation_error)) {
                     std::cerr << "state=PROTOCOL_ERROR detail=" << validation_error << std::endl;
                     return result;
                 }
@@ -498,6 +505,7 @@ SessionResult RunSession(int socket_fd, const ClientConfig& config, TaskManager&
         }
 
         files.Tick();
+        if(!tunnels.Tick())return result;
         std::string result_payload;
         if (task_worker.NextResult(register_ack.max_control_payload, &result_payload)) {
             std::uint64_t result_id = 0;

@@ -22,6 +22,10 @@
 
 ### Added
 
+- Phase 4 新增极简自研TCP Maintenance Service：一次创建Web/SSH/Telnet临时入口，固定访问设备127.0.0.1:80/22/23；默认240分钟并允许自定义租期。独立data TCP与一次性token配对，保持原始字节、并发连接、half-close和有界背压。
+- Maintenance严格绑定创建时Device Session，主动关闭、到期、替换或失联撤销入口并终止活动连接；等待Server相关资源释放后才归还端口。Server提供端口池、advertised地址、超时与分层连接限额配置，Probe保持C++11且没有新增重型依赖。
+- 新增控制类型0x40～0x42与RMT1独立data握手；以Accepted ADR-021取代未交付FRP/xfrpc路线。不引入HTTP/WebSocket API或通用端口映射。
+
 - Phase 3 新增持久化 File / Tool Repository 与内部资产查询、导入、归档、工具版本/产物发布和兼容查询。tool_id、asset_id、artifact_id 为稳定 UUID，artifact_id 全仓库唯一；版本不可变，重复内容共享 SHA-256 blob，归档保留身份与文件。
 - 新增内部工具投放、资产上传和设备下载显式导入，复用既有文件任务；受限资料缺失返回 unknown，不自动投放或执行工具。保留不确定派发的任务身份，下载可分别呈现本地完整提交和最终失败结果。
 - Server 支持 `-repository-dir`，默认 `./data/repository`，采用单进程目录锁与本地 JSON 元数据；Linux/Windows 无新增外部服务依赖。仓库数据跨重启保留，设备/任务/Session 不恢复。

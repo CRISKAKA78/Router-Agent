@@ -136,11 +136,16 @@ Protocol v1 的 14 项验收基线已映射至可运行测试，完整结果见 
 
 ## Phase 4 Tunnel
 
-状态：未开始
+状态：实现和规定验收通过；从用户确认的Phase 3基线`ceaaab791850746911f965167c885789444efd4c`独立交付，推送main后停止等待验收。采用Accepted ADR-021极简自研TCP，放弃FRP/xfrpc。验证记录见PHASE4_VERIFICATION。
 
-- [ ] Tunnel 控制流程。
-- [ ] 独立数据连接与 Relay。
-- [ ] SSH、Telnet 和 Web 临时访问闭环。
+- [x] Maintenance一次创建三个固定服务入口，默认240分钟与自定义租期。
+- [x] 独立data TCP、一次性随机token配对、原始字节Relay、half-close和有界背压。
+- [x] SSH真实登录/命令、Telnet双向交互、Web多TCP连接及三服务/多设备并发。
+- [x] 主动关闭/到期/Session替换/断线撤销，pending/active流实际终止，端口释放后复用。
+- [x] 错误/重复/迟到配对、本地/data失败、配额与资源回收、大流量下控制/文件正常。
+- [x] Phase 1～3全量回归、Go race/vet、C++ CTest/sanitizers、Linux Probe、Windows/Linux Server适用验证。
+
+交付提交标题为 `feat: complete Phase 4 TCP maintenance tunnels`；实际SHA与main推送结果由Git记录提供。
 
 ## Phase 5 HTTP and WebSocket API
 

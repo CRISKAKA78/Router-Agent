@@ -2,6 +2,23 @@
 
 本文件使用轻量 ADR 记录重要设计决定与待确认草案。仅 Accepted 条目构成已确认决定；Proposed 条目不得被实现推断为已接受。状态为 Accepted 的决定不得被实现静默改变；需要变更时，应新增取代决策并说明迁移与影响。
 
+## ADR-021 Phase 4 极简自研 TCP Maintenance Tunnel
+
+- 状态：Accepted（2026-09-06 用户明确选择自研原始 TCP，授权自行确定范围内长期语义）。
+- 基线：`ceaaab791850746911f965167c885789444efd4c`，fetch 后 HEAD/main/origin/main 一致；旧未提交 FRP PoC 材料完整 stash 后确认干净。
+- 取代：上一轮未提交 ADR-020 的 FRP/xfrpc 数据面、投放与 backend PoC 门槛。该历史决策及失败证据保存在 Git stash `preserve previous FRP Phase 4 PoC before minimal TCP Tunnel`；未静默改写或沿用其实现。补充 ADR-002/003/004/006 的 Tunnel 未决部分，保留 ADR-009～019。
+- 原因：用户只需一次开启设备维护，同时获得 Web/SSH/Telnet 三个临时入口，不需要通用穿透产品或外部 Tunnel 进程。
+- 决定：以 Maintenance Session 为业务中心，一次原子分配三个端口，固定 Probe loopback TCP 80/22/23；0 租期选择 240 分钟，自定义至少 1 ms。每设备同时最多一个未释放维护会话。入口 ready 表示 Server listener 可接入，本地服务在实际建流验证；不可达标 unavailable，后续成功恢复 ready。
+- 数据面：每外部客户端独立 connection_id 与 Probe 主动 data TCP；128-bit 随机 Maintenance/connection 身份，256-bit 一次性 token；RMT1 固定握手后只复制字节。控制消息使用独立类型 0x40～0x42，不纳入跨 Session Task 重放。不做协议解析、TLS 终止、HTTP 改写或重启恢复。
+- 生命周期：绑定创建时 Session 的撤销句柄，替换/结束同步失效，准入及配对复核，watcher 立即发起关闭。Close 幂等等待本地释放；先撤 listener，再清 pending/active socket，等待 accept/dispatch/handshake/relay 完成，最后归还端口。Probe 独立 worker 的取消与 join 终止本地/data socket。
+- 资源：固定缓冲和 TCP 背压；EOF 传播写半关闭。默认 pending 10s、握手 5s、I/O 空闲 5min；每维护32/设备64/Server512连接、额外64未配对握手、最多64未释放维护；关闭历史保留128项。Probe 默认64 worker，控制 Session 结束全部取消和 join；不使用重型依赖。
+- 部署：默认所有维护入口与 data listener 绑定 loopback，端口池20000～20199，data端口9001；部署者配置 bind/advertised host/data数值IP和限额，不自动修改 NAT、防火墙或证书。token 只解决配对，既有认证/加密/授权后续主题不变。
+- 细节与影响：见 [PHASE4_DESIGN.md](PHASE4_DESIGN.md)、PROTOCOL.md 与 API.md。Phase 5 及通用映射明确不在范围内；本次验证事实见 PHASE4_VERIFICATION.md。
+
+## ADR-020 历史 FRP/xfrpc 方向（已被 ADR-021 取代）
+
+上一轮未提交方向为共享 frps、每 Tunnel 独立 xfrpc、确定撤销和 SIGPIPE 子进程策略；其 backend PoC 因 xfrpc 生命周期崩溃而停止，未形成产品或 Phase 4 commit。原始完整决定与证据由上述 stash 保存。2026-09-06 用户明确放弃该路线，新的产品实现不依赖 FRP、xfrpc、旧补丁或旧验证结论。
+
 ## ADR-019 Phase 3 File and Tool Repository
 
 - 状态：**Accepted。用户明确确认 R1～R6，并补充 artifact_id 全 Repository 唯一与稳定身份不重用规则；实际完成状态见 PROJECT_STATUS。**
@@ -249,7 +266,7 @@ Task Service 继续拥有任务规格、ACK/RESULT 关联与幂等；File Transf
 
 - Management Server 的持久化、备份与迁移方案。
 - 平台和设备的认证、授权、加密与审计方案。
-- Tunnel 数据面协议和 Relay 拓扑。
+- 通用Tunnel与平台访问控制（固定三服务数据面及Relay已由ADR-021决定）。
 - Probe 重启后的 task_id 缓存、未上报结果和任务恢复策略。
 - Server 重启后的任务、Session 和传输恢复策略。
 - Protocol 错误严重程度与关闭连接矩阵。
