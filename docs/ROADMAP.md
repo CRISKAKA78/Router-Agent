@@ -6,6 +6,18 @@
 - [ ] 未完成
 - [-] 暂缓或未决
 
+## 当前工作方向：Router-Agent 产品持续完善
+
+2026-09-07 用户明确要求暂不进入后续阶段，继续完善已有产品。普通功能依据 AGENTS / DEVELOPMENT / Accepted ADR 自主完成，不需要用户逐项提供技术提示词；这是当前基线内的持续迭代，不是新增 Phase，也不代表 Phase 6 最终验收完成。
+
+- [x] Agent Governance / Repository Guidance：明确普通功能自主范围、设计变更确认、模块导航、按影响验证与文档交付规则；本次仅文档改造。
+- [ ] 按用户后续具体需求完善当前功能、行为和体验；每项单独形成可验证闭环，不预先扩展功能清单。
+- [ ] 用户实机与 Phase 6 最终产品验收，沿用下方尚未完成项。
+- [-] 正式公网 Web 部署、微信小程序、Phase 7 MCP、Phase 8 AI Agent。
+- [-] 新 Tunnel 数据面及其他大规模架构扩展；既有维护缺陷仍可在 Accepted 边界内修复。
+
+以下 Phase 0～6 为既有里程碑；历史“推送后停止/不得进入下一 Phase”描述各次交付边界，当前任务范围以上述方向和最新明确授权为准。
+
 ## Phase 0 Repository and Documentation Initialization
 
 状态：已完成
@@ -160,7 +172,7 @@ Protocol v1 的 14 项验收基线已映射至可运行测试，完整结果见 
 
 ## Phase 6 User Interfaces
 
-当前工作（2026-09-07）：UI Freeze + Production Integration。
+产品基线（2026-09-07）：UI Freeze + Production Integration，已形成提交 `3f239fc`；当前在此基础上持续完善产品。
 
 - [x] 用户确认已完成视觉设计，冻结实际 React 页面，记录 UI_FREEZE。
 - [x] 用户确认默认内置 Shell，同时允许外部客户端，新增 Accepted ADR-027。
@@ -171,6 +183,7 @@ Protocol v1 的 14 项验收基线已映射至可运行测试，完整结果见 
 - [x] 本轮完整 Windows 发布、13 项前端测试、27 项原生检查、31 项 WebView2 集成及 Phase 1～5 适用回归。
 - [x] 同步实际证据并形成正式仓库源码与文档；独立提交/推送以 Git 记录为准。
 - [ ] 用户实机与最终产品验收；不主动进入下一阶段。
+- [x] 整理真机部署启动指南（DEPLOYMENT），核对当前 Server/Probe 参数并完成 Windows Server 构建；设备固件适配和真机验收仍待实际执行。
 
 以下为上一稳定 React 重构基线 `404b083` 的已完成里程碑，不替代本轮接入验证：
 
@@ -184,21 +197,21 @@ Protocol v1 的 14 项验收基线已映射至可运行测试，完整结果见 
 - [x] 本轮 9 项前端测试、21 项原生策略/保存检查、26 项实际 WebView2 集成与本机正式发布启动/退出。
 - [-] 无网络干净 Windows Sandbox 运行：Application Control 拒绝未签名 EXE；用户明确将本轮验收改为直接在本机测试，干净目标机运行尚未验证。
 - [x] Phase 1～5、Tunnel、Linux Release/ASan/race 与 Windows Go test/vet/build 回归。
-- [ ] 正式 Web 管理界面部署（未授权；复用当前 React 基线）。
-- [ ] 微信小程序（未授权）。
+- [-] 正式公网 Web 管理界面部署（暂缓；未来复用当前 React 基线）。
+- [-] 微信小程序（暂缓）。
 
-本轮按用户确认的视觉冻结与正式接入推进；保持开发预览运行，不进入 Phase 7/8。
+继续保持 UI Freeze；开发预览按具体任务需要使用，不要求每次任务持续运行。不进入 Phase 7/8。
 
 ## Phase 7 MCP
 
-状态：未开始
+状态：暂缓（2026-09-07 用户明确要求，未实施）
 
-- [ ] 基于同一 Service 或公开 API 的 MCP Adapter。
+- [-] 基于同一 Service 或公开 API 的 MCP Adapter。
 
 ## Phase 8 AI Agent
 
-状态：未开始
+状态：暂缓（2026-09-07 用户明确要求，未实施）
 
-- [ ] 基于平台 API、MCP 和临时通道的 AI 运维能力。
+- [-] 基于平台 API、MCP 和临时通道的 AI 运维能力。
 
 AI 诊断逻辑属于管理端能力，不进入 Probe。

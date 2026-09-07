@@ -19,6 +19,8 @@
 
 ### Changed
 
+- 开发治理转为在现有 Router-Agent 基线上持续完善产品：用户可仅描述功能、行为、问题或体验，Agent 依据仓库自主完成普通需求、按影响范围验证并同步文档；明确设计变更确认和历史阶段授权的适用范围。新增 DEVELOPMENT 指南，保留 UI Freeze 与既有架构/协议边界；Phase 7 MCP、Phase 8 AI Agent、微信小程序、正式公网 Web 部署、新 Tunnel 数据面及大规模架构扩展暂缓（ADR-028）。本次治理改造不改变产品业务逻辑。
+
 - 用户确认 UI Freeze；正式 React 入口采用已确认的导航、紧凑设备列表、概览、铺满高度的维护区、任务中心、文件管理和工具仓库布局，复用同一 API/WS 层，不再进行主动视觉设计。未提供的遥测与缺失数据如实显示，不回退到 Mock。
 
 - Phase 6 产品 UI 正式迁移为共享 React / TypeScript 工作台，WinUI 3 作为 WebView2 薄 Shell；Windows 与未来 Web 共用页面、设计系统、HTTP/WebSocket 与状态管理，依据 ADR-026。

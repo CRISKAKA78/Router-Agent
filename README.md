@@ -2,7 +2,9 @@
 
 本项目用于建设一套由 Management Server 和路由器端 Probe 组成的远程运维平台。Management Server 统一承载设备、任务、文件与工具、Tunnel 和对外 API 等核心能力；Probe 主动连接 Server，并向上提供轻量、通用的设备控制原语。
 
-Phase 0～5已验收。Phase 6提供React / TypeScript Shared Frontend + C# / WinUI 3 WebView2 Thin Shell中文Windows远程维护工作台，支持浅色/深色主题、设备侧栏和维护卡片，通过统一 `/api/v1` 和WebSocket使用设备、任务、文件、工具与Maintenance能力。Windows入口及构建见[使用说明](windows/README.md)，正式API见[API](docs/API.md)，交付事实见[PROJECT_STATUS](docs/PROJECT_STATUS.md)和[Phase 6验证](docs/PHASE6_VERIFICATION.md)。React 是今后 Windows 与 Web 的统一产品 UI 基线（ADR-026），本轮重构提交推送后等待验收。
+Phase 0～5已验收。Phase 6提供React / TypeScript Shared Frontend + C# / WinUI 3 WebView2 Thin Shell中文Windows远程维护工作台，支持浅色/深色主题、设备侧栏和维护卡片，通过统一 `/api/v1` 和WebSocket使用设备、任务、文件、工具与Maintenance能力。Windows入口及构建见[使用说明](windows/README.md)，正式API见[API](docs/API.md)，交付事实见[PROJECT_STATUS](docs/PROJECT_STATUS.md)和[Phase 6验证](docs/PHASE6_VERIFICATION.md)。React 是今后 Windows 与 Web 的统一产品 UI 基线（ADR-026），Phase 6 实机与最终产品验收仍待完成。
+
+当前方向是继续完善 Router-Agent 产品功能，暂缓 Phase 7 MCP、Phase 8 AI Agent、微信小程序、正式公网 Web 部署、新 Tunnel 数据面和其他大规模架构扩展。用户只需描述想增加的功能、要改变的行为、待解决的问题或最终体验；Agent 依据 [AGENTS](AGENTS.md) 和[开发指南](docs/DEVELOPMENT.md) 自主完成范围内实现、测试和必要文档同步，涉及已确认设计变更时再提出具体方案供确认。
 
 ## 系统关系
 
@@ -60,6 +62,7 @@ curl -X POST http://127.0.0.1:8080/api/v1/tasks \
 ## 文档导航
 
 - [AGENTS.md](AGENTS.md)：所有 AI Agent 和开发者必须遵守的工作与交付规则。
+- [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md)：从简短产品需求到实现、模块定位、验证与文档交付的日常指南。
 - [docs/HANDOFF.md](docs/HANDOFF.md)：新会话或新开发者的最短接管入口。
 - [docs/PROJECT_STATUS.md](docs/PROJECT_STATUS.md)：当前仓库的事实快照。
 - [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)：长期架构、系统边界和模块职责。
@@ -71,6 +74,8 @@ curl -X POST http://127.0.0.1:8080/api/v1/tasks \
 - [路由器探针_TCP长连接控制协议设计_v0.2.docx](路由器探针_TCP长连接控制协议设计_v0.2.docx)：本轮初始化使用的原始设计输入。
 
 ## 构建与运行
+
+首次使用自己的路由器测试，请先读[真机测试部署与启动指南](docs/DEPLOYMENT.md)：包含 Windows/Linux Server、端口与防火墙、Probe 架构适配、客户端连接、维护与文件测试、停止及故障排查。
 
 以下命令已在 Linux x86_64 验证。先构建 Server 与 Probe：
 

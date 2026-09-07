@@ -2,6 +2,8 @@
 
 2026-09-07 用户已明确确认当前 React 实际页面的视觉设计完成，进入 UI Freeze + Production Integration。此指令取代此前继续视觉设计、只做 Mock 的工作阶段；不主动改布局、配色、字体、圆角、密度或视觉语言。
 
+后续工作方向按 ADR-028 持续完善当前产品。本文件继续约束视觉，普通功能可按下述规则补充必要业务交互；历史接入完成/等待验收不阻止已授权的范围内改进。改变冻结布局或视觉语言仍须明确确认，不自动进入新阶段。
+
 ## 冻结基线
 
 仓库：Router-Agent（origin: https://github.com/CRISKAKA78/Router-Agent.git），现有已提交业务基线 `404b083`。冻结对象是当前工作区 `frontend/src/preview/` 中的实际页面及 `frontend/preview.html`，不是此前旧生产 App 的样式。

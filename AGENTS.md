@@ -1,6 +1,8 @@
 # AI Agent 与开发者工作规则
 
-本文件适用于仓库中的所有 AI Agent、Codex 会话和人工开发任务。仓库文件是项目连续性的事实来源，不得依赖聊天上下文、历史会话、AI 记忆或猜测代替仓库核对。
+本文件适用于仓库中的所有 AI Agent、Codex 会话和人工开发任务。仓库文件是项目连续性的事实来源，不得依赖聊天上下文、历史会话、AI 记忆或猜测代替仓库核对。用户当前明确指令决定本次任务范围；已确认的新授权应同步到仓库，不能让历史阶段停止语句阻止当前已授权工作。
+
+用户只需描述想增加的功能、想修改的行为、待解决的问题或最终体验，不必提供技术方案、文件清单、测试命令或重复粘贴本文件。Agent 负责依据仓库完成需求到实现、验证与必要文档的闭环。具体流程、模块导航、验证选择与示例见 [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md)。
 
 ## 开始任务前的必读顺序
 
@@ -13,7 +15,7 @@
 5. docs/ROADMAP.md
 6. 当前任务相关的 docs/PROTOCOL.md、docs/API.md 和 docs/DECISIONS.md
 
-随后检查实际文件、代码、构建和测试状态。不得仅根据当前会话上下文、以前的聊天记录、AI 记忆或猜测继续开发。
+随后阅读 docs/DEVELOPMENT.md，并检查 Git 状态、任务涉及的实际文件、代码、构建入口与测试证据。UI 任务补读 docs/UI_FREEZE.md、docs/PHASE6_DESIGN.md。按影响范围深入相关章节，不要求每次重读所有历史验证记录或重跑全量构建；历史测试通过不等于本次验证通过。
 
 ## 项目事实来源与文档优先级
 
@@ -37,7 +39,7 @@ Phase 0 完成后，仓库内 Markdown 文档成为项目持续维护的当前�
 
 确定冲突类别后，修正对应事实或发起设计变更。需要改变 Accepted ADR 时，新增 superseding ADR，说明被取代的 ADR 和影响，不得静默改写历史决定。
 
-协议或架构基线存在问题时，先在对应文档记录问题、原因、影响和建议方案，等待明确确认。尚未决定的内容必须标记为 TBD 或待讨论，不得推断为最终设计。
+实现偏离明确设计时，在当前需求范围内修复并补充回归；状态文档过期时，按可验证事实直接同步。两份规范冲突且没有明确取代关系，或需要改变已接受的协议/架构基线时，先记录问题、原因、影响和建议方案，等待明确确认后实施依赖该决定的部分。尚未决定的内容标记为 Proposed、TBD 或待讨论，不得推断为最终设计。历史 TBD 已被后续 Accepted ADR 明确解决时，按该决定处理，不要求用户重新确认。
 
 ## 开发边界
 
@@ -50,32 +52,41 @@ Phase 0 完成后，仓库内 Markdown 文档成为项目持续维护的当前�
 - 每个阶段优先完成可构建、可运行、可测试的闭环。不得同时铺开多个无法验证的阶段。
 - 不得通过占位代码、空类、空接口或大量未使用目录假装功能完成。
 
-## 当前阶段限制
+## 当前产品方向与阶段边界
 
-Phase 0～5已验收。用户于2026-09-06明确授权从main稳定基线 `57c2b1f8f6da1069e4a2eb988224b94bafe9cf84` 进入Phase 6 Windows UI；用户随后明确要求WinUI 3正式重构（起点f8d099d6），历史纯WinUI 3设计按ADR-025，本轮最终架构按Accepted ADR-026、API.md及PHASE6_DESIGN.md。本阶段仅实现Windows桌面管理客户端，通过Phase 5 `/api/v1` 和WebSocket调用Server，不访问内部Service、数据库、Gateway或Tunnel数据面，不复制业务状态机。
+2026-09-07 用户明确要求继续完善当前 Router-Agent 产品，暂不进入后续阶段（ADR-028）。Phase 0～5 已验收；Phase 6 已有实现与验证，用户实机与最终产品验收状态以 PROJECT_STATUS 为准。当前在既有产品基线上持续迭代，不新建阶段，不把本次治理改造当作 Phase 6 产品验收。
 
-保留Accepted ADR-009～023及ADR-024未被ADR-025取代的边界。Maintenance固定Web/SSH/Telnet → Probe 127.0.0.1:80/22/23，默认240分钟，自定义正租期；独立data TCP、创建Session绑定、24小时默认端口隔离、Gateway有界独立控制发送及Probe默认8条/最大64条流保持。资产持久化/身份/版本/匹配/归档/清理由Accepted ADR-019 R1～R6约束；artifact_id全Repository唯一，tool_id/asset_id/artifact_id不因归档、去重或存储路径变化重用。
+- 当前产品需求可涉及已有 Windows/React 客户端、Management Server、Probe、设备、维护、任务、文件与工具；Agent 按真实调用链判断必要改动，不因文件属于早期 Phase 而拒绝修复，也不借普通功能重构整个 Server。
+- 暂缓 Phase 7 MCP、Phase 8 AI Agent、微信小程序、正式公网 Web 部署、新 Tunnel 数据面及其他大规模架构扩展。路线图或长期架构中提到这些方向不构成实施授权。维护现有 React Shared Frontend 和已有 Web 维护入口不等于进入正式 Web 部署。
+- 认证、TLS、RBAC、租户、完整审计、跨进程任务恢复等未决设计继续保持未决；通用端口转发、任意目标端口、自研 SSH/Telnet 不纳入普通功能的隐含范围。
+- 本次 Agent Governance / Repository Guidance 改造仅修改治理与必要状态文档，不修改产品业务逻辑，也不实现上述暂缓能力。此限制针对本次交付，不阻止以后用户明确提出的范围内产品需求。
 
-用户于2026-09-06进一步明确授权从main稳定基线 `6f0ce71a5027b57d51e9a6c807794be45f7633b5` 采用Accepted ADR-026，当前明确使用C# / WinUI 3 Thin Shell + WebView2 + React / TypeScript Shared Frontend。React是今后Windows与Web的统一产品UI基线，替代旧XAML业务页与C#业务网络层；Shell仅保留受限平台Bridge、本地资源、窗口及配置能力。中文Fluent界面、Light/Dark/系统主题，设备侧栏与首要维护卡片；地址进入设置，维护/会话编号和释放原因进入详情。可自行组织合理UI分层并复用已有API/WS/DTO/外部SSH及Telnet启动逻辑。维护默认240分钟，可自定义正租期。WebSocket首连/重连回查HTTP快照；网络请求异步，切换Server/退出取消并等待旧资源释放。必要API缺口只允许最小补充，不重构Server。认证、TLS、RBAC、租户和完整审计仍为后续边界；配置保留合理扩展入口，不构建账号体系。不得缓存或显示Tunnel token、connection_id或data私有细节。
+## 持续适用的已确认约束
 
-用户于2026-09-07确认当前React实际页面视觉完成，进入UI Freeze + Production Integration。以docs/UI_FREEZE.md为视觉基线，不主动重新设计布局或更换视觉语言。用户进一步确认默认内置Shell、允许外部工具，按Accepted ADR-027扩展ADR-026的终端平台适配：xterm.js + Windows ConPTY承载本机SSH/Telnet命令行客户端，保留外部入口，不自研协议或新增Tunnel数据面。目录使用有界单次只读Exec，内容传输继续走既有File API；未提供遥测如实显示未提供。
-
-必须完成Windows客户端连接/断线/重连、设备实时更新/Session replacement、Maintenance创建/关闭/默认与自定义租期/到期/三入口、Exec结果、File/Tool、API错误、重复点击/并发和退出资源验证；保留Phase 1～5全量测试、Go race/vet、C++ CTest/sanitizers、Linux Probe与Windows/Linux Server适用验证。同步API/ARCHITECTURE/DECISIONS/PROJECT_STATUS/HANDOFF/ROADMAP/CHANGELOG及PHASE6_VERIFICATION。全部通过后独立Phase 6 Windows UI commit推送GitHub main，停止等待验收，不进入Web UI、微信小程序、MCP、AI Agent、通用端口转发、新Tunnel数据面、自研SSH/Telnet或任意目标端口。
+- 保留 Accepted ADR-009～023 及 ADR-024～027 未被后续 ADR 明确取代的约束。当前架构为 C# / WinUI 3 Thin Shell + WebView2 + React / TypeScript Shared Frontend；React 是统一产品 UI、HTTP/WS Client 与状态基线，Shell 仅承担受限平台 Bridge、本地资源、窗口、配置和平台适配。不恢复旧 XAML 业务页或 C# 业务网络层。
+- 客户端通过公开 `/api/v1` 和 WebSocket 使用 Server；不访问内部 Service、数据库、Gateway 或 Tunnel 私有数据面，不复制业务状态机。API 缺口先查已有能力，只有符合已确认契约的必要最小补充可自主实施，并同步 API、调用方与测试。
+- UI 保持 docs/UI_FREEZE.md 的中文 Fluent、Light/Dark/系统主题与页面视觉基线。可完成需求所需的状态、错误、空态、可访问性和必要业务交互，不主动重排主页面或更换视觉语言。确需改变冻结设计时先说明具体影响并取得确认。
+- WebSocket 首连/重连回查 HTTP 快照；网络请求异步，切换 Server/退出取消并等待旧资源释放。响应不确定保留原幂等键、字节与 task_id，不自动创建替代任务；下载 committed/released 与 Task RESULT 分开。不得缓存或显示 Tunnel token、connection_id 或 data 私有细节。
+- Maintenance 固定 Web/SSH/Telnet → Probe 127.0.0.1:80/22/23，默认 240 分钟，允许自定义正租期；独立 data TCP、创建 Session 绑定、默认 24 小时端口隔离、Gateway 有界独立控制发送及 Probe 默认 8 条/最大 64 条流保持。
+- 按 ADR-027 默认内置 xterm.js + Windows ConPTY 承载本机 SSH/Telnet 客户端，保留外部入口；不自研协议。目录使用有界单次只读 Exec，内容传输继续走 File API；未提供遥测如实显示未提供。
+- 资产持久化、身份、版本、匹配、归档与清理由 ADR-019 R1～R6 约束；artifact_id 全 Repository 唯一，tool_id/asset_id/artifact_id 不因归档、去重或路径变化重用。
 
 ## 任务执行要求
 
-1. 先确认任务属于当前 ROADMAP 阶段，并核对用户明确授权的范围。
-2. 阅读相关设计和 ADR，列出会影响实现的已确认约束与 TBD。
-3. 只修改完成当前任务必需的文件；保留仓库中无关的已有改动。
-4. 为已经实现的行为提供与风险相称的构建、单元测试或集成测试。
-5. 不把未验证、未实现或仅计划中的能力描述为已完成。
-6. 若任务需要改变已确认设计，先取得明确确认，再修改实现与文档。
+1. 将用户需求转成可观察的完成条件，核对当前产品范围、相关 ADR、API/Protocol、实现和测试；说明影响实现的约束与未决点，不要求用户代写技术规格。
+2. 对已授权的普通功能，自主选择模块、局部实现、必要调用方/DTO 调整与回归测试，并完成工作；不为命名、文件拆分、既有组件复用等普通技术选择反复确认。
+3. 信息不足时，先依据既有行为和设计采用最小合理假设并说明。仅当歧义会实质改变用户体验、数据语义、兼容性或任务范围且无法由仓库确定时，提出简短具体的问题；等待期间继续不依赖答案的工作。
+4. 需要变更 Accepted ADR、协议/架构基线、破坏公开兼容性或进入暂缓能力时，先给出具体方案、依据、影响与推荐选择；已有明确确认不重复索取，尚未确认的依赖实现不先落地。普通功能授权不是扩大架构范围的授权。
+5. 只修改完成需求必需的文件；保留无关的已有改动、运行数据和用户进程。不要顺手升级依赖、全仓格式化、创建空框架或实现后续能力。
+6. 根据 docs/DEVELOPMENT.md 的风险范围运行构建、测试与必要实际交互；失败先判断是否由本次改动引起。不得删测、降断言或用 Mock 成功掩盖失败；无关问题记录，不无限扩大修复范围。
+7. 不把未验证、未实现、仅计划或测试对端的能力描述为真实设备已通过。达到完成条件后交付并停止，不自动领取下一项功能。
+8. Git 提交、推送、发布按当前任务中明确授权执行；历史 Phase 的一次性“推送 main”要求不是以后每项任务的默认指令。不得把无关改动和运行数据混入提交，不擅自重置或清理工作区。
 
 ## 每次有效开发任务的交付要求
 
 每次有效开发任务结束时必须：
 
-1. 运行与本次变更相关的构建和测试，并记录结果。
+1. 完成需求及必要调用链，按影响范围验证并记录命令、环境与结果；纯文档任务检查差异、链接和规则一致性即可，不要求重跑产品构建与全量业务测试。
 2. 更新 docs/PROJECT_STATUS.md。
 3. 更新 docs/HANDOFF.md。
 4. 按实际进度更新 docs/ROADMAP.md。
@@ -83,10 +94,12 @@ Phase 0～5已验收。用户于2026-09-06明确授权从main稳定基线 `57c2b
 6. 协议变化时更新 docs/PROTOCOL.md。
 7. API 变化时更新 docs/API.md。
 8. 重要设计变化时更新 docs/DECISIONS.md。
-9. 用户可见功能变化时更新 CHANGELOG.md。
-10. 输出本次交付摘要，包括完成项、验证结果、遗留问题和下一步建议。
+9. 用户可见功能、对外契约或重要治理规则变化时更新 CHANGELOG.md；不写普通内部过程流水账。
+10. 输出简短交付摘要：完成项、验证结果、真实遗留问题及必要下一步；存在未运行检查或验收阻塞时说明原因，不伪造全量通过。
 
 代码完成但 docs/PROJECT_STATUS.md、docs/HANDOFF.md 或 docs/ROADMAP.md 没有同步，视为本次任务未完整交付。
+
+三个状态入口保持短、具体、可验证；记录本次结果与接管影响，不复制实现细节和历史日志。只读咨询/审查没有改变仓库状态时无需为满足清单制造文档修改。专项验证事实按受影响部分维护，不覆盖历史证据。
 
 ## 文档职责
 
@@ -98,6 +111,7 @@ Phase 0～5已验收。用户于2026-09-06明确授权从main稳定基线 `57c2b
 - docs/API.md 维护 API 的设计与实现状态。
 - docs/ROADMAP.md 只按事实更新阶段和里程碑。
 - docs/DECISIONS.md 使用轻量 ADR 记录重要设计决定及其原因。
+- docs/DEVELOPMENT.md 提供需求分流、模块导航、验证入口与交付示例；不另建一套架构或 API/Protocol 规范。
 - CHANGELOG.md 记录已经形成的用户可见产品行为变化、对客户端或开发者具有外部意义的协议或 API 契约变化，以及重要项目基线或治理规则变化。它不记录普通内部重构、未完成计划、虚构功能或单纯开发过程流水账。
 
 ## 状态标记
