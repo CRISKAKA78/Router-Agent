@@ -272,6 +272,10 @@ bool ParseTask(const std::string& input, ExecTask* task, std::string* error) {
         if (task->timeout == 0) { *error="file timeout must be positive"; return false; }
         return ParseFileParams(value->raw_value,task->type,&task->file,error);
     }
+    if (task->type == "router_config") {
+        if (task->timeout < 1 || task->timeout > 30) { *error="configuration timeout must be 1-30 seconds"; return false; }
+        return ParseRouterConfig(value->raw_value, &task->config, error);
+    }
     if (task->type != "exec") { return true; }
 
     JsonObject params;
@@ -369,6 +373,32 @@ ExecResult ExecuteExec(const ExecTask& task, const std::atomic<bool>* stop_reque
     }
     environment_pointers.push_back(NULL);
 
+    // Prepare argv and PATH candidates before fork: the multithreaded child
+    // performs only async-signal-safe operations and never invokes a shell.
+    std::vector<std::string> arguments_storage, executable_paths;
+    if (task.type == "router_config") {
+        std::string error;
+        if (!RouterConfigArguments(task.config, &arguments_storage, &error)) {
+            result.status="failed"; result.stderr_text=error;
+            result.finished_at=static_cast<std::uint64_t>(std::time(NULL)); return result;
+        }
+        const std::string path=environment.count("PATH")?environment.at("PATH"):"/usr/sbin:/usr/bin:/sbin:/bin";
+        std::size_t start=0;
+        do {
+            const std::size_t end=path.find(':',start);
+            const std::string dir=path.substr(start,end==std::string::npos?end:end-start);
+            executable_paths.push_back((dir.empty()?".":dir)+"/"+arguments_storage[0]);
+            if(end==std::string::npos) break;
+            start=end+1;
+        } while(true);
+    } else {
+        arguments_storage.push_back("sh"); arguments_storage.push_back("-c"); arguments_storage.push_back(task.command);
+        executable_paths.push_back("/bin/sh");
+    }
+    std::vector<char*> argument_pointers;
+    for(std::size_t i=0;i<arguments_storage.size();++i) argument_pointers.push_back(const_cast<char*>(arguments_storage[i].c_str()));
+    argument_pointers.push_back(NULL);
+
     int stdout_pipe[2] = {-1, -1};
     int stderr_pipe[2] = {-1, -1};
     std::string setup_error;
@@ -419,14 +449,11 @@ ExecResult ExecuteExec(const ExecTask& task, const std::atomic<bool>* stop_reque
             write(STDERR_FILENO, message, sizeof(message) - 1);
             _exit(126);
         }
-        char* arguments[] = {
-            const_cast<char*>("sh"),
-            const_cast<char*>("-c"),
-            const_cast<char*>(task.command.c_str()),
-            NULL
-        };
-        execve("/bin/sh", arguments, &environment_pointers[0]);
-        static const char message[] = "exec /bin/sh failed\n";
+        for (std::size_t i=0;i<executable_paths.size();++i) {
+            execve(executable_paths[i].c_str(), &argument_pointers[0], &environment_pointers[0]);
+            if(errno!=ENOENT&&errno!=ENOTDIR&&errno!=EACCES) break;
+        }
+        static const char message[] = "exec program failed (missing, inaccessible or invalid executable)\n";
         write(STDERR_FILENO, message, sizeof(message) - 1);
         _exit(127);
     }

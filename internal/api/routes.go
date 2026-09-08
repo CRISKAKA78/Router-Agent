@@ -47,6 +47,8 @@ func accepted(id string, data object, err error) response {
 }
 func emptyBody(r *http.Request) bool { var q struct{}; return decode(r, &q) == nil }
 func (a *Server) routes() {
+	a.templateRoutes()
+	a.routerConfigRoutes()
 	a.route("GET /api/v1/devices", false, func(r *http.Request) response {
 		status := r.URL.Query().Get("status")
 		if status != "" && status != "online" && status != "offline" {

@@ -7,12 +7,12 @@ namespace rmp {
 namespace {
 bool SameTask(const ExecTask& a, const ExecTask& b) {
     return a.type == b.type && a.timeout == b.timeout && a.command == b.command &&
-           a.cwd == b.cwd && a.env == b.env && a.file == b.file;
+           a.cwd == b.cwd && a.env == b.env && a.file == b.file && a.config == b.config;
 }
 }
 
 TaskManager::TaskManager(unsigned workers, std::size_t capacity, std::size_t byte_capacity, std::size_t file_capacity)
-    : stop_(false), running_(0), file_capacity_(file_capacity), file_count_(0), capacity_(capacity), byte_capacity_(byte_capacity),
+    : config_running_(false), stop_(false), running_(0), file_capacity_(file_capacity), file_count_(0), capacity_(capacity), byte_capacity_(byte_capacity),
       reserved_bytes_(0) {
     if (workers == 0 || workers > 64 || capacity == 0) {
         throw std::invalid_argument("invalid task manager limits");
@@ -53,7 +53,7 @@ std::string TaskManager::Submit(const ExecTask& task, bool valid,
         for(std::map<std::string,Entry>::const_iterator i=entries_.begin();i!=entries_.end();++i)
             if(i->second.task.file.transfer_id==task.file.transfer_id) return "rejected";
     }
-    if (!valid || (task.type != "exec" && !file) || entries_.size() >= capacity_ ||
+    if (!valid || (task.type != "exec" && task.type != "router_config" && !file) || entries_.size() >= capacity_ ||
         reservation > byte_capacity_ - reserved_bytes_) return "rejected";
     Entry entry;
     entry.task = task;
@@ -110,16 +110,25 @@ bool TaskManager::CachedResult(const std::string& id, std::uint32_t max_payload,
 
 unsigned TaskManager::RunningTasks() const { return running_.load(); }
 
+bool TaskManager::Runnable() const {
+    for(std::size_t i=0;i<queue_.size();++i)
+        if(!config_running_||entries_.at(queue_[i]).task.type!="router_config") return true;
+    return false;
+}
+
 void TaskManager::Run() {
     while (true) {
         ExecTask task;
         std::uint32_t max_payload;
         {
             std::unique_lock<std::mutex> lock(mutex_);
-            condition_.wait(lock, [this] { return stop_.load() || !queue_.empty(); });
+            condition_.wait(lock, [this] { return stop_.load() || Runnable(); });
             if (stop_.load()) return;
-            Entry& entry = entries_.at(queue_.front());
-            queue_.pop_front();
+            std::deque<std::string>::iterator next=queue_.begin();
+            while(config_running_ && entries_.at(*next).task.type=="router_config") ++next;
+            Entry& entry = entries_.at(*next);
+            queue_.erase(next);
+            if(entry.task.type=="router_config") config_running_=true;
             entry.state = "running";
             task = entry.task;
             max_payload = entry.max_payload;
@@ -142,6 +151,8 @@ void TaskManager::Run() {
             reserved_bytes_ -= entry.max_payload - payload.size();
             entry.payload.swap(payload);
             running_.fetch_sub(1);
+            if(task.type=="router_config") config_running_=false;
+            condition_.notify_all();
             std::cout << "task_state=" << result.status << " task_id=" << task.task_id << std::endl;
         }
     }

@@ -19,7 +19,7 @@ func timestamp(t time.Time) any {
 	return t.UTC()
 }
 func registration(v device.Registration) object {
-	return object{"device_id": v.DeviceID, "serial": v.Serial, "model": v.Model, "firmware": v.Firmware, "probe_version": v.ProbeVersion, "hostname": v.Hostname, "arch": v.Arch, "kernel": v.Kernel, "libc": v.Libc, "boot_id": v.BootID, "capabilities": v.Capabilities}
+	return object{"device_id": v.DeviceID, "serial": v.Serial, "model": v.Model, "firmware": v.Firmware, "probe_version": v.ProbeVersion, "hostname": v.Hostname, "arch": v.Arch, "kernel": v.Kernel, "libc": v.Libc, "boot_id": v.BootID, "capabilities": v.Capabilities, "template": v.Template, "attributes": v.Attributes, "collection_errors": v.CollectionErrors}
 }
 func session(v *device.Session) any {
 	if v == nil {

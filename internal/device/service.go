@@ -20,6 +20,22 @@ type Registration struct {
 	DeviceID, Serial, Model, Firmware, ProbeVersion string
 	Hostname, Arch, Kernel, Libc, BootID            string
 	Capabilities                                    []string
+	Template                                        *TemplateReference
+	Attributes                                      map[string]Attribute
+	CollectionErrors                                map[string]CollectionError
+}
+type TemplateReference struct {
+	ID      string `json:"template_id"`
+	Name    string `json:"name"`
+	Version uint64 `json:"version"`
+}
+type Attribute struct {
+	Name  string `json:"name"`
+	Value string `json:"value"`
+}
+type CollectionError struct {
+	Name   string `json:"name"`
+	Reason string `json:"reason"`
 }
 
 type Status string
@@ -223,6 +239,26 @@ func snapshot(r *record) Snapshot {
 
 func cloneRegistration(v Registration) Registration {
 	v.Capabilities = append([]string{}, v.Capabilities...)
+	if v.Template != nil {
+		t := *v.Template
+		v.Template = &t
+	}
+	attrs := map[string]Attribute{}
+	if v.Attributes == nil {
+		attrs = nil
+	}
+	for k, a := range v.Attributes {
+		attrs[k] = a
+	}
+	v.Attributes = attrs
+	errs := map[string]CollectionError{}
+	if v.CollectionErrors == nil {
+		errs = nil
+	}
+	for k, e := range v.CollectionErrors {
+		errs[k] = e
+	}
+	v.CollectionErrors = errs
 	return v
 }
 

@@ -4,19 +4,21 @@
 
 Phase 4 新增 `internal/tunnel.Service` 与 C++11 `TunnelManager`，采用 Accepted ADR-021 / ADR-022 的极简 TCP Maintenance，不使用 FRP/xfrpc。验证状态以 PROJECT_STATUS 为准。
 
-## Phase 6 Shared Frontend / Windows Shell
+## 当前客户端边界（ADR-037 / ADR-036 / ADR-035 / ADR-034）
 
-**React Shared Frontend 是今后 Windows 与 Web 的统一产品 UI 基线。** 采用 Accepted ADR-026：frontend/ 是唯一业务 UI、HTTP/WS Client、DTO、快照恢复、状态与设计系统；Windows 以 WinUI 3 + WebView2 加载随包静态资源。旧 XAML 业务页、C# ApiClient 与 WorkspaceConnection 已删除。
+项目仅保留两个 C# UI：Windows 原生 WPF 工作台与本机 Blazor 探针模板生成器。React 浏览器工作台、WinUI/Win32/WebView2 旧宿主及专属构建/Bridge/ConPTY 已移除；历史演进与验证见 [PHASE6_DESIGN](PHASE6_DESIGN.md)、[PHASE6_VERIFICATION](PHASE6_VERIFICATION.md)，不作为现存模块导航。
 
-Shell 管理窗口、本地内容、配置、受限平台 Bridge、Windows 文件选择与保存，以及浏览器/SSH/Telnet 启动。Accepted ADR-027 增加 ConPTY 本地终端适配：默认内置 xterm.js 终端承载命令行 SSH/Telnet，保留外部客户端入口。Core 无业务网络层；所有设备/任务/文件/工具/Maintenance 操作仍通过公开 /api/v1。Frontend 不引用 Server 内部实现、不重建状态机。
+`windows/RouterWorkbench.Desktop` 为 .NET 10 / WPF，导航为设备、维护、文件、配置、设置。`RouterWorkbench.Client` 只通过公开 HTTP/WS 查询快照、提交原幂等请求并管理取消和释放，不复制 Server 状态机。Core 保留用户配置、端点校验及外部客户端启动。
 
-为保留现有 Origin 契约，Shell 在选定 Server origin 的 /__workbench/ 路径拦截并返回本地静态资源，页面直接调用同源 API/WS，不增加 C# API 代理。文档与静态脚本受本地资源和导航白名单控制，Bridge 核对当前入口文档来源；外部网页不能进入主 WebView2。Browser 平台共享相同 UI，未来正式部署需同源服务/反向代理，本轮不发布 Web。
+服务器地址在设置保存，启动自动恢复连接。HTTP 首连/重连回查快照，五秒恢复刷新按值更新稳定属性行。设备属性由 `DeviceProperties` 从 registration 快照完整展示，包含标准字段、扩展属性、模板版本和采集失败；不读取当前模板定义重新解释历史值。
 
-每个 Connection 拥有请求取消源、WebSocket、单快照 worker、dirty 合并及 5 秒恢复刷新。首连/重连重新 HTTP 全分页同步；查询结果按连接与选择隔离。原 Mutation 键和字节在不确定响应后保留，明确核对 Server 进程后重试。切换/退出取消并等待请求/socket/worker；WinUI 先关闭内置进程、等待 JS shutdown，再释放 WebView2。内置终端按维护租期、Session 和页面生命周期关闭，原生层独立回收到期句柄；外部程序与 Server 已创建资源保持各自生命周期。
+维护页仅展示公共 Web/SSH/Telnet 链接，启动前回查维护及设备 Session。主程序没有 WebView2、内置终端、工具管理或通用任务页。外部进程由用户管理，退出 UI 不撤销 Server 维护；SSH 默认 admin/admin，密码由 `SshPasswordStore` 用当前 Windows 用户 DPAPI 独立加密，显式复制，不写日志、URL 或进程参数。文件/配置结果在各自页面，committed/released 与最终 Task RESULT 分开。
 
-2026-09-07 用户确认的实际 React UI 已冻结，基线见 UI_FREEZE。正式入口使用 frontend/src/ui/，preview/ 只保留视觉参照。目录浏览是最多 250 项、NUL 分隔的单次只读 Exec，内容传输继续使用 File API；不存在新的目录服务、持续终端代理或 Tunnel 数据面。未知遥测字段显示未提供。
+`ui-windows.cmd` → `windows/build-desktop.ps1` 发布自包含 x64 EXE，不依赖 Node/Vite/C++/WebView2 构建。当前实现与验证见 [WINDOWS_DESKTOP_MIGRATION](WINDOWS_DESKTOP_MIGRATION.md)。
 
-发布目录包含 .NET、WinUI、React production assets 和固定 WebView2 Runtime，不需 Node。平台方法、页面层级、资产与任务事实分离、租期与安全细节见 [PHASE6_DESIGN](PHASE6_DESIGN.md)、[windows/README](../windows/README.md)。
+`src/ProbeTemplateGenerator` 使用 .NET 10 / ASP.NET Core / Blazor / Fluent UI，经本机 HTTP 供浏览器使用。C# 按 Feature 管理工程、编辑状态、表达式、规则、编译和公开模板 API 发布；JS 仅提供存储、下载、快捷键和主题。虚拟属性与规则编译为原 command/nvram/uci 模板，Server/Probe 不增加属性图或公式状态。版本 1/2 工程与旧原生草稿可导入，待定写入保留原请求。入口 `template-generator.cmd`，工程边界见 [TEMPLATE_GENERATOR_MIGRATION](TEMPLATE_GENERATOR_MIGRATION.md)。
+
+测试在 Desktop.Tests 与 ProbeTemplateGenerator.Tests，协议对端只编入 Desktop.Tests。`tests/package.json` 的 Playwright 仅为生成器浏览器验证提供依赖，不进入产品构建。清理范围见 [UI_CLEANUP](UI_CLEANUP.md)。
 
 ## Phase 5 HTTP / WebSocket 模块与生命周期
 
@@ -105,6 +107,14 @@ Management Server 是平台核心程序，优先使用 Go 实现。
 第一版可以采用模块化单体。模块可以在未来拆分，但不得绕过 Service Layer 或形成第二套核心逻辑。基础运行不得强制用户部署一组微服务、外部数据库或消息队列。
 
 ## Probe
+
+ADR-031：`internal/routerconfig` 定义共享配置参数校验；Management 提供 CreateRouterConfig 用例，Task Service 持有不可变结构化规格，Gateway 检查 Session capability 并复用现有任务发送。HTTP 提供 config-tasks，WPF 配置表单通过 C# Client 使用公开 API，结果留在配置页。
+
+Probe `router_config.cpp` 校验参数并构造 argv，`task.cpp` 复用有界执行器直接执行 PATH 中固件程序；`TaskManager` 在原 worker pool 中按接受顺序串行调度配置任务，允许 Exec 并行。模板 source 与配置任务共用参数/执行路径，来源仅 get。无新队列服务、协议消息或厂商库依赖，不改变身份、注册快照、文件与 Tunnel 生命周期。
+
+ADR-029：`internal/probetemplate.Service` 独立拥有设备属性模板持久化、唯一名称、版本冲突与删除身份墓碑；`management.Server` 组合其生命周期，HTTP Adapter 通过它管理，Gateway 通过只读 Resolve 接口响应 0x05/0x06 准备连接。模板不作为 File/Tool 资产，不改变 Repository schema 或稳定资产身份。
+
+Probe `collection.cpp` 在正常注册前执行所选模板的有界命令采集；准备连接不创建设备，采集后仍由 Gateway 的成功 REGISTER 发布完整 Device/Session 快照。扩展属性和失败摘要是启动采集结果，不是实时遥测；重连复用本进程快照。模板管理现由 ADR-034 的独立 C# / Blazor 生成器承担，WPF 设备详情继续显示公开 registration 字段。默认 ID 在 `identity.cpp` 从显式参数或一次 `nvram get SN` 取得。
 
 Probe 是与 Management Server 独立的设备端程序。Phase 1 起采用 **C++11 + CMake**：第一开发与验证平台为 Linux x86_64；后续通过 CMake toolchain files 适配 mipsel、ARM 和 ARM64 交叉工具链。目标侧只运行编译后的 Probe，不依赖 CMake。Probe 实现不得使用高于 C++11 的语言特性，并应避免不必要的重型运行时依赖。
 

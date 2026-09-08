@@ -1,12 +1,48 @@
 # Management Server API
 
-本文件维护Phase 5已实现的 `/api/v1` HTTP/WebSocket规范及原内部Service契约。实现入口 `internal/api`，业务来源为 `management.Server` 与已有 Service。没有新的 Probe 消息或 Tunnel 数据面。
+ADR-035：Windows 调用方现为 `windows/RouterWorkbench.Client` 的原生 C# HTTP/WS Client；资源路径、请求与响应、幂等和业务状态均未变化。ADR-036 的 WPF 页面消费公开 DTO，维护仅打开外部客户端，主程序无内置终端；独立生成器继续使用 ADR-034 的 TemplatePublishingService。ADR-037 已移除旧 React/WinUI/Win32 UI；下文旧客户端描述仅保留为历史语境，当前 Windows 设计见 [WINDOWS_DESKTOP_MIGRATION](WINDOWS_DESKTOP_MIGRATION.md)。
 
-Phase 6 React Shared Frontend / Windows WebView2 Shell复用本文件公开契约（ADR-026/027），生产API无补充或修改。客户端首连/重连HTTP同步、维护与Exec/文件/工具动作、相同键显式重试及入口启动规则见[PHASE6_DESIGN](PHASE6_DESIGN.md)与[Windows使用说明](../windows/README.md)。Windows UI不能直接调用下文内部Go接口。
+本文件维护 `/api/v1` HTTP/WebSocket规范及原内部Service契约。实现入口 `internal/api`，业务来源为 `management.Server` 与 Service。ADR-029 新增服务端属性模板及注册快照字段；既有 Tunnel 数据面不变。
+
+Phase 6 React Shared Frontend / Windows WebView2 Shell复用本文件公开契约（ADR-026/027），此前重构未补充生产 API；本轮模板扩展见下文。客户端首连/重连HTTP同步、维护与Exec/文件/工具动作、相同键显式重试及入口启动规则见[PHASE6_DESIGN](PHASE6_DESIGN.md)与[Windows使用说明](../windows/README.md)。Windows UI不能直接调用下文内部Go接口。
 
 冻结 UI 的内置 Shell 通过本机 SSH/Telnet 客户端连接重新查询的 Maintenance 公共入口，不通过 HTTP Exec 或 WebSocket 传送持续终端字节。右侧目录使用有界单次 Exec，文件内容通过 uploads/downloads/complete；工具投放列表从 tasks/{id}/operation 的 tool_id 关联得出。当前无 CPU、内存、磁盘、4G、端口遥测 API，界面相应字段显示未提供，不以推测数据替代。
 
 ## 部署与生命周期
+
+### 配置任务 API（ADR-031）
+
+`POST /api/v1/devices/{id}/config-tasks` 创建配置任务，要求 Idempotency-Key；JSON 为 `{backend,operation,key?,value?,package?,timeout_seconds?}`。backend 为 nvram/uci，operation 为 get/set/delete/commit；字段组合与值限制见 [PROTOCOL 配置任务扩展](PROTOCOL.md#配置任务扩展adr-0312026-09-08)。timeout_seconds 省略为 5，显式必须为 1～30 整数，0/null 不接受。请求示例：
+
+```json
+{"backend":"uci","operation":"set","key":"system.@system[0].hostname","value":"router-one","timeout_seconds":5}
+```
+
+202 返回 `{task_id,dispatch_uncertain}`，Location 指向原 `/api/v1/tasks/{id}`；沿用原请求字节/幂等账本和显式重发。任务列表 type 为 router_config，详情 params 为不可变结构化参数，结果 stdout/stderr/exit_code 等同 Exec。该任务没有 transfer/operation 资产关联，客户端无需请求文件信息。
+
+非法参数 400 invalid_request，未知设备 404 not_found，离线 409 device_offline，发送前 Session 改变 409 session_changed，当前 Probe 未声明 router_config 为 422 unsupported_capability。缺固件命令在 Probe 执行后以任务 failed 表达，不等同于 HTTP 不支持能力。不确定派发仍保留原任务；重发到旧 Probe 同样返回 unsupported_capability，不自动降级或新建任务。
+
+写入和删除不提交持久存储；commit 是独立任务，uci 必须指定 package，nvram 提交整份 NVRAM。不会重启设备/服务或刷新设备注册属性。任务参数和结果按现有可信管理网络契约可查询，配置值不应视为秘密保险库。
+
+### 属性模板 API（ADR-029）
+
+ADR-034 将生成器调用方迁为 C# `TemplatePublishingService`，继续通过下述公开契约访问 Go Server；HTTP/TCP schema 保持。宿主地址与管理服务器地址独立配置，不新增 Go 代理或内部调用。
+
+独立模板生成器（ADR-032）调用同一公开 API，主工作台设置不再提供模板管理。GET `/probe-templates` 返回通常的分页结果，GET `/probe-templates/{id}` 返回完整模板；实际路径均带 `/api/v1` 前缀。生成器的虚拟属性/公式属于本地工程，发布前编译为已有来源；HTTP schema 不新增虚拟或公式字段，服务器不保存工程源文件，见 [TEMPLATE_GENERATOR](TEMPLATE_GENERATOR.md)。
+
+| 方法 | 路径 | 请求与结果 |
+| --- | --- | --- |
+| POST | /probe-templates | `{name,properties}` → 201 `{template_id,name,version,properties}`；version=1 |
+| PUT | /probe-templates/{id} | `{name,properties,version}` → 200 新完整模板；version 必须匹配，更新递增 |
+| DELETE | /probe-templates/{id} | `{version}` → 200 `{deleted:true}`；必须匹配当前版本 |
+
+POST/PUT/DELETE 全部要求 Idempotency-Key，沿用原请求字节与账本规则；旧版本/名称冲突返回 409 conflict，非法输入 400 invalid_request，不存在或已删除 404 not_found，存储容量满 503 capacity_exhausted。删除的同键原字节重放仍返回原成功，不同键再次删除 404。
+
+properties 为 `{属性key:{name,command,timeout_seconds}}`，兼容增加 `{属性key:{name,source:"nvram"|"uci",key,timeout_seconds}}`；缺 source 为 command，也可显式 command。配置来源只读且不带 command，命令来源不带 key。可选字段、范围、输出与启动语义见 PROTOCOL 的“启动属性模板”与 ADR-031 扩展。名称唯一，允许编辑；ID 不重用，删除保留身份墓碑，不改已有设备/Session 快照。最多 1000 个历史身份、目录文件最多 8 MiB；命令正文仅用于模板管理和准备连接，不出现在设备采集失败摘要。旧模板无迁移，新来源需更新 Probe；旧 Server 不能读取带新来源字段的目录。
+
+默认文件为 `repository-dir/probe-templates/catalog.json`，属于独立 Template Service，不进入 Repository 的资产/工具元数据或 schema。可用 `-probe-template-file PATH` 指定。服务端持有独立文件锁、原子替换保存，重启保留；损坏/重复身份或名称/未知 schema/已初始化但目录丢失时启动失败，不静默重建。仅适用于现有可信管理网络，未新增身份认证。
+
+设备与 Session 的 registration 兼容增加 `template`（无模板为 null）、`attributes` 和 `collection_errors`（旧客户端可忽略；旧 Probe 可为 null/空对象）。值及字段定义见 PROTOCOL；六项已有属性仍使用原字段。模板列表在独立生成器挂载、HTTP 快照恢复和定时刷新时重查；未新增 WebSocket topic、业务状态机或遥测。
 
 `cmd/server -http-listen 127.0.0.1:8080` 默认启用独立 HTTP listener。控制 TCP 仍为 `-listen :9000`，Maintenance data 与入口配置保持 Phase 4。HTTP 包括命令执行、文件与设备断开能力，仅用于可信本机或受保护管理网络。非 loopback 绑定由部署者显式配置；远程访问由部署层完成 TLS、认证和网络访问限制。当前没有内置用户、租户、RBAC 或完整审计，不能把 loopback、Origin 校验或 Tunnel 配对 token 当成用户认证。
 
@@ -42,6 +78,7 @@ API 拒绝携带不同 Host 的浏览器 Origin；无 CORS 放行配置。无 Or
 | GET /devices/{id} | 最近registration、status、当前/最近Session、首次/最近时间及历史计数 |
 | GET /devices/{id}/sessions | 分页；当前及保留结束Session，另含history_limit、total_sessions、evicted_sessions |
 | POST /devices/{id}/disconnect | `{}`；同步请求断开当前Session；未知404、已离线disconnected=false |
+| POST /devices/{id}/config-tasks | backend、operation 及对应 key/value/package；timeout_seconds 默认 5；创建 router_config |
 | GET /tasks | 分页；device_id、state过滤；摘要task_id/device_id/type/state/created_at，不含输出或派发历史 |
 | POST /tasks | device_id、command、timeout_seconds必填；cwd、env可选；创建exec |
 | GET /tasks/{id} | 规格、state、last_session_id、dispatch_count和result；不暴露message_id/reply_to |

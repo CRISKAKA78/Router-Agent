@@ -1,0 +1,9 @@
+@if (State.Issues.Count > 0)
+{
+    <section class="validation-summary" aria-label="校验结果"><div class="section-heading"><h3>待修正的问题</h3><span class="error-count">@State.Issues.Count 个错误</span></div><ul>@foreach (var issue in State.Issues) { <li><button @onclick="@(() => State.GoToIssue(issue))"><span aria-hidden="true">!</span><span>@issue.Message</span><span class="muted">定位 →</span></button></li> }</ul></section>
+}
+else
+{
+    <div class="validation-passed" role="status"><span aria-hidden="true">✓</span><span>模板结构校验通过</span><span class="muted">@State.PreviewRows.Count 个展示属性</span></div>
+}
+@code { [Parameter, EditorRequired] public EditorWorkspace State { get; set; } = default!; }

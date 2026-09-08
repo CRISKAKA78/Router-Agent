@@ -4,18 +4,22 @@ import (
 	"context"
 	"errors"
 	"net"
+	"path/filepath"
 	"routerprobe/internal/gateway"
+	"routerprobe/internal/probetemplate"
 	"routerprobe/internal/repository"
 	"routerprobe/internal/tunnel"
 	"sync"
 )
 
 type Config struct {
+	TemplateFile        string
 	Tunnel              *tunnel.Config // nil disables data listener for embedded legacy callers
 	RepositoryDirectory string
 	Gateway             gateway.Config
 }
 type Server struct {
+	templates   *probetemplate.Service
 	maintenance *tunnel.Service
 	*Service
 	gateway  *gateway.Server
@@ -29,8 +33,19 @@ func New(config Config) (*Server, error) {
 	if e != nil {
 		return nil, e
 	}
+	templateFile := config.TemplateFile
+	if templateFile == "" {
+		templateFile = filepath.Join(r.Directory(), "probe-templates", "catalog.json")
+	}
+	templates, e := probetemplate.Open(templateFile)
+	if e != nil {
+		r.Close()
+		return nil, e
+	}
+	config.Gateway.Templates = templates
 	g, e := gateway.New(config.Gateway)
 	if e != nil {
+		templates.Close()
 		r.Close()
 		return nil, e
 	}
@@ -38,6 +53,7 @@ func New(config Config) (*Server, error) {
 		config.Gateway.Logger.Printf("repository_dir=%s", r.Directory())
 		leftovers, err := r.Leftovers()
 		if err != nil {
+			templates.Close()
 			g.Close()
 			r.Close()
 			return nil, err
@@ -50,22 +66,24 @@ func New(config Config) (*Server, error) {
 	if config.Tunnel != nil {
 		maintenance, e = tunnel.New(*config.Tunnel, g)
 		if e != nil {
+			templates.Close()
 			g.Close()
 			r.Close()
 			return nil, e
 		}
 		g.SetTunnelStatus(maintenance.Report)
 	}
-	return &Server{Service: NewService(r, g.Devices(), g), gateway: g, repo: r, maintenance: maintenance}, nil
+	return &Server{Service: NewService(r, g.Devices(), g), gateway: g, repo: r, maintenance: maintenance, templates: templates}, nil
 }
-func (s *Server) Maintenance() *tunnel.Service { return s.maintenance }
-func (s *Server) Serve(l net.Listener) error   { return s.gateway.Serve(l) }
+func (s *Server) ProbeTemplates() *probetemplate.Service { return s.templates }
+func (s *Server) Maintenance() *tunnel.Service           { return s.maintenance }
+func (s *Server) Serve(l net.Listener) error             { return s.gateway.Serve(l) }
 func (s *Server) Close() error {
 	s.once.Do(func() {
 		if s.maintenance != nil {
 			s.maintenance.Close()
 		}
-		s.closeErr = errors.Join(s.gateway.Close(), s.repo.Close())
+		s.closeErr = errors.Join(s.gateway.Close(), s.templates.Close(), s.repo.Close())
 	})
 	return s.closeErr
 }

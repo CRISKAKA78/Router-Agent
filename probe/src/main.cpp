@@ -1,4 +1,5 @@
 #include "rmp/client.h"
+#include "rmp/identity.h"
 
 #include <cstdlib>
 #include <fstream>
@@ -66,9 +67,10 @@ std::string Architecture() {
 
 void Usage(const char* program) {
     std::cout << "Usage: " << program
-              << " --device-id ID [--server HOST:PORT] [--probe-version VERSION]"
+              << " [--device-id ID] [--server HOST:PORT] [--probe-version VERSION]"
                  " [--arch ARCH] [--boot-id ID] [--hostname NAME] [--tunnel-connections N]"
-              << std::endl;
+                 " [--template-id ID | --template-name NAME]"
+              << "\nWithout --device-id, runs nvram get SN (5 second timeout)." << std::endl;
 }
 
 bool NextValue(int argc, char** argv, int* index, std::string* value) {
@@ -85,6 +87,8 @@ bool NextValue(int argc, char** argv, int* index, std::string* value) {
 int main(int argc, char** argv) {
     std::string server_address = "127.0.0.1:9000";
     rmp::ClientConfig config;
+    bool explicit_device_id = false;
+    bool selected_template_id = false, selected_template_name = false;
     std::string tunnel_connections="8";
     config.probe_version = "0.1.0";
     config.hostname = Hostname();
@@ -98,7 +102,8 @@ int main(int argc, char** argv) {
             destination = &server_address;
         } else if (argument == "--tunnel-connections") {
             destination = &tunnel_connections;
-        } else if (argument == "--device-id") {
+        } else if (argument == "--device-id" || argument == "--device_id") {
+            explicit_device_id = true;
             destination = &config.device_id;
         } else if (argument == "--probe-version") {
             destination = &config.probe_version;
@@ -107,7 +112,14 @@ int main(int argc, char** argv) {
         } else if (argument == "--boot-id") {
             destination = &config.boot_id;
         } else if (argument == "--hostname") {
+            config.explicit_hostname = true;
             destination = &config.hostname;
+        } else if (argument == "--template-id") {
+            selected_template_id = true;
+            destination = &config.template_id;
+        } else if (argument == "--template-name") {
+            selected_template_name = true;
+            destination = &config.template_name;
         } else if (argument == "--help" || argument == "-h") {
             Usage(argv[0]);
             return 0;
@@ -123,10 +135,16 @@ int main(int argc, char** argv) {
     }
 
     char* tail=NULL;unsigned long tunnel_limit=std::strtoul(tunnel_connections.c_str(),&tail,10);
+    if ((selected_template_id && selected_template_name) ||
+        (selected_template_id && config.template_id.empty()) ||
+        (selected_template_name && config.template_name.empty()) ||
+        config.template_id.size()>128 || config.template_name.size()>128) {
+        std::cerr << "choose one template ID or name (at most 128 bytes)" << std::endl;
+        return 2;
+    }
     if(tunnel_connections.empty()||tail==NULL||*tail!='\0'||tunnel_limit<1||tunnel_limit>64){std::cerr<<"tunnel-connections must be 1-64"<<std::endl;return 2;}
     config.tunnel_connections=static_cast<std::size_t>(tunnel_limit);
-    if (config.device_id.empty() || config.device_id.size() > 128 ||
-        config.probe_version.empty() || config.probe_version.size() > 64 ||
+    if (config.probe_version.empty() || config.probe_version.size() > 64 ||
         config.arch.empty() || config.arch.size() > 32 ||
         config.boot_id.empty() || config.boot_id.size() > 128 ||
         config.hostname.size() > 255) {
@@ -136,6 +154,10 @@ int main(int argc, char** argv) {
 
     std::string address_error;
     if (!rmp::ParseServerAddress(server_address, &config.server_host, &config.server_port, &address_error)) {
+        std::cerr << address_error << std::endl;
+        return 2;
+    }
+    if (!rmp::ResolveDeviceId(explicit_device_id, &config.device_id, &address_error)) {
         std::cerr << address_error << std::endl;
         return 2;
     }

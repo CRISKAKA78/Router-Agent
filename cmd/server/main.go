@@ -30,6 +30,7 @@ func main() {
 	maxControlPayload := flag.Uint("max-control-payload", 1024*1024, "maximum JSON control payload in bytes")
 	fileChunkSize := flag.Uint("file-chunk-size", 64*1024, "negotiated file chunk size in bytes")
 	repositoryDirectory := flag.String("repository-dir", repository.DefaultDirectory, "persistent local file/tool repository directory")
+	templateFile := flag.String("probe-template-file", "", "template catalog path; default repository-dir/probe-templates/catalog.json")
 	tunnelConfig := tunnel.Config{}
 	flag.StringVar(&tunnelConfig.BindHost, "tunnel-bind", "127.0.0.1", "maintenance listeners bind IP")
 	flag.StringVar(&tunnelConfig.AdvertisedHost, "tunnel-host", "127.0.0.1", "maintenance entry advertised host")
@@ -58,7 +59,7 @@ func main() {
 	defer stop()
 
 	logger := log.New(os.Stdout, "server ", log.LstdFlags|log.Lmicroseconds)
-	err := api.Run(ctx, *listenAddress, *httpAddress, management.Config{RepositoryDirectory: *repositoryDirectory, Tunnel: &tunnelConfig, Gateway: gateway.Config{
+	err := api.Run(ctx, *listenAddress, *httpAddress, management.Config{TemplateFile: *templateFile, RepositoryDirectory: *repositoryDirectory, Tunnel: &tunnelConfig, Gateway: gateway.Config{
 		HeartbeatInterval: time.Duration(*heartbeatSeconds) * time.Second,
 		MaxControlPayload: uint32(*maxControlPayload),
 		FileChunkSize:     uint32(*fileChunkSize),

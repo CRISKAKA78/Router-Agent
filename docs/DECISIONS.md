@@ -1,6 +1,82 @@
 # 架构决策记录
 
+## ADR-037 仅保留新版 C# UI 并清理历史实现
+
+- 状态：Accepted，2026-09-08。用户明确要求“保留新版 C# 主 UI 和新版 C# 探针模板生成器，移除之前其余 UI，然后将当前项目推送到 GitHub”。本次授权包含当前产品源码与必要文档的提交及推送。
+- Supersedes：取代 ADR-026/030/035 中保留 React 浏览器入口、WinUI/Win32 历史宿主源码，以及 ADR-036 中为旧宿主保留 ConPTY 的要求。ADR-034 的 Blazor 生成器、ADR-035/036 的 WPF 主程序及业务契约继续适用；历史 ADR 原文不改写。
+- 当前 UI 仅为 `windows/RouterWorkbench.Desktop`（.NET 10 / WPF）和 `src/ProbeTemplateGenerator`（.NET 10 / Blazor / Fluent UI）。保留它们实际使用的 C# Client、Core 配置与外部启动策略、测试及启动脚本。
+- 移除 `frontend`、`windows/RouterWorkbench`、`windows/native`、旧宿主测试/构建/验证脚本和无调用方的 WebView2 Bridge、内置终端及 Bridge 文件保存代码。协议测试对端迁入 Desktop.Tests；生成器 Playwright 依赖移至 tests，沿用已有版本，仅用于验证。
+- Go Server、C++ Probe、公开 API/TCP、模板和草稿格式、维护三入口及用户配置不因清理改变。旧源码本地归档位于 Git 忽略的 build 目录；既有发布包、用户进程和运行数据保留，数据、源码压缩包及构建产物不进入 GitHub。历史设计/验收文档标明已被取代，当前开发入口同步到保留工程。
+- 验证与清理清单见 [UI_CLEANUP](UI_CLEANUP.md)。这次源码整理不代表厂商实机或 Phase 6 最终验收完成。
+
+## ADR-036 客户端入口收敛与模板属性工作区
+
+- 状态：Accepted，2026-09-08。用户明确要求连接配置迁入设置、启动连接上次地址、维护只显示通道链接并打开外部 Shell、SSH 默认 admin/admin 可修改、移除客户工具管理与任务入口、展示设备模板上报的全部属性。
+- Supersedes：取代 ADR-027 的 Windows 默认内置终端，以及 ADR-035 中主程序服务器工具栏、独立工具/任务页和局部 WebView2 终端选择。其余 WPF 技术、公开 API、幂等、固定三通道、维护租期与资产身份保持；不修改历史 ADR。
+- 当前主 UI 仅提供设备、维护、文件、配置、设置。移除任意 Exec 创建、工具配置/上传/投放入口和维护内置终端/目录区；文件传输结果在文件页，配置结果在配置页。Server/Probe 现有任务与工具 API 不删除；管理员工具维护入口属于后续计划，本次不建设认证、RBAC 或新管理端。
+- 连接地址仅在设置编辑，保存并连接，后续启动自动恢复。切换/退出取消并等待旧连接，清除设备/文件/配置结果；断线沿用现有重连，不自动补发写入。
+- Web/SSH/Telnet 展示公开链接，点击或按钮均先回查维护和设备 Session。SSH/Telnet 交给系统或已配置的 PuTTY；不自研协议、不自动接受主机密钥、不代替用户完成认证。新配置默认 SSH 用户名/密码均为 admin，已有明确保存的用户名保留；密码使用 Windows 当前用户 DPAPI 单独加密保存，通过显式复制交给外部客户端，不写 profile JSON、日志、URL 或进程参数。此为路由器客户端偏好，不是 Server 身份认证设计。
+- 属性表按当前设备 registration 展示已有属性、全部扩展属性、模板引用、采集失败和连接事实，长文本可换行/滚动；不补造固定遥测，不按服务端现时模板重新解释历史快照。模板 uint64 版本完整保留。
+- 原生主程序移除 WebView2 包和 TerminalAssets，Core 中历史 ConPTY 供保留宿主使用。当前实现与验证见 [WINDOWS_DESKTOP_MIGRATION](WINDOWS_DESKTOP_MIGRATION.md)。
+
+## ADR-035 原生 C# 桌面工程工作区
+
+- 状态：Accepted，2026-09-08。用户明确要求将现有 Windows 主程序改为原生 C# 桌面程序，并自主重新设计布局与视觉体系，优先信息架构、效率、密度和一致性，保留核心功能及业务逻辑。
+- Supersedes：取代 ADR-026/030 对 Windows 主程序 React 统一 UI/HTTP/WS、C++ 宿主和旧发布形式的选择，以及 ADR-027/UI_FREEZE 对主工作台布局与视觉冻结的限制。历史决定保留；独立生成器 ADR-034、浏览器维护入口及 Server/Probe/API/TCP 业务契约保持。
+- Windows 主程序采用 .NET 10 / WPF，原生菜单、工具栏、可拖动分栏、虚拟化表格、属性面板、任务输出和状态栏；中文，浅色/深色/系统主题，中性色加单一蓝色 Accent，13 DIP 正文、紧凑行高、细分隔线、至多 2 DIP 控件圆角，无卡片流与装饰阴影。
+- C# Client 只消费公开 `/api/v1` 与 WebSocket，迁移 DTO、HTTP 快照恢复、原始请求幂等和取消释放，不复制 Server 状态机或兼容算法。旧 React 作为已有浏览器入口保留，不再作为 Windows UI 的实现依赖。
+- 复用现有 C# 平台适配：配置、文件选择、外部客户端、ConPTY。ADR-027 的终端数据与生命周期保持；仅终端渲染使用本地 xterm.js/WebView2，无业务网页或 API Bridge，主界面不要求 WebView2 才能运行。
+- `ui-windows.cmd` 切到新的 WPF 构建入口，自包含 Windows x64 发布到独立目录；不替换用户正在运行的旧 EXE、不清理旧数据。实施及本轮验证以 PROJECT_STATUS 和 WINDOWS_DESKTOP_MIGRATION 为准，不以历史宿主测试代替。
+
+## ADR-034 生成器迁移为 C# / Blazor 配置工作区
+
+- 状态：Accepted，2026-09-08。用户明确要求 .NET 10、ASP.NET Core、Blazor Web App、Microsoft Fluent UI Blazor、强类型 C# 业务逻辑，浏览器访问，并授权整体 UI/UX 重构和必要兼容测试。
+- Supersedes：仅取代 ADR-032/033 中生成器使用 React/TypeScript、Win32/WebView2 宿主和前端编译逻辑的实现选择，以及 UI_FREEZE 对该独立生成器旧布局的限制。主工作台 ADR-026/030、Go Server、C++ Probe、公开 API/TCP 与 ADR-033 规则语义不变。
+- 一个 .NET Web 主工程加一个测试工程，按 Feature 聚合；使用 Interactive Server，让项目模型、编辑状态、文件解析、校验、表达式、编译与发布全部在 C# 中。浏览器互操作只承担存储、下载、快捷键、主题等平台能力，不引入生成器 Node 构建链或无用途的分层。
+- 本机浏览器工作区替代独立 WebView2 EXE：全 viewport Command Bar、紧凑三阶段导航、属性 Navigation Pane、双列编辑区和底部状态栏。支持中文、浅色/深色/系统、即时错误与保存状态。
+- 保留版本 1/2 工程、运行模板、条件/公式/来源、字节边界与原请求幂等语义；新 origin 无法读取旧浏览器 origin 存储，使用工程文件或原生草稿文件导入。待定写入在新草稿持久化，恢复后必须核对服务器状态再重试或放弃。
+- 具体对照、兼容变化、迁移进度与验证见 [TEMPLATE_GENERATOR_MIGRATION](TEMPLATE_GENERATOR_MIGRATION.md)。此决定不代表未验证部分已完成，也不授权扩大主工作台或 Server 架构重构。
+
+## ADR-033 展示属性的条件结果
+
+- 状态：Accepted，2026-09-08。用户明确要求展示属性既可直接查询，也可按一个或多个虚拟属性的值/计算条件显示不同文本，并完善生成器。
+- 补充 ADR-032 的生成器计算能力：增加有序“条件 → 显示文本”规则，采用第一条成立的结果，全部不成立时显示用户配置的默认文本。条件复用数值算术、逻辑和比较；直接采集值可与双引号文本做相等/不等比较，不引入任意脚本求值。查询失败和运算错误不转为默认文本。
+- 条件结果是最终展示文本；其他条件/公式继续引用原始属性或数值公式。先读取所有传递依赖，再按顺序判断条件；每个展示属性内部共享依赖只读一次，不跨展示属性缓存。来源、超时、大小、启动快照与幂等边界保持。
+- 可编辑工程升级为 schema_version 2，读取并升级既有版本 1 工程/草稿，旧运行模板继续导入。规则保存在工程；导出/发布仍编译成原 command 模板，Server、Probe、API 和 TCP 不增加规则字段。实现与使用见 [TEMPLATE_GENERATOR](TEMPLATE_GENERATOR.md)。
+
+## ADR-032 独立模板生成器与属性计算
+
+- 状态：Accepted，2026-09-08。用户明确要求单独模板生成器、虚拟/展示属性、逻辑与算术计算，并移除主 UI 设置里的模板配置。
+- Supersedes：仅取代 ADR-029 的“React 系统设置管理”入口，模板编辑和发布迁至独立生成器；其服务端模板身份、版本、持久化、API 和 Probe 启动快照契约不变。主页面其余 UI Freeze 与 ADR-030 Windows/React 分工保持。
+- 实现选择：可编辑工程保留属性图，生成器验证依赖并将展示属性编译为既有 command/nvram/uci 运行模板；公式通过 POSIX awk 执行，虚拟值不单独上报。无新增 TCP 消息、Server 业务状态或 Probe 内置表达式引擎。
+- 独立 Win32/WebView2 单 EXE 复用 Shared Frontend 与受限平台能力；原生只增加生成器专用本地草稿携带，不代理业务网络。获取方式、数值/失败语义、超时、兼容限制与使用见 [TEMPLATE_GENERATOR](TEMPLATE_GENERATOR.md)。
+
+## ADR-031 nvram / uci 配置任务与模板来源
+
+- 状态：Accepted，2026-09-08。用户明确回复“按此方案继续实现”，授权实现及相关回归测试。
+- Supersedes：仅扩展 ADR-015 的执行身份比较，增加 router_config 已定义参数；扩展 ADR-029 的 command-only 模板来源，增加只读 nvram/uci 来源。其余原任务去重、重连补报、启动快照及稳定设备 ID 约束保留。
+- 决定：复用 TASK 消息和状态，新增结构化配置任务；直接调用固件命令，get/set/delete/commit 明确分离；复用 Service/API/React 调用链，旧 Exec/模板兼容。完整参数、并发、兼容性及验收见 [ROUTER_CONFIG_DESIGN](ROUTER_CONFIG_DESIGN.md)。
+- 实现状态以 PROJECT_STATUS 为准；本条不授权设备现场写入、自动 commit、服务重启或身份切换。
+
+## ADR-030 C++ Win32 / WebView2 单 EXE 客户端
+
+- 状态：Accepted，2026-09-07；用户明确选择“改为 C++ Win32 + WebView2”。
+- Supersedes：取代 ADR-025/026 中 C# / WinUI 3 宿主与随包运行库发布选择；保留 React 统一 UI、API/WS Client、同源本地资源、受限 Bridge，以及 ADR-027 的 ConPTY 与外部终端语义。
+- 使用 C++ Win32 窗口承载 WebView2；迁移配置、原生选择器、按句柄校验的分块保存、客户端启动、ConPTY 及退出回收。业务状态与网络继续在 React，不迁移到 C++。
+- Vite 产物编入 EXE 资源，由 WebView2 请求拦截提供。静态链接 C/C++ CRT 与 WebView2 Loader；不附带 .NET、WinUI、WebView2 Runtime、VC++ 安装器。客户自行安装 WebView2 Evergreen Runtime，SSH/Telnet 客户端仍按需安装。
+- 新入口 ui-windows.cmd；历史 C# 源码与构建验证暂留作迁移参照，不作为当前发行包或新业务实现入口。实现和验证进度以 PROJECT_STATUS 为准，不以此 ADR 宣称完成。
+
 本文件使用轻量 ADR 记录重要设计决定与待确认草案。仅 Accepted 条目构成已确认决定；Proposed 条目不得被实现推断为已接受。状态为 Accepted 的决定不得被实现静默改变；需要变更时，应新增取代决策并说明迁移与影响。
+
+## ADR-029 服务端属性模板与启动采集
+
+- 状态：Accepted，2026-09-07。用户在明确模板全程由服务端管理、Probe 按 ID/名称选择后，对 [PROBE_TEMPLATES_DESIGN](PROBE_TEMPLATES_DESIGN.md) 回复“按此方案继续实现”。
+- Supersedes：仅取代 ADR-014 注册流程中的所有连接必须以 REGISTER 开始限制，允许 0x05/0x06 模板准备连接；补充 ADR-018 注册快照字段，其成功注册后发布、完整快照替换和 Session 历史语义保持。历史 ADR 原文保留。
+- 模板由独立 Service 持久化并提供公开 API，React 系统设置管理；ID 不重用、名称唯一、版本递增，更新/删除验证预期版本，HTTP 操作沿用幂等账本。模板目录独立于 File/Tool 元数据，单写者锁、原子保存；删除保留身份墓碑。
+- Probe 启动选择模板 ID 或名称，先通过控制 TCP 的准备连接取模板，连接关闭后执行命令，再开启 REGISTER 会话。准备连接不发布设备/Session。未选模板和旧 Probe 保持原路径；旧 Server 不支持模板时明确失败。
+- 模板允许六项已有可选字段及最多 32 项扩展字符串属性；必需身份和协议能力不可覆盖。每项默认 5 秒、1～30 秒，整次 60 秒预算，失败省略属性并上报固定原因。模板元数据、扩展结果和失败摘要随成功注册存为快照，经 API 显示。模板更新在下一次 Probe 启动生效，重连不重采集。
+- 未显式传设备 ID 时执行一次 `nvram get SN`，失败不生成随机替代 ID；该规则符合原稳定身份约束，不改变 wire 必选 device_id。
+- 保留 C++11/轻量与 API First，不新增 Probe HTTP 客户端、实时遥测、认证/TLS/RBAC、MCP/AI 或 Tunnel 数据面。命令依赖与运行权限由设备部署提供；测试替身不等于厂商固件验收。
 
 ## ADR-028 当前产品持续完善与 Agent 开发治理
 

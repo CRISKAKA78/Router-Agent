@@ -1,6 +1,6 @@
 # 真机测试部署与启动指南
 
-适用版本：2026-09-07，Phase 6 UI Freeze + Production Integration，代码基线 `3f239fc`。本指南按当前代码整理；客户端由你自行编译。先走同一局域网测试，再考虑跨网络部署。
+适用版本：2026-09-08，原生 C# / WPF 工作台和 C# / Blazor 模板生成器（ADR-037/036/035/034）。本指南按当前代码整理；客户端由你自行编译。先走同一局域网测试，再考虑跨网络部署。
 
 ## 1. 先弄清楚三样程序放在哪里
 
@@ -49,6 +49,33 @@
 本节在 **Windows PowerShell** 执行。普通 PowerShell 即可构建和运行，只有后面的防火墙配置需要管理员。
 
 ### 3.1 编译
+
+#### 本仓库的一键重建并运行（Windows x64）
+
+安装 Go 后，双击根目录 [server-windows.cmd](../server-windows.cmd)，或在 PowerShell 执行 `./server-windows.cmd`。它调用 [server-windows.ps1](../server-windows.ps1)，每次先删除专用的 `build/server-windows/`（旧 EXE 和本脚本的 Go 构建缓存），再用 `go build -a -trimpath` 从头编译 Server 及依赖，成功后在当前窗口运行；失败不启动。Go 模块下载缓存仍可复用，不清理其他项目的缓存。仅构建可用 `./server-windows.cmd -BuildOnly`。
+
+清理路径固定且拒绝符号链接/junction。重新运行前先在旧 Server 窗口按 Ctrl+C 停止，不按进程名强杀其他 Server。持久文件、工具和模板目录固定为项目根目录 `data/server/repository/`，位于清理目录之外，不随重建删除；这也不会恢复或自动迁移此前丢失的 `cmd/server/data/`。
+
+一键脚本采用以下参数，端口保持现有默认值：
+
+| 参数 | 值 |
+| --- | --- |
+| `-listen` | `0.0.0.0:9000` |
+| `-http-listen` | `0.0.0.0:8080` |
+| `-tunnel-bind` | `0.0.0.0` |
+| `-tunnel-data-listen` | `0.0.0.0:9001` |
+| `-tunnel-host` / `-tunnel-data-host` | `pcv6.criskaka.com` |
+| 维护端口池 | `20000`～`20199` |
+
+域名是对外访问地址，不是要绑定到网卡上的 IP。客户端设置填 `http://pcv6.criskaka.com:8080`；Probe 使用 `--server pcv6.criskaka.com:9000`。域名不加 IPv6 方括号；使用数值 IPv6 加端口时才写成 `[IPv6]:端口`。
+
+2026-09-07 本机 DNS 查询获得 AAAA `2408:8256:3286:d12:13e:1401:aee9:267`，未获得 A 记录，该 IPv6 当时在本机网卡上。当前 Server 使用 Go `net.Listen("tcp", ...)`；本次 Windows 实测，以上 `0.0.0.0` 通配配置同时接受 IPv4/IPv6：8080/9000/9001 通过 `127.0.0.1`、`::1` 和该域名连接成功，API 返回 200；协议测试对端创建三个维护入口，逐个验证 IPv4/IPv6 接入，并检查下发数值 IPv6。此结果不表示所有平台的 `0.0.0.0` 都是双栈；仅 IPv6 监听也可显式配置 `[::]:端口` 和 `-tunnel-bind ::`。
+
+DataHost 支持 A/AAAA，由 Server 每次创建维护时解析，双记录时优先 IPv4；仅 AAAA 时使用 IPv6。Probe 控制连接支持域名的 IPv4/IPv6 解析，数据连接支持数值 IPv6。路由器及客户端仍需可用 IPv6 路由和防火墙放行；本次验证来自本机，未验证公网远端或厂商路由器。脚本不自动修改防火墙。
+
+验证环境：Windows PowerShell 5.1 执行 `.ps1 -BuildOnly`，再经 `.cmd -BuildOnly` 完成第二次构建，旧产物标记被删除；测试 Server 使用独立临时数据目录，测试结束已停止。此轮仅新增启动脚本与说明，未改 Server/Probe 网络实现，未重复全量业务回归。
+
+#### 手动编译
 
 安装 Go 后，重新打开 PowerShell，检查版本：
 
@@ -289,6 +316,31 @@ chmod +x /tmp/router-probe
 
 每台路由器使用不同、固定的 `--device-id`。同一 ID 同时启动两个 Probe 会发生 Session 替换和互相挤下线；重连后维护需要重新创建。不要在前台实例还运行时再开后台实例。
 
+省略 `--device-id` 时，在连接前执行一次 `nvram get SN`，5 秒超时；成功输出去掉首尾空白，必须为非空、单行、最多 128 bytes 的 UTF-8。命令缺失、失败或输出非法时启动报错，需显式指定稳定 ID；不生成随机 ID。`--device_id` 作为参数别名，显式传空值也会报错。Linux x86_64 测试替身已验证；厂商固件上的 nvram 仍需实测。
+
+### 服务端属性模板
+
+ADR-031 已增加专用 nvram / uci 来源。先更新 Server 与 Probe，再在每项属性的“采集来源”选择 nvram 并填 `SN`，或选择 uci 并填 `system.@system[0].hostname`。无需自己写 get 指令；两种来源都只读。旧命令模板继续可用，不同厂商的键由实际固件决定，不自动猜测。
+
+设备 → 配置，可选择读取、写入、删除、提交；结果在同页“配置操作结果”查看。写入值允许空字符串，不能省略；写入/删除不会自动 commit 或重启服务。UCI commit 填配置包（如 `system`），nvram commit 提交整份 NVRAM；可能提交其他程序的暂存修改。先等当前任务结果，再发起依赖它的操作；响应不确定时查原任务，不创建替代写任务。
+
+Probe 运行账号须有固件命令所需权限，PATH 须能找到 nvram/uci。新 capability 只说明支持配置任务，未安装命令会任务失败。OpenWrt 未提供可用 `nvram get SN` 时必须用 `--device-id` 指定稳定 ID。配置更改不会更新启动属性快照，即时验证使用读取任务；本次未在用户设备上执行写入或 commit。
+
+使用独立 [模板生成器](TEMPLATE_GENERATOR.md)（`template-generator.cmd` 构建）新建模板；主工作台设置已移除模板配置。填写名称、属性标识、属性类型和来源，虚拟属性可参与计算，展示属性直接采集或引用公式。直接采集例如 `serial` / 序列号 / nvram `SN`，`kernel` / 内核版本 / 命令 `uname -r`；model、firmware 的指令由实际固件决定。先保存可编辑工程，再连接服务器发布。公式需要设备提供 awk，编译命令内的依赖读取共用展示属性的 1～30 秒超时（默认 5 秒），整次采集仍最多 60 秒。
+
+模板保存在 Server 的 `repository-dir/probe-templates/catalog.json`（可通过 `-probe-template-file` 指定），无需复制模板文件到设备。停服备份时包括此文件及 lock，保留原文件/工具仓库；不要在服务运行时手改目录。客户端管理操作通过 `/api/v1/probe-templates`。
+
+```sh
+# 名称包含空格或中文时使用引号。省略 device-id，默认通过 nvram get SN 获取。
+/tmp/router-probe --server 192.168.1.10:9000 --template-name '工业路由器'
+# 或复制管理界面给出的稳定模板 ID；两个选择参数不能同时使用。
+/tmp/router-probe --server 192.168.1.10:9000 --device-id my-router-001 --template-id 实际模板ID
+```
+
+探针先从同一 9000 控制端口读取模板，再采集并注册；旧 Server 不支持或模板不存在时明确启动失败。单项指令失败不填该属性，在“设备设置/完整设备资料”的模板采集结果中显示原因；扩展属性按显示名称和值呈现，已有型号/固件等字段沿用原设备资料。显式 `--hostname` 优先；选模板时未选中的可选属性不上报。必需身份和能力不受模板覆盖。
+
+模板更新在下一次 Probe 启动生效，普通断线重连复用原采集快照、不重新执行指令；重启前先停旧 Probe，避免同 ID 两个进程互相替换。模板可删除，但不会改写历史 Session 资料；被删模板在下次启动时无法再选择。
+
 Exec 和文件访问使用 Probe 进程自身的系统权限；普通账号无权读取的路径，平台也不会自动提权。需要管理权限时通过你已有的设备管理方式启动。
 
 ### 6.3 确认成功后改为后台运行
@@ -316,19 +368,19 @@ kill "$(cat /tmp/router-probe.pid)"
 构建细节见 [Windows 使用说明](../windows/README.md)。按仓库脚本生成后，启动：
 
 ```text
-build/windows-react/win-x64/RouterWorkbench.exe
+build/windows-desktop/win-x64/RouterWorkbench.exe
 ```
 
-保留**整个发布目录**，不能只拷贝 EXE。正式目录包含 .NET、WinUI、Frontend、WebView2Runtime 等资源，运行不需要开 Vite；`127.0.0.1:5173` 是开发预览地址，不是 Server API。
+当前 ADR-036/035 使用原生 C# / WPF 自包含 EXE，不需要 TerminalAssets、WebView2、Vite 或 Node。构建入口为 `ui-windows.cmd`；旧 React 浏览器预览已移除；模板生成器默认 `127.0.0.1:5188`，两者都不是 Server API。
 
-1. 打开客户端的“系统设置”。
+1. 打开客户端，进入“设置”。程序会先自动连接上次保存地址。
 2. Server 地址填 `http://192.168.1.10:8080`。Server 在当前电脑上也可填 `http://127.0.0.1:8080`。
-3. 保存并连接。不要加 `/api/v1`，不要填 9000、9001、临时维护端口或 `0.0.0.0`。
+3. 点击“保存并连接”。不要加 `/api/v1`，不要填 9000、9001、临时维护端口或 `0.0.0.0`。
 4. 在设备列表找到 `my-router-001`，确认在线。列表为空先排查 Probe，客户端连接成功不代表设备已经接入。
 
 当前直接启动的 Go Server 提供 HTTP；只有部署层实际提供 HTTPS 时才填 `https://`。配置位于 `%LOCALAPPDATA%\RouterWorkbench\profile.json`，可在设置修改，无需手动编辑文件。
 
-### 内置 SSH/Telnet 仍需要本机命令行客户端
+### 外部 SSH/Telnet 需要本机客户端
 
 在 Windows PowerShell 检查：
 
@@ -337,23 +389,17 @@ Get-Command ssh.exe -ErrorAction SilentlyContinue
 Get-Command telnet.exe -ErrorAction SilentlyContinue
 ```
 
-找不到时，使用 Windows 系统可选功能安装 OpenSSH 客户端或 Telnet 客户端，或在工作台原生选择器里选择兼容的命令行客户端。工作台提供终端显示与进程管理，不自带 SSH/Telnet 协议实现。GUI PuTTY 走“新建会话”的外部入口，不作为内置终端程序。
+找不到时，使用 Windows 系统可选功能安装 OpenSSH 客户端或 Telnet 客户端，或在工作台原生选择器里选择兼容的命令行客户端。工作台只打开外部客户端，不提供内置终端。可在设置选择 ssh.exe/telnet.exe 或 PuTTY；新配置账号密码默认 admin，允许修改，密码在本机加密保存，外部客户端询问时可在维护页复制粘贴。修改偏好不会修改路由器实际账号。
 
 ## 8. 按顺序完成第一轮真机测试
 
-### A. 先验证在线和 Exec
+### A. 先验证在线和模板属性
 
-选择设备，在命令执行入口运行一个短命令，超时填 10 秒：
-
-```sh
-uname -a
-```
-
-再试 `id` 或 `pwd`。到任务结果中确认最终状态、退出码和输出；已提交/202 不等于命令执行成功。设备 CPU、内存等未提供遥测显示“未提供”属于当前能力边界。
+选择设备，在“全部属性”核对设备 ID、上报基础字段、模板名称/版本及所有扩展属性。失败项显示原因，长文本可换行滚动；未上报值不伪造。切换不同模板设备确认属性跟随更新。通用任务/Exec 入口已移除，命令联调可在后续外部 SSH/Telnet 中执行。
 
 ### B. 再验证维护入口
 
-点击“开启远程维护”，默认租期 **240 分钟**。成功后得到 Web、SSH、Telnet 三个地址，端口由 Server 分配；使用界面给出的实际地址，不要假定始终是 20000/20001/20002。
+在维护页点击“开启维护”，默认租期 **240 分钟**。成功后得到 Web、SSH、Telnet 三个地址，端口由 Server 分配；使用界面给出的实际地址，不要假定始终是 20000/20001/20002。
 
 | 入口 | Probe 实际连接的路由器地址 | 路由器要求 |
 | --- | --- | --- |
@@ -373,8 +419,8 @@ Web 通道是原始 TCP 转发，不改写 HTML、重定向或 Cookie。厂商�
 
 1. 在电脑创建小文本文件，例如内容 `hello router`，先导入工作台文件仓库。
 2. 选择资产上传到设备路径 `/tmp/routerprobe-test.txt`，第一次不覆盖已有文件。
-3. 等任务完成，在 Exec 运行 `cat /tmp/routerprobe-test.txt` 检查内容。
-4. 从设备下载这个路径，检查任务的本地提交 `committed`、资源释放 `released` 与最终执行结果。
+3. 在“文件 → 文件传输”确认完成后，用外部 SSH/Telnet 运行 `cat /tmp/routerprobe-test.txt` 检查内容。
+4. 从设备下载这个路径，在文件传输页检查服务器提交 `committed`、资源释放 `released` 与最终执行结果。
 5. 显式完成导入后形成仓库资产，再保存到电脑检查内容。
 
 本轮先用小文件，避免占满设备 `/tmp`。上传路径指路由器路径，不是电脑路径。工具投放同样要求匹配架构/运行库；文件上传成功不等于二进制在设备上可执行，兼容字段未知时不要强行宣称兼容。
@@ -384,7 +430,7 @@ Web 通道是原始 TCP 转发，不改写 HTML、重定向或 Cookie。厂商�
 1. 主动关闭维护，确认旧终端和入口失效。
 2. 创建短租期维护，例如在分钟输入框填 1 分钟，等待到期，确认关闭。
 3. 在可恢复的测试条件下短暂断开网络再恢复，观察 Probe 重新 ONLINE、设备恢复以及新 Session；重新创建维护后再登录。
-4. 退出客户端会关闭内置终端，但不会自动撤销 Server 上仍有效的维护或已创建任务。测试结束先主动关闭维护。
+4. 退出客户端会释放本地 HTTP/WS，不关闭用户外部 Shell，也不会自动撤销 Server 上仍有效的维护或已创建任务。测试结束先主动关闭维护。
 
 远程测试时保留串口或其他恢复手段，不要关闭唯一的管理通道。
 

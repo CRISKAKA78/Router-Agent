@@ -9,23 +9,12 @@ import (
 	"strconv"
 	"strings"
 
+	"routerprobe/internal/device"
 	"routerprobe/internal/protocol"
 	"routerprobe/internal/task"
 )
 
-type registerMessage struct {
-	DeviceID     string
-	Serial       string
-	Model        string
-	Firmware     string
-	ProbeVersion string
-	Hostname     string
-	Arch         string
-	Kernel       string
-	Libc         string
-	BootID       string
-	Capabilities []string
-}
+type registerMessage device.Registration
 
 func decodeObject(payload []byte) (map[string]json.RawMessage, error) {
 	if !protocol.ValidUnicodeJSON(payload) {
@@ -90,6 +79,9 @@ func parseRegister(payload []byte) (registerMessage, error) {
 		return registerMessage{}, err
 	}
 	var message registerMessage
+	if err = parseCollection(object, &message); err != nil {
+		return registerMessage{}, err
+	}
 	if message.DeviceID, err = requiredString(object, "device_id", 1, 128, false); err != nil {
 		return registerMessage{}, err
 	}
@@ -119,6 +111,14 @@ func parseRegister(payload []byte) (registerMessage, error) {
 	}
 	if message.Libc, err = optionalString(object, "libc", 64, true); err != nil {
 		return registerMessage{}, err
+	}
+	for key := range message.CollectionErrors {
+		if raw, ok := object[key]; ok {
+			var value string
+			if json.Unmarshal(raw, &value) == nil && value != "" {
+				return registerMessage{}, errors.New("failed collection field also has a value")
+			}
+		}
 	}
 
 	rawCapabilities, ok := object["capabilities"]

@@ -1,0 +1,25 @@
+@using ProbeTemplateGenerator.Features.Validation
+<div class="editor-page publishing-page">
+    <header class="editor-heading"><div><div class="eyebrow">导出与发布</div><h2>交付模板</h2><p>保存可编辑工程，或将运行模板发布到管理服务器。</p></div></header>
+    <div class="publish-grid">
+        <section class="editor-section export-section"><h3>生成与导出</h3><p class="field-hint">工程文件保留虚拟属性、公式、条件规则与模拟值。运行模板只包含展示属性及编译后的采集来源。</p><ProbeTemplateGenerator.Features.Validation.ValidationSummary State="State" /><div class="inline-actions export-actions"><FluentButton Appearance="Appearance.Accent" Disabled="@(State.Locked || State.Compiled is null)" OnClick="@(() => State.ExportAsync())">导出运行模板</FluentButton><FluentButton Disabled="@(!State.Ready || State.LocalBusy)" OnClick="@(() => State.SaveProjectAsync())">保存工程</FluentButton></div><details class="template-json"><summary>查看运行模板 JSON</summary><pre>@State.TemplateJson</pre></details></section>
+        <section class="editor-section connection-section"><h3>服务器连接</h3><label for="server-url">管理服务器地址<input id="server-url" aria-label="管理服务器地址" placeholder="http://127.0.0.1:8080" disabled="@(State.LocalBusy || State.Publishing.Busy || State.Publishing.Pending is not null)" @bind="State.ServerUrl" /></label><div class="inline-actions connection-actions"><FluentButton Disabled="@(State.LocalBusy || State.Publishing.Busy)" OnClick="@(() => State.ConnectAsync())">保存并连接</FluentButton><FluentButton Disabled="@(State.LocalBusy || State.Publishing.Busy || State.Publishing.Origin is null)" OnClick="@(() => State.DisconnectAsync())">断开连接</FluentButton><span class="connection-state" role="status"><span class="connection-dot @(State.Publishing.Synchronized ? "connected" : "")"></span>@State.Publishing.Status</span></div>
+            @if (State.Publishing.Error is not null) { <p class="field-error" role="alert">@State.Publishing.Error</p> }
+            <div class="publishing-target"><h4>发布当前工程</h4><p class="field-hint">当前目标：@(BoundHere ? $"{State.Publishing.Target!.Id} · 版本 {State.Publishing.Target.Version}" : "尚未绑定当前服务器模板")</p><div class="inline-actions"><FluentButton Appearance="Appearance.Accent" Disabled="@(!CanPublish || State.Compiled is null)" OnClick="@(() => State.Publish(false))">发布为新模板</FluentButton><FluentButton Disabled="@(!CanPublish || State.Compiled is null || !BoundHere)" OnClick="@(() => State.Publish(true))">更新已绑定模板</FluentButton></div>@if (BoundHere) { <p class="probe-command">探针启动参数 <code>--template-id @State.Publishing.Target!.Id</code></p> }</div>
+        </section>
+        <section class="editor-section server-templates"><div class="section-heading"><h3>服务器模板</h3><FluentButton Appearance="Appearance.Stealth" Disabled="@(State.Publishing.Origin is null || State.Publishing.Busy || State.LocalBusy)" OnClick="@(() => State.RefreshAsync())">↻ 刷新</FluentButton></div><p class="field-hint">导入运行模板可继续编辑采集来源；生成的命令不会反推为公式，编辑公式请打开原工程文件。</p>
+            @if (State.Publishing.Origin is null) { <div class="inline-empty">连接管理服务器后显示模板。</div> }
+            else if (State.Publishing.Templates.Count == 0) { <div class="inline-empty">@(State.Publishing.Synchronized ? "服务器暂无模板。" : "正在同步服务器模板…")</div> }
+            else
+            {
+                <div class="data-table-wrap"><table class="data-table template-table"><thead><tr><th>模板名称 / 标识</th><th>版本</th><th>展示属性</th><th>操作</th></tr></thead><tbody>@foreach (var template in State.Publishing.Templates) { <tr @key="template.TemplateId"><td><strong>@template.Name</strong><code class="template-id">@template.TemplateId</code></td><td>@template.Version</td><td>@template.Properties.Count</td><td><div class="inline-actions"><FluentButton Appearance="Appearance.Stealth" Disabled="@(!CanPublish)" OnClick="@(() => State.ImportTemplate(template))" aria-label="@($"导入 {template.Name}")">导入</FluentButton><FluentButton Appearance="Appearance.Stealth" Disabled="@(!CanPublish)" OnClick="@(() => State.BindTemplate(template))" aria-label="@($"绑定 {template.Name}")">绑定</FluentButton><FluentButton Appearance="Appearance.Stealth" Class="subtle-danger" Disabled="@(!CanPublish)" OnClick="@(() => State.DeleteTemplate(template))" aria-label="@($"删除 {template.Name}")">删除</FluentButton></div></td></tr> }</tbody></table></div>
+            }
+        </section>
+    </div>
+    <p class="publishing-note">模板在探针下次启动时生效，普通重连不重新采集。自定义命令以探针账号执行；NVRAM / UCI 来源只读。服务器不保存工程源文件。</p>
+</div>
+@code {
+    [Parameter, EditorRequired] public EditorWorkspace State { get; set; } = default!;
+    private bool CanPublish => State.Publishing.Synchronized && !State.Locked;
+    private bool BoundHere => State.Publishing.Target is not null && State.Publishing.Target.Origin == State.Publishing.Origin;
+}

@@ -1,0 +1,20 @@
+.app-mark {
+    background: #0f6cbd;
+    color: #fff;
+    width: 26px;
+    height: 26px;
+    border-radius: 5px;
+    text-align: center;
+    line-height: 26px;
+    font-size: 20px;
+}
+
+.stage-tabs > button.active::after {
+    content: "";
+    position: absolute;
+    left: 16px;
+    right: 16px;
+    height: 2px;
+    bottom: 0;
+    background: var(--accent);
+}

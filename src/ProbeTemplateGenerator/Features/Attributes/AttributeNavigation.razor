@@ -1,0 +1,36 @@
+<aside class="navigation-pane" aria-label="属性导航">
+    <div class="project-settings">
+        <label for="template-name">模板名称</label>
+        <input id="template-name" aria-label="模板名称" disabled="@State.Locked" @bind="State.Project.Name" @bind:event="oninput" @bind:after="State.Touch" aria-invalid="@(State.FieldError("name") is not null)" aria-describedby="template-name-error" />
+        <FieldError Id="template-name-error" Message="@State.FieldError("name")" />
+    </div>
+    <div class="pane-heading"><h2>属性</h2><span>@State.Project.Attributes.Count / 128</span></div>
+    <div class="pane-tools">
+        <details class="add-menu">
+            <summary class="add-property @(State.Locked ? "disabled" : "")">＋ 新建属性 <span aria-hidden="true">⌄</span></summary>
+            <div class="menu-content">
+                <button disabled="@(State.Locked || State.Project.Attributes.Count >= 128)" @onclick="@(() => State.AddAttribute(AttributeVisibility.Display))"><strong>展示属性</strong><small>显示在设备页面</small></button>
+                <button disabled="@(State.Locked || State.Project.Attributes.Count >= 128)" @onclick="@(() => State.AddAttribute(AttributeVisibility.Virtual))"><strong>虚拟属性</strong><small>仅参与公式与条件计算</small></button>
+            </div>
+        </details>
+        <input class="attribute-search" type="search" aria-label="搜索属性" placeholder="搜索名称或标识…" @bind="State.Search" @bind:event="oninput" />
+    </div>
+    <div class="attribute-items" role="list" aria-label="属性列表">
+        @foreach (var row in State.VisibleAttributes)
+        {
+            <div role="listitem" @key="row.Id"><button class="attribute-item @(State.Selected?.Id == row.Id ? "selected" : "")" aria-current="@(State.Selected?.Id == row.Id ? "true" : null)" @onclick="@(() => State.Select(row.Id))">
+                <span class="attribute-glyph" aria-label="@(row.Visibility == AttributeVisibility.Display ? "展示属性" : "虚拟属性")" title="@(row.Visibility == AttributeVisibility.Display ? "展示属性" : "虚拟属性")">@(row.Visibility == AttributeVisibility.Display ? "▤" : "ƒ")</span>
+                <span class="attribute-label"><strong>@(string.IsNullOrWhiteSpace(row.Name) ? "未命名属性" : row.Name)</strong><code>@(string.IsNullOrWhiteSpace(row.Key) ? "未填写标识" : row.Key)</code></span>
+                @if (State.HasErrors(row)) { <span class="attribute-error" aria-label="此属性有校验错误">!</span> }
+            </button></div>
+        }
+        @if (!State.VisibleAttributes.Any())
+        {
+            <p class="pane-empty">@(State.Project.Attributes.Count == 0 ? "从新建属性开始，或加载示例。" : "没有匹配的属性。")</p>
+        }
+    </div>
+    <div class="pane-footer"><span>展示 @State.Project.Attributes.Count(a => a.Visibility == AttributeVisibility.Display)</span><span>虚拟 @State.Project.Attributes.Count(a => a.Visibility == AttributeVisibility.Virtual)</span></div>
+</aside>
+@code {
+    [Parameter, EditorRequired] public EditorWorkspace State { get; set; } = default!;
+}

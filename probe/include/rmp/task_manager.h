@@ -38,6 +38,8 @@ private:
         Entry() : max_payload(0), sent(false) {}
     };
     void Run();
+    bool Runnable() const;
+    bool config_running_;
     std::atomic<bool> stop_;
     std::atomic<unsigned> running_;
     std::mutex mutex_;

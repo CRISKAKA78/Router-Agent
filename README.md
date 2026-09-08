@@ -1,12 +1,18 @@
 # 路由器远程运维平台
 
+独立探针模板生成器：[template-generator.cmd](template-generator.cmd) 构建并启动 .NET 10 / Blazor 浏览器工作区（默认 `http://127.0.0.1:5188`），支持虚拟/展示属性、全部采集来源、公式与条件规则、工程导入导出、自动保存和服务器发布。生成器源码在 [src/ProbeTemplateGenerator](src/ProbeTemplateGenerator)，独立构建无需 Node；主 RouterWorkbench 现按 ADR-035 使用原生 C# / WPF。使用与迁移见 [模板生成器说明](docs/TEMPLATE_GENERATOR.md)。
+
+Windows UI 当前入口：[ui-windows.cmd](ui-windows.cmd)，构建 .NET 10 / WPF 原生 C# 工程工作区（ADR-035），输出 `build/windows-desktop/win-x64/RouterWorkbench.exe`。ADR-036 收敛为设备/维护/文件/配置/设置，启动自动连接，维护只打开外部客户端，主 UI 自包含且不需要 WebView2/TerminalAssets；功能和验证见 [原生桌面说明](docs/WINDOWS_DESKTOP_MIGRATION.md)。ADR-037 已移除其余旧 UI 源码及构建入口；当前仅维护这两套 C# UI。
+
 本项目用于建设一套由 Management Server 和路由器端 Probe 组成的远程运维平台。Management Server 统一承载设备、任务、文件与工具、Tunnel 和对外 API 等核心能力；Probe 主动连接 Server，并向上提供轻量、通用的设备控制原语。
 
-Phase 0～5已验收。Phase 6提供React / TypeScript Shared Frontend + C# / WinUI 3 WebView2 Thin Shell中文Windows远程维护工作台，支持浅色/深色主题、设备侧栏和维护卡片，通过统一 `/api/v1` 和WebSocket使用设备、任务、文件、工具与Maintenance能力。Windows入口及构建见[使用说明](windows/README.md)，正式API见[API](docs/API.md)，交付事实见[PROJECT_STATUS](docs/PROJECT_STATUS.md)和[Phase 6验证](docs/PHASE6_VERIFICATION.md)。React 是今后 Windows 与 Web 的统一产品 UI 基线（ADR-026），Phase 6 实机与最终产品验收仍待完成。
+Phase 0～5 已验收。当前提供原生 C# / WPF Windows 工作台和 C# / Blazor 探针模板生成器，通过公开 `/api/v1` 与 WebSocket 使用 Server。构建见 [Windows 使用说明](windows/README.md)，契约见 [API](docs/API.md)，状态见 [PROJECT_STATUS](docs/PROJECT_STATUS.md)。Phase 6 厂商实机与最终产品验收仍待完成。
 
 当前方向是继续完善 Router-Agent 产品功能，暂缓 Phase 7 MCP、Phase 8 AI Agent、微信小程序、正式公网 Web 部署、新 Tunnel 数据面和其他大规模架构扩展。用户只需描述想增加的功能、要改变的行为、待解决的问题或最终体验；Agent 依据 [AGENTS](AGENTS.md) 和[开发指南](docs/DEVELOPMENT.md) 自主完成范围内实现、测试和必要文档同步，涉及已确认设计变更时再提出具体方案供确认。
 
 ## 系统关系
+
+Windows Server 一键重建并运行：双击 [server-windows.cmd](server-windows.cmd)。专用构建目录每次清空，运行数据独立保留；监听及 IPv6 域名配置见 [部署说明](docs/DEPLOYMENT.md)。
 
 ~~~text
 Web / 微信小程序 / Windows UI / CLI / MCP / AI Agent
@@ -57,7 +63,7 @@ curl -X POST http://127.0.0.1:8080/api/v1/tasks \
 
 ## 当前不能做什么
 
-仓库目前不支持Probe/Server进程重启后的任务恢复、Process Manager、通用Tunnel或任意端口，也不提供Web UI、微信小程序、操作CLI、MCP或AI Agent。认证、TLS、RBAC和完整审计仍为后续设计点；当前API用于可信本机或受保护管理网络。
+仓库目前不支持Probe/Server进程重启后的任务恢复、Process Manager、通用Tunnel或任意端口，也不提供正式公网 Web 管理 UI、微信小程序、操作CLI、MCP或AI Agent。认证、TLS、RBAC和完整审计仍为后续设计点；当前API用于可信本机或受保护管理网络。
 
 ## 文档导航
 

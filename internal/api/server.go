@@ -15,7 +15,9 @@ import (
 	"routerprobe/internal/device"
 	"routerprobe/internal/gateway"
 	"routerprobe/internal/management"
+	"routerprobe/internal/probetemplate"
 	"routerprobe/internal/repository"
+	"routerprobe/internal/routerconfig"
 	"routerprobe/internal/task"
 	"routerprobe/internal/tunnel"
 	"strconv"
@@ -188,21 +190,23 @@ func write(w http.ResponseWriter, v response) {
 func failure(err error) response {
 	s, c := 500, "internal_error"
 	switch {
-	case errors.Is(err, repository.ErrInvalid):
+	case errors.Is(err, repository.ErrInvalid), errors.Is(err, probetemplate.ErrInvalid), errors.Is(err, routerconfig.ErrInvalid):
 		s, c = 400, "invalid_request"
-	case errors.Is(err, device.ErrNotFound), errors.Is(err, task.ErrTaskNotFound), errors.Is(err, repository.ErrNotFound), errors.Is(err, tunnel.ErrNotFound):
+	case errors.Is(err, routerconfig.ErrUnsupported):
+		s, c = 422, "unsupported_capability"
+	case errors.Is(err, device.ErrNotFound), errors.Is(err, task.ErrTaskNotFound), errors.Is(err, repository.ErrNotFound), errors.Is(err, tunnel.ErrNotFound), errors.Is(err, probetemplate.ErrNotFound):
 		s, c = 404, "not_found"
 	case errors.Is(err, gateway.ErrOffline), errors.Is(err, management.ErrOffline):
 		s, c = 409, "device_offline"
 	case errors.Is(err, gateway.ErrSessionChanged), errors.Is(err, tunnel.ErrSession):
 		s, c = 409, "session_changed"
-	case errors.Is(err, tunnel.ErrConflict), errors.Is(err, repository.ErrConflict), errors.Is(err, repository.ErrReferenced), errors.Is(err, repository.ErrArchived), errors.Is(err, management.ErrNotCommitted), errors.Is(err, task.ErrTaskRejected):
+	case errors.Is(err, tunnel.ErrConflict), errors.Is(err, repository.ErrConflict), errors.Is(err, repository.ErrReferenced), errors.Is(err, repository.ErrArchived), errors.Is(err, management.ErrNotCommitted), errors.Is(err, task.ErrTaskRejected), errors.Is(err, probetemplate.ErrConflict):
 		s, c = 409, "conflict"
 	case errors.Is(err, management.ErrIncompatible), errors.Is(err, management.ErrAmbiguous):
 		s, c = 422, "incompatible"
-	case errors.Is(err, tunnel.ErrCapacity):
+	case errors.Is(err, tunnel.ErrCapacity), errors.Is(err, probetemplate.ErrCapacity):
 		s, c = 503, "capacity_exhausted"
-	case errors.Is(err, repository.ErrClosed), errors.Is(err, net.ErrClosed):
+	case errors.Is(err, repository.ErrClosed), errors.Is(err, net.ErrClosed), errors.Is(err, probetemplate.ErrClosed):
 		s, c = 503, "server_closed"
 	case errors.Is(err, context.Canceled), errors.Is(err, context.DeadlineExceeded):
 		s, c = 504, "operation_timeout"

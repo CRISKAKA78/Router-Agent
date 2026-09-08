@@ -1,33 +1,19 @@
 # 项目状态
 
-最后更新：2026-09-07。
+最后更新：2026-09-08。
 
-当前方向：**持续完善当前 Router-Agent 产品，不进入后续阶段**（ADR-028）。Phase 7 MCP、Phase 8 AI Agent、微信小程序、正式公网 Web 部署、新 Tunnel 数据面及其他大规模架构扩展暂缓；Phase 6 实机与最终产品验收仍待完成。
+当前仅保留新版 C# / WPF 主工作台与 C# / Blazor / Fluent UI 探针模板生成器（ADR-037/036/035/034）。React 浏览器工作台、WinUI/Win32/WebView2 旧宿主、专属构建/验证脚本及旧 Bridge/ConPTY 已移出源码；当前 Client、Core 平台能力与测试仍保留，详见 [UI_CLEANUP](UI_CLEANUP.md)。本次用户已授权将当前产品源码和文档提交并推送 `origin/main`，实际提交/远端状态以 Git 为准；运行数据、旧包、源码压缩包和构建产物不纳入提交。
 
-本次治理交付：更新 AGENTS，新增 [DEVELOPMENT](DEVELOPMENT.md)，明确简短体验需求的自主实现范围、设计变更确认、按风险验证和必要文档同步。仅文档改动，产品逻辑、API、Protocol 与架构基线未变；既有产品测试结果属于历史证据。
+- 主 UI：`ui-windows.cmd` → `windows/build-desktop.ps1`。设备、维护、文件、配置、设置；启动自动连接，连接状态与输出同步，五秒刷新保持所选属性行。维护只展示公共链接并打开外部客户端，SSH 默认 admin/admin，可编辑并 DPAPI 加密保存；模板全部属性与失败项按上报快照展示。没有内置终端、客户工具管理或通用任务入口。文件/配置结果留在各自页面，管理员工具入口尚未建设。
+- 生成器：`template-generator.cmd` → `src/ProbeTemplateGenerator`，本机浏览器默认 5188。支持虚拟/展示属性、command/NVRAM/UCI、公式/条件规则、预览、工程导入导出、草稿及服务器发布；版本 1/2 与旧原生草稿兼容。两套 UI 构建均不需要旧前端或 Node。
+- Server/Probe：保留 Go 管理端与 C++11 Probe，模板持久化、启动采集、默认 `nvram get SN` 设备 ID、NVRAM/UCI 专用任务已实现；本次 UI 清理未改它们的业务逻辑或 API/TCP。Repository 与模板持久化，Session/Task/维护/幂等账本仍不跨进程恢复。
 
-治理验证（Windows / PowerShell）：`git diff --check` 通过；9 份治理相关文档的 73 处本地链接目标存在；历史 ADR 原文对比未变；差异范围检查确认未改产品源码、测试、依赖、ARCHITECTURE/API/PROTOCOL。人工核对普通功能、必要 API 补充、设计变更和暂缓需求的分流规则一致。本次无需产品构建或业务测试，未重新执行历史产品验证；已有部署文档改动及本地运行文件保留。
+本次验证：WPF Release 自包含发布及 98 项当前 Go API/协议对端/原生检查通过；生成器 145 项 C# 测试（0 failed/0 skipped，含 WSL BusyBox）和 Release 发布通过；独立 tests 依赖安装及发布目录 Edge/Go API 8 组流程通过（无浏览器错误）；Windows `go test ./...` 与 `go vet ./...` 通过。详细命令、结果和清理后的发布位置见 [UI_CLEANUP](UI_CLEANUP.md)。以前的专项证据保留在 [WINDOWS_DESKTOP_MIGRATION](WINDOWS_DESKTOP_MIGRATION.md)、[TEMPLATE_GENERATOR_MIGRATION](TEMPLATE_GENERATOR_MIGRATION.md)、[ROUTER_CONFIG_VERIFICATION](ROUTER_CONFIG_VERIFICATION.md) 与 [PROBE_TEMPLATES_VERIFICATION](PROBE_TEMPLATES_VERIFICATION.md)。
 
-真机启动说明已整理至 [DEPLOYMENT](DEPLOYMENT.md)，覆盖 Windows/Linux Server、网络端口、Probe 构建适配与运行、客户端联调和故障排查。此前部署指南交付中，Windows `go build -o build/deployment-check/router-server.exe ./cmd/server` 与实际 `-h` 参数核对通过；未执行用户路由器部署，不改变实机待验收状态。
+当前方向为完善 Router-Agent，不进入后续阶段（ADR-028）。Phase 0～5 已验收；Phase 6 厂商 SSH/Telnet、NVRAM/UCI 固件副作用、交叉架构、物理多屏 DPI/鼠标/文件选择器/剪贴板及干净目标机仍待验收。历史 Win32/ConPTY 验收未完成且旧 UI 已退役，不视为当前产品待修实现。此前 C++ sanitizer 因 WSL 工具链缺运行库未完成；本次未改 Probe，不重跑 Linux 全量阶段回归或 sanitizer。
 
-当前产品基线：**UI Freeze + Production Integration**（提交 `3f239fc`）。用户已确认现有 React 实际页面视觉，禁止主动重新设计布局或视觉语言；默认内置 Shell，允许外部客户端，按 Accepted ADR-027 实施。视觉基线与接入清单见 [UI_FREEZE](UI_FREEZE.md)。此前 Mock 阶段已经结束。
+**必须保留的数据恢复遗留：此前 Agent 清理测试挂载误删原工作区，源码从远端 f73853f 加任务补丁恢复并重新验证；原未跟踪 `cmd/server/1.txt`、`cmd/server/data/` 尚未恢复，仍需备份来源。旧 Git 元数据不声称原样恢复，`build/windows-react` 曾从当天 09:13:52 卷影副本恢复，不是新版发布。详见 [恢复记录](PROBE_TEMPLATES_VERIFICATION.md)。本次旧 UI 清理不改变此事件或恢复状态。**
 
-- 冻结源码保留在 `frontend/src/preview/`；正式 `index.html` 已切换到复用该布局的 `frontend/src/ui/` 页面。
-- 设备、任务、文件、工具页面已接入既有 TypeScript API/WS 层；不使用 Mock 回退，未提供遥测明确显示未提供。下载提交/释放与任务最终 RESULT 独立显示，工具分类由真实 Operation 关联，不把 202 当成功。
-- ConPTY 平台适配和 xterm.js 渲染默认内置 SSH/Telnet，保留外部入口。原生策略、中文 I/O、尺寸、自然退出尾部输出、积压关闭与独立租期释放通过；隔离 OpenSSH 的真实登录/命令/resize 和 BusyBox Telnet 命令往返通过。
-- 前端构建及 13 项测试、27 项原生策略/终端/文件检查、31 项真实 WebView2 集成、活动内置进程 WM_CLOSE 回收、正式发布启动/退出通过。Linux Release/ASan+UBSan/race+TSan 与 Windows Go test/vet/build 通过，证据见 PHASE6_VERIFICATION。
-- 开发 Vite 默认端口 5173；`/preview.html` 为冻结参照，`/` 为正式数据入口，当前运行状态需现场检查。首次使用在设置中连接服务器。
+测试环境使用项目外 WSL 2 `RouterAgentTest`，见 [WSL_TEST_ENVIRONMENT](WSL_TEST_ENVIRONMENT.md)。Windows Server 入口 `server-windows.cmd`，数据在 `data/server/repository`；本机双栈接入历史验证通过，公网 IPv6 和厂商路由器尚待实测，使用见 [DEPLOYMENT](DEPLOYMENT.md)。
 
-Phase 0～5 已验收。Phase 6 从 `6f0ce71a5027b57d51e9a6c807794be45f7633b5` 迁移为 **C# / WinUI 3 Thin Shell + WebView2 + React / TypeScript Shared Frontend**，采用 Accepted ADR-026，作为当前持续改进基线。
-
-**React Shared Frontend 是今后 Windows 与 Web 的统一产品 UI 基线。** 旧 XAML 业务页和 C# 业务网络层已删除。后端、Probe、API 与 Tunnel 生产代码未修改。
-
-既有业务层包括设备/Session、首要 Maintenance 卡片及三入口、默认与自定义正租期、Exec/Task、文件、工具/版本/产物/兼容/投放、中文浅色/深色/系统主题、幂等原请求与快照恢复。Windows Shell 只负责本地内容、窗口、配置和受限平台操作。
-
-历史 React 重构提交 `404b083` 的构建、完整发布目录、测试命令和实际证据见 [Windows README](../windows/README.md)、[PHASE6_VERIFICATION](PHASE6_VERIFICATION.md)。React production build、9 项前端测试、21 项原生策略/文件检查、26 项真实 WebView2 集成检查、Windows Release 与 Phase 1～5 Linux Release/ASan/race、Windows Go test/vet/build 全部通过。正式发布目录在本机验证启动与正常退出。
-
-干净 Windows Sandbox 已完成无 Node/dotnet 检查和离线运行库准备，但 Application Control 拒绝启动未签名 EXE。用户随后明确要求“直接在本机测试”，本轮按该范围完成验收；不宣称干净目标机运行已经通过。
-
-仅 Repository 持久化；其余 Session/Task/维护/幂等账本不跨 Server 重启。维护固定 Probe 127.0.0.1:80/22/23、默认端口隔离 24 小时。正式公网 Web 部署、认证体系、微信、MCP、AI 与新 Tunnel 未实施。
-
-产品发布目录 `build/windows-react/win-x64/`；提交与推送状态以 Git 为准。真实 WebView2 使用真实 Go API 与 Protocol 测试对端，ConPTY 实际登录及 Linux Probe/Tunnel 各有独立集成证据；不宣称已完成用户实机路由器登录或厂商网页验收。当前可按用户具体需求持续改进，不主动进入后续阶段。
+Phase 7 MCP、Phase 8 AI Agent、微信小程序、正式公网 Web 部署、新 Tunnel 数据面及其他大规模架构扩展暂缓。认证/TLS/RBAC、租户、完整审计等仍未决；不自动开展下一项功能。

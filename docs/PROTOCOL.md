@@ -2,9 +2,44 @@
 
 协议版本：Protocol v1  
 基线来源：v0.2 Word 设计输入  
-日期：2026-09-06
+日期：2026-09-07
 
-状态：已确认的互操作设计；Phase 1完整验收通过，Phase 4新增固定三服务Maintenance控制及独立data协议
+状态：已确认的互操作设计；Phase 1～5 已验收，ADR-029 新增启动属性模板准备连接与注册快照扩展。
+
+## 配置任务扩展（ADR-031，2026-09-08）
+
+新增 `router_config` capability 和同名 TASK type，沿用 TASK / TASK_ACK / TASK_RESULT、原任务状态及有界缓存，不增加消息类型。capability 表示支持协议，不保证设备安装 nvram 和 uci；执行时缺少命令返回 failed。Server 对未声明能力的当前 Session 不派发，不降级为 Exec。
+
+```json
+{"task_id":"config-1","type":"router_config","timeout":5,"params":{"backend":"uci","operation":"set","key":"system.@system[0].hostname","value":"router-one"}}
+```
+
+timeout 必须为 1～30 秒。params 是严格字段组合，所有成员为无 NUL UTF-8 字符串，不接受 null、未知字段或操作无关字段；value 允许空字符串且 set 必须显式提供：
+
+| backend / operation | params 附加必选字段 | 设备调用 |
+| --- | --- | --- |
+| nvram / get | key | nvram get KEY |
+| nvram / set | key、value | nvram set KEY=VALUE |
+| nvram / delete | key | nvram unset KEY |
+| nvram / commit | 无 | nvram commit |
+| uci / get | key | uci get KEY |
+| uci / set | key、value | uci set KEY=VALUE |
+| uci / delete | key | uci delete KEY |
+| uci / commit | package | uci commit PACKAGE |
+
+nvram key 最多 128 bytes，字符 `[A-Za-z0-9_./:-]+` 且首字符非 `-`。UCI key 最多 256 bytes，为 `package.section.option`，package/option/命名 section 为 `[A-Za-z0-9_]+`；匿名 section 为 `@type[index]`，type 同上述字符集，index 为可带负号的十进制整数。首版仅操作 option。commit 的 package 最多 256 bytes，同上述字符集。value 最多 4096 bytes，无 shell 展开，保留空格、引号、换行和空字符串。
+
+Probe 按运行环境 PATH 查找固件程序，缺省 PATH 使用 `/usr/sbin:/usr/bin:/sbin:/bin`；以独立 argv 执行，不拼 shell、不使用 libuci 或厂商库。复用 Exec 有界输出/清理，返回原 status、exit_code、stdout、stderr、truncated、时间及空 result object；输出 UTF-8 编码与截断规则同 Exec。成功空输出不推断为缺失键。非零退出、缺命令或超时如实报告，失败不自动回滚。
+
+Probe 配置任务按首次接受顺序串行运行，复用 TaskManager 容量和 worker；其他 Exec 可独立执行。timeout 从实际执行开始计时，排队不计；配置任务之间不提供事务，外部 SSH/LuCI/原 Exec 不受队列约束。写入/删除不自动 commit、重启服务或设备。nvram commit 提交整份 NVRAM，uci commit 提交指定包，可能包含其他程序已暂存的修改。
+
+同 task_id 的身份比较增加全部上述配置参数及其存在性，参数顺序无关；缺 value 与空 value 不等价。重复排队/执行/完成任务和冲突沿用 ADR-015，不重复副作用。断线不取消已接受配置任务，重连补报缓存结果；超时或不确定派发不证明配置未变，不自动创建替代任务。Probe/Server 跨进程恢复仍未实现。
+
+### 模板配置来源
+
+ADR-031 扩展下文 ADR-029：原 command 模板不变；可显式 `source:"command"`，或使用 `{name,source:"nvram"|"uci",key,timeout_seconds}`。配置 source 只执行 get，key 校验与配置任务相同，command 与配置 key 互斥。字段限制、默认每项 5 秒、整次 60 秒、空值失败摘要、显式 hostname 优先和重连不重采集均保持；REGISTER 不新增字段。
+
+旧 Probe 可继续使用原 command 模板；选择新 source 模板会解析失败，须先更新 Probe。配置任务修改不刷新启动属性；即时读值使用配置读取任务。默认 `nvram get SN` 设备 ID 逻辑保持，OpenWrt 无该值时须显式传稳定 device-id。
 
 本文是 [路由器探针_TCP长连接控制协议设计_v0.2.docx](../路由器探针_TCP长连接控制协议设计_v0.2.docx) 中 TCP 协议部分的仓库内维护版本，并包含 Phase 0 最终确认的 Protocol v1 互操作细化。这些规则不改变 TCP 长连接、20-byte Header、JSON Control 和 Binary FILE_CHUNK 的核心设计。
 
@@ -167,6 +202,8 @@ Phase 4 新增下表后的 0x40/0x41/0x42，完整规范见文末“Phase 4 Main
 | 0x02 | REGISTER_ACK | Server -> Probe | JSON | 确认注册并返回会话参数 |
 | 0x03 | HEARTBEAT | Probe -> Server | JSON | 应用层心跳和轻量运行状态 |
 | 0x04 | HEARTBEAT_ACK | Server -> Probe | JSON | 心跳确认 |
+| 0x05 | TEMPLATE_GET | Probe -> Server | JSON | 启动时按 ID/名称查询属性模板，仅准备连接首帧 |
+| 0x06 | TEMPLATE_REPLY | Server -> Probe | JSON RESPONSE | 模板或明确错误，发送后关闭准备连接 |
 | 0x10 | TASK | Server -> Probe | JSON | 下发通用任务 |
 | 0x11 | TASK_ACK | Probe -> Server | JSON | 确认已接收或拒绝任务 |
 | 0x12 | TASK_RESULT | Probe -> Server | JSON | 任务最终结果 |
@@ -182,6 +219,32 @@ Phase 4 新增下表后的 0x40/0x41/0x42，完整规范见文末“Phase 4 Main
 | 0xFE | ERROR | 双向 | JSON | 协议级或通用错误 |
 
 ## 注册与设备会话
+
+### 启动属性模板（ADR-029）
+
+不选模板的 Probe 继续直接 REGISTER。选择 `--template-id` 或 `--template-name` 时，先连接同一控制端口，首帧发送 TEMPLATE_GET（message_id=1、flags=0），收到 TEMPLATE_REPLY 后关闭准备连接，执行采集，再用新 TCP 连接正常 REGISTER。准备连接不发布 Inventory/Session，不接收任务/维护；REGISTER 成功才上线。此扩展仅取代旧的“所有连接首帧必须 REGISTER”限制，不改变正式控制会话。
+
+请求 `{"template_id":"…"}` 或 `{"name":"…"}`，两者必选其一；UTF-8 非空、最多 128 bytes，请求最多 1024 bytes。TEMPLATE_REPLY 的 flags=RESPONSE、message_id=1、reply_to=1：
+
+```json
+{"reply_to":1,"success":true,"max_control_payload":1048576,"template":{"template_id":"…","name":"路由器","version":1,"properties":{"model":{"name":"型号","command":"nvram get model","timeout_seconds":5},"signal":{"name":"信号强度","command":"printf 90","timeout_seconds":5}}}}
+```
+
+失败为 `{"reply_to":1,"success":false,"error_code":"TEMPLATE_NOT_FOUND"}`。错误码还有 INVALID_TEMPLATE_REQUEST、TEMPLATES_UNAVAILABLE、TEMPLATE_TOO_LARGE。旧 Server 返回 ERROR/未知回复时 Probe 明确退出；不存在/格式非法不退回无模板。暂时连接或读写失败按 1/2/5/10/30 秒、之后固定 30 秒重试。模板回复硬上限 64 KiB，Server 同时遵守配置的 MaxControlPayload；成功回复携带 max_control_payload（1024～1048576；省略按 1 MiB），采集后的 REGISTER 超过它则明确退出，不反复发送超长注册。响应接收总期限 10 秒，连接每个候选地址等待最多 10 秒，主机名解析沿用系统 resolver。
+
+属性是按 key 的 object，按 key 字典序采集。支持 serial/model/firmware/hostname/kernel/libc 六项现有可选属性及最多 32 项扩展字符串属性，总计最多 38 项。key 为 `[a-z][a-z0-9_]{0,63}`，device_id/arch/boot_id/probe_version/capabilities/template/attributes/collection_errors 保留；属性显示名称最多 128 bytes，指令最多 4096 bytes。服务端完整模板输入序列化最多 48 KiB。timeout_seconds 默认 5（管理输入省略或 0 归一化为 5），下发值为 1～30。
+
+Probe 用 `/bin/sh -c` 执行，逐项复用有界执行器；整次采集 60 秒预算（超时后另有最多约 200ms 的 TERM/KILL 清理）。去除输出首尾空格、Tab、CR/LF；已有字段保持下表限制，扩展值 1～4096 bytes UTF-8、不能含 NUL；libc 继续 ASCII。非零退出、空值、截断/非法输出、超时、预算耗尽均不填值，记录固定原因。显式 `--hostname` 优先并跳过对应命令；选模板后未选中的可选属性省略，必需字段由原探针逻辑维护。命令只在启动采集一次，普通重连复用快照；模板修改/删除在下一次 Probe 启动生效。
+
+REGISTER 可选增加以下字段，旧 Probe 可省略；附加结果必须同时包含 template：
+
+```json
+{"template":{"template_id":"…","name":"路由器","version":1},"attributes":{"signal":{"name":"信号强度","value":"90"}},"collection_errors":{"model":{"name":"型号","reason":"empty"}}}
+```
+
+template 包含非空 ID/名称（各最多 128 bytes UTF-8）与正 uint64 version。attributes 最多 32 项，只放扩展属性，值带显示名称和 value；六项已有属性继续放 REGISTER 原字段。collection_errors 最多 38 项，原因仅 command_failed/timeout/empty/invalid_output/budget_exhausted，不包含命令或 stderr；同一 key 不可同时成功和失败，扩展成功+失败总数最多 32。所有集合/成员遵守非 null、UTF-8、重复字段和类型校验。设备与 Session 保存独立完整快照，不按当前模板版本重新解释历史值。
+
+启动未显式传 `--device-id`（别名 `--device_id`）时执行一次 `nvram get SN`，5 秒超时，去首尾空白后校验非空、单行、最多 128 bytes UTF-8，失败直接退出。显式 ID 优先且空值报错；不回退随机 ID。该默认值来源不改变 REGISTER 必选 device_id 或稳定主键语义。
 
 ### REGISTER
 

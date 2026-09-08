@@ -1,0 +1,140 @@
+@page "/"
+@using ProbeTemplateGenerator.Features.Attributes
+@using ProbeTemplateGenerator.Features.Preview
+@using ProbeTemplateGenerator.Features.Publishing
+@using ProbeTemplateGenerator.Components.Shared
+@inject EditorWorkspace State
+@inject IJSRuntime JS
+@implements IAsyncDisposable
+
+<PageTitle>@State.Project.Name · 探针模板生成器</PageTitle>
+<FluentDesignTheme Mode="@(State.Theme == "Dark" ? DesignThemeModes.Dark : State.Theme == "Light" ? DesignThemeModes.Light : DesignThemeModes.System)" CustomColor="#0f6cbd" />
+<div class="app-shell" inert="@(State.ConfirmationTitle is not null)">
+    <header class="command-bar">
+        <div class="app-brand"><span class="app-mark" aria-hidden="true">⌘</span><h1>探针模板生成器</h1></div>
+        <div class="command-group" aria-label="工程操作">
+            <FluentButton Appearance="Appearance.Stealth" Disabled="@State.Locked" OnClick="@(() => State.NewProject())"><span aria-hidden="true">＋</span> 新建</FluentButton>
+            <label class="command-open @(State.Locked ? "disabled" : "")" for="project-file"><span aria-hidden="true">↗</span> 打开<InputFile id="project-file" aria-label="打开工程或模板" class="file-input" disabled="@State.Locked" accept=".json,application/json" OnChange="OpenFileAsync" /></label>
+            <FluentButton Appearance="Appearance.Stealth" Disabled="@(!State.Ready || State.LocalBusy)" OnClick="@(() => State.SaveProjectAsync())">保存<span class="shortcut">Ctrl+S</span></FluentButton>
+            <details class="more-menu">
+                <summary aria-label="更多操作">•••</summary>
+                <div class="menu-content">
+                    <button disabled="@State.Locked" @onclick="@(() => State.LoadExample(false))">加载示例</button>
+                    <button disabled="@State.Locked" @onclick="@(() => State.LoadExample(true))">条件示例</button>
+                    <div class="menu-separator"></div>
+                    <label for="theme-selection">外观</label>
+                    <select id="theme-selection" aria-label="外观" value="@State.Theme" @onchange="@(e => State.SetThemeAsync(e.Value?.ToString() ?? "Default"))">
+                        <option value="Default">跟随系统</option><option value="Light">浅色</option><option value="Dark">深色</option>
+                    </select>
+                </div>
+            </details>
+        </div>
+        <div class="document-state" title="本浏览器自动保存草稿；保存工程可下载独立文件" role="status">
+            <span class="save-dot @(State.PersistenceError is not null ? "warning" : "")" aria-hidden="true">●</span>
+            @(!State.Ready ? "正在读取…" : State.PersistenceError is not null ? "自动保存失败" : State.Saving ? "正在保存…" : "已保存")
+        </div>
+    </header>
+
+    <nav class="stage-bar" aria-label="生成步骤">
+        <button class="pane-toggle" aria-label="折叠或展开属性导航" aria-expanded="@(!paneCollapsed)" @onclick="@(() => paneCollapsed = !paneCollapsed)">☰</button>
+        <div class="stage-tabs" role="tablist" aria-label="工作阶段">
+            @for (var i = 0; i < stages.Length; i++)
+            {
+                var stage = i;
+                <button id="stage-@stage" role="tab" aria-selected="@(State.Stage == stage)" aria-controls="workspace-panel" class="@(State.Stage == stage ? "active" : "")" @onclick="@(() => State.SetStage(stage))"><span class="step-index">@(stage + 1)</span>@stages[stage]</button>
+            }
+        </div>
+        <span class="document-name">@State.Project.Name<span class="dirty-mark" title="当前编辑尚未保存为工程文件">@(State.IsDirty ? " •" : "")</span></span>
+    </nav>
+
+    @if (State.Publishing.Pending is not null)
+    {
+        <div class="pending-banner" role="alert"><div><strong>“@State.Publishing.Pending.Label”响应不确定</strong><span>原请求已保留。原服务器：@State.Publishing.Pending.Origin</span></div><div class="inline-actions"><FluentButton OnClick="@(() => State.SetStage(2))">查看连接与模板</FluentButton><FluentButton Disabled="@(State.LocalBusy || State.Publishing.Busy)" OnClick="@(() => State.RetryPending())">核对并重试</FluentButton><FluentButton Disabled="@(State.LocalBusy || State.Publishing.Busy)" OnClick="@(() => State.AbandonPending())">核对后放弃</FluentButton></div></div>
+    }
+    @if (State.PersistenceError is not null)
+    {
+        <div class="persistence-banner" role="alert">@State.PersistenceError</div>
+    }
+
+    <main class="workspace @(paneCollapsed ? "pane-collapsed" : "")">
+        <AttributeNavigation State="State" />
+        <div id="workspace-panel" class="editor-surface" role="tabpanel" aria-labelledby="stage-@State.Stage">
+            @if (!State.Ready)
+            {
+                <div class="empty-state"><p>正在恢复工作区…</p></div>
+            }
+            else if (State.Stage == 0)
+            {
+                <AttributeEditor State="State" @key="State.Selected?.Id" />
+            }
+            else if (State.Stage == 1)
+            {
+                <PreviewView State="State" />
+            }
+            else
+            {
+                <PublishingView State="State" />
+            }
+        </div>
+    </main>
+
+    <footer class="status-bar">
+        <button class="validation-status @(State.Issues.Count > 0 ? "has-error" : "")" @onclick="@(() => State.SetStage(1))"><span aria-hidden="true">@(State.Issues.Count > 0 ? "⚠" : "✓")</span><span>@(State.Issues.FirstOrDefault()?.Message ?? "校验通过")</span></button>
+        <span class="status-count">@State.Project.Attributes.Count 个属性</span>
+        @if (State.Issues.Count > 0) { <span class="error-count">@State.Issues.Count 个错误</span> }
+        <FluentButton Appearance="Appearance.Accent" OnClick="@(() => State.SetStage((State.Stage + 1) % 3))">@(State.Stage == 0 ? "预览 →" : State.Stage == 1 ? "导出与发布 →" : "返回编辑")</FluentButton>
+    </footer>
+</div>
+
+@if (State.Toast is not null)
+{
+    <div class="workspace-toast @(State.ToastError ? "toast-error" : "")" role="@(State.ToastError ? "alert" : "status")"><span aria-hidden="true">@(State.ToastError ? "⚠" : "✓")</span><span>@State.Toast</span><button aria-label="关闭提示" @onclick="State.DismissToast">×</button></div>
+}
+@if (State.ConfirmationTitle is not null)
+{
+    <ConfirmationDialog Title="@State.ConfirmationTitle" Message="@State.ConfirmationMessage" ActionText="@State.ConfirmationAction" Danger="State.ConfirmationDanger" Busy="@(State.LocalBusy || State.Publishing.Busy)" OnConfirm="State.AcceptConfirmationAsync" OnCancel="State.CancelConfirmation" />
+}
+
+@code {
+    private static readonly string[] stages = ["属性与公式", "预览与校验", "导出与发布"];
+    private bool paneCollapsed;
+    private DotNetObjectReference<Workspace>? reference;
+
+    protected override void OnInitialized() => State.Changed += WorkspaceChanged;
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!firstRender)
+        {
+            await JS.InvokeVoidAsync("workspace.setDirty", State.Saving || State.PersistenceError is not null);
+            return;
+        }
+        reference = DotNetObjectReference.Create(this);
+        await JS.InvokeVoidAsync("workspace.initialize", reference);
+        await State.InitializeAsync();
+    }
+    private void WorkspaceChanged() => _ = InvokeAsync(StateHasChanged);
+    [JSInvokable] public Task SaveShortcut() => State.ConfirmationTitle is null ? InvokeAsync(State.SaveProjectAsync) : Task.CompletedTask;
+    private async Task OpenFileAsync(InputFileChangeEventArgs args)
+    {
+        string? json = null;
+        await State.RunAsync(async () =>
+        {
+            if (args.File.Size > 1024 * 1024) throw new InvalidOperationException("文件不能超过 1 MiB。");
+            using var reader = new StreamReader(args.File.OpenReadStream(1024 * 1024));
+            json = await reader.ReadToEndAsync();
+        });
+        // Parse and propose replacement after the read operation releases its busy state.
+        if (json is not null)
+        {
+            try { State.OpenProject(json); }
+            catch (System.Text.Json.JsonException) { State.ShowToast("文件不是有效的 JSON，请检查格式后重新打开。当前工程已保留。", true); }
+            catch (Exception e) { State.ShowToast(e.Message, true); }
+        }
+    }
+    public async ValueTask DisposeAsync()
+    {
+        State.Changed -= WorkspaceChanged;
+        try { await JS.InvokeVoidAsync("workspace.dispose"); } catch (JSDisconnectedException) { }
+        reference?.Dispose();
+    }
+}

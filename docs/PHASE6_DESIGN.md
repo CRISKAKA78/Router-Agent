@@ -1,5 +1,7 @@
 # Phase 6 Shared Frontend / Windows Shell 设计
 
+> 历史设计记录：ADR-037 已移除 React、WinUI、Win32/WebView2 旧 UI；下文旧路径与冻结清单仅用于回溯，不是当前源码或构建入口。当前主 UI 遵循 ADR-036/035，见 [WINDOWS_DESKTOP_MIGRATION](WINDOWS_DESKTOP_MIGRATION.md)；生成器遵循 ADR-034，见 [TEMPLATE_GENERATOR_MIGRATION](TEMPLATE_GENERATOR_MIGRATION.md)。业务 API、幂等、文件与固定维护通道契约继续适用。
+
 2026-09-06。起点为干净的 main / origin/main `6f0ce71a5027b57d51e9a6c807794be45f7633b5`。用户明确授权本次技术调整，Accepted ADR-026 supersedes ADR-025 的产品 UI、C# 网络层与发布选择；原 ADR 保留为历史。
 
 **React Shared Frontend 是今后 Windows 与 Web 的统一产品 UI 基线。** 本轮交付 Windows 本地应用与可复用 React 源码，不发布公网 Web 服务。

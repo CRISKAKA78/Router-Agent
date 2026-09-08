@@ -9,10 +9,13 @@ find_package(Threads REQUIRED)
 
 add_library(rmp_probe_core STATIC
     src/client.cpp
+    src/identity.cpp
+    src/collection.cpp
     src/tunnel.cpp
     src/frame.cpp
     src/json.cpp
     src/task.cpp
+    src/router_config.cpp
     src/file_wire.cpp
     src/file_manager.cpp
     src/sha256.cpp
@@ -30,6 +33,18 @@ target_link_libraries(router-probe PRIVATE rmp_probe_core)
 
 include(CTest)
 if(BUILD_TESTING)
+    add_executable(router_config_tests tests/router_config_tests.cpp)
+    target_link_libraries(router_config_tests PRIVATE rmp_probe_core)
+    add_test(NAME router_config_tests COMMAND router_config_tests)
+    set_tests_properties(router_config_tests PROPERTIES TIMEOUT 25)
+    add_executable(collection_tests tests/collection_tests.cpp)
+    target_link_libraries(collection_tests PRIVATE rmp_probe_core)
+    add_test(NAME collection_tests COMMAND collection_tests)
+    set_tests_properties(collection_tests PROPERTIES TIMEOUT 15)
+    add_executable(identity_tests tests/identity_tests.cpp)
+    target_link_libraries(identity_tests PRIVATE rmp_probe_core)
+    add_test(NAME identity_tests COMMAND identity_tests)
+    set_tests_properties(identity_tests PROPERTIES TIMEOUT 15)
     add_executable(tunnel_tests tests/tunnel_tests.cpp)
     target_link_libraries(tunnel_tests PRIVATE rmp_probe_core)
     add_test(NAME tunnel_tests COMMAND tunnel_tests)

@@ -1,5 +1,7 @@
 # Phase 6 Shared React / WebView2 验证记录
 
+> 2026-09-08 清理更新（ADR-037）：仅保留新版 WPF 主 UI 与 Blazor 生成器；旧 UI 源码、宿主与专属脚本已移除。下文各次迁移的旧路径和测试结果保留为历史证据。当前构建/测试入口见 [DEVELOPMENT](DEVELOPMENT.md)，本次清理验证见 [UI_CLEANUP](UI_CLEANUP.md)。
+
 ## UI Freeze + Production Integration（2026-09-07）
 
 本节是当前交付证据，下方 Mock 迭代与 `404b083` 记录仅为历史。用户确认冻结实际 React 页面，随后明确默认内置 Shell、允许外部工具；实现依据 ADR-027。正式 App 使用 `ui/` 的冻结布局与既有 API/WS 层，preview 保留参照。Management Server、Probe、Protocol、Go 依赖及 Tunnel 生产代码未改动。

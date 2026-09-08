@@ -1,0 +1,11 @@
+{
+  "name": "router-agent-browser-tests",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test:generator": "node template-generator-browser.mjs"
+  },
+  "devDependencies": {
+    "@playwright/test": "1.63.0"
+  }
+}

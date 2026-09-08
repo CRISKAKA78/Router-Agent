@@ -15,6 +15,8 @@ const (
 	TypeRegisterAck   uint8 = 0x02
 	TypeHeartbeat     uint8 = 0x03
 	TypeHeartbeatAck  uint8 = 0x04
+	TypeTemplateGet   uint8 = 0x05
+	TypeTemplateReply uint8 = 0x06
 	TypeTask          uint8 = 0x10
 	TypeTaskAck       uint8 = 0x11
 	TypeTaskResult    uint8 = 0x12

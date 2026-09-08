@@ -1,3 +1,0 @@
-<Window x:Class="RouterWorkbench.MainWindow" xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
- <Grid x:Name="Root" Background="{ThemeResource ApplicationPageBackgroundThemeBrush}"><WebView2 x:Name="Web"/><StackPanel x:Name="Startup" HorizontalAlignment="Center" VerticalAlignment="Center" Spacing="16" MaxWidth="620"><ProgressRing x:Name="Loading" IsActive="True"/><TextBlock x:Name="StartupMessage" Text="正在加载远程维护工作台…" TextWrapping="Wrap"/></StackPanel></Grid>
-</Window>

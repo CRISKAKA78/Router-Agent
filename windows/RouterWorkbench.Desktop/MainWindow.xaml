@@ -1,0 +1,39 @@
+<Window x:Class="RouterWorkbench.Desktop.MainWindow" xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml" Title="Router Workbench" Width="1480" Height="920" MinWidth="960" MinHeight="640" WindowStartupLocation="CenterScreen">
+ <DockPanel Background="{DynamicResource Surface}" TextElement.FontFamily="Segoe UI, Microsoft YaHei UI" TextElement.FontSize="13" TextElement.Foreground="{DynamicResource Text}">
+  <Menu DockPanel.Dock="Top">
+   <MenuItem Header="文件(_F)"><MenuItem Header="连接与设置" Click="SettingsClick" InputGestureText="Ctrl+O"/><MenuItem Header="断开连接" Click="DisconnectClick"/><Separator/><MenuItem Header="导入文件资产…" Click="ImportClick"/><Separator/><MenuItem Header="退出" Click="ExitClick"/></MenuItem>
+   <MenuItem Header="视图(_V)"><MenuItem Header="设备工作区" Click="OverviewClick"/><MenuItem Header="文件资产" Click="FilesClick"/><Separator/><MenuItem Header="显示 / 隐藏输出" Click="ToggleOutputClick" InputGestureText="Ctrl+J"/><MenuItem Header="刷新" Click="RefreshClick" InputGestureText="F5"/><Separator/><MenuItem Header="浅色" Tag="Light" Click="ThemeClick"/><MenuItem Header="深色" Tag="Dark" Click="ThemeClick"/><MenuItem Header="跟随系统" Tag="Default" Click="ThemeClick"/></MenuItem>
+   <MenuItem Header="设备(_D)"><MenuItem Header="远程维护" Click="MaintenanceClick"/><MenuItem Header="配置读写" Click="ConfigClick"/><MenuItem Header="断开设备…" Click="DeviceDisconnectClick"/></MenuItem>
+   <MenuItem Header="设置(_S)"><MenuItem Header="连接与设置" Click="SettingsClick"/></MenuItem>
+   <MenuItem Header="帮助(_H)"><MenuItem Header="快捷键与关于" Click="AboutClick"/></MenuItem>
+  </Menu>
+  <Border DockPanel.Dock="Bottom" Background="{DynamicResource Panel}" BorderBrush="{DynamicResource Line}" BorderThickness="0,1,0,0" Padding="10,4">
+   <DockPanel><TextBlock x:Name="ConnectionText" DockPanel.Dock="Right" Margin="12,0,0,0" Style="{StaticResource MutedText}"/><TextBlock x:Name="CountText" DockPanel.Dock="Right" Style="{StaticResource MutedText}"/><TextBlock x:Name="SyncText" DockPanel.Dock="Right" Margin="15,0" Style="{StaticResource MutedText}"/><TextBlock x:Name="StatusText" Text="就绪 · 请连接服务器" TextTrimming="CharacterEllipsis"/></DockPanel>
+  </Border>
+  <Border x:Name="PendingBanner" DockPanel.Dock="Top" Visibility="Collapsed" Background="{DynamicResource Selected}" BorderBrush="{DynamicResource Accent}" BorderThickness="3,0,0,1" Padding="10,6">
+   <DockPanel><StackPanel DockPanel.Dock="Right" Orientation="Horizontal"><Button Content="核对后重试原请求…" Click="RetryClick"/><Button Content="放弃本地待定记录…" Click="AbandonClick"/></StackPanel><TextBlock x:Name="PendingText" TextWrapping="Wrap"/></DockPanel>
+  </Border>
+  <Grid>
+   <Grid.ColumnDefinitions><ColumnDefinition x:Name="ExplorerColumn" Width="286" MinWidth="210"/><ColumnDefinition Width="4"/><ColumnDefinition Width="*" MinWidth="640"/></Grid.ColumnDefinitions>
+   <Grid Background="{DynamicResource Panel}">
+    <Grid.RowDefinitions><RowDefinition Height="33"/><RowDefinition Height="Auto"/><RowDefinition Height="*"/><RowDefinition Height="4"/><RowDefinition Height="170" MinHeight="100"/></Grid.RowDefinitions>
+    <Border BorderBrush="{DynamicResource Line}" BorderThickness="0,0,0,1" Padding="10,0"><DockPanel LastChildFill="False"><TextBlock Text="设备资源管理器" FontWeight="SemiBold"/><TextBlock x:Name="DeviceCountText" DockPanel.Dock="Right" Style="{StaticResource MutedText}"/></DockPanel></Border>
+    <StackPanel Grid.Row="1" Margin="8,7"><TextBox x:Name="DeviceSearch" Tag="搜索设备 / ID  (Ctrl+F)" AutomationProperties.Name="搜索设备" ToolTip="按名称、型号或设备 ID 筛选 (Ctrl+F)" TextChanged="SearchChanged"/><CheckBox x:Name="OnlineOnly" Content="仅显示在线设备" Margin="0,7,0,0" Checked="SearchChanged" Unchecked="SearchChanged"/></StackPanel>
+    <Grid Grid.Row="2"><DataGrid x:Name="DevicesGrid" AutomationProperties.Name="设备列表" SelectionChanged="DeviceSelectionChanged"><DataGrid.Columns><DataGridTextColumn Header="设备 / 主机名" Binding="{Binding DisplayName}" Width="*"/><DataGridTextColumn Header="状态" Binding="{Binding StatusText}" Width="58"/></DataGrid.Columns></DataGrid><TextBlock x:Name="DevicesEmpty" Text="连接服务器后显示设备" Style="{StaticResource MutedText}" HorizontalAlignment="Center" VerticalAlignment="Top" Margin="8,48,8,8" IsHitTestVisible="False"/></Grid>
+    <GridSplitter Grid.Row="3" HorizontalAlignment="Stretch" VerticalAlignment="Stretch" ResizeDirection="Rows"/>
+    <DockPanel Grid.Row="4"><Border DockPanel.Dock="Top" Background="{DynamicResource Chrome}" Padding="10,6"><TextBlock Text="所选设备" FontWeight="SemiBold"/></Border><DataGrid x:Name="QuickProperties" HeadersVisibility="None" RowHeight="26"><DataGrid.Columns><DataGridTextColumn Binding="{Binding Name}" Width="72"/><DataGridTextColumn Binding="{Binding Value}" Width="*"/></DataGrid.Columns></DataGrid></DockPanel>
+   </Grid>
+   <GridSplitter Grid.Column="1" HorizontalAlignment="Stretch" VerticalAlignment="Stretch" ResizeDirection="Columns"/>
+   <Grid Grid.Column="2">
+    <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="*"/><RowDefinition x:Name="OutputSplitterRow" Height="4"/><RowDefinition x:Name="OutputRow" Height="170" MinHeight="0"/></Grid.RowDefinitions>
+    <Border Padding="14,8" Background="{DynamicResource Surface}" BorderBrush="{DynamicResource Line}" BorderThickness="0,0,0,1"><DockPanel LastChildFill="False"><TextBlock x:Name="DeviceTitle" Text="工作区" FontSize="15" FontWeight="SemiBold"/><TextBlock x:Name="DeviceSubtitle" DockPanel.Dock="Right" Margin="15,0,0,0" Style="{StaticResource MutedText}"/></DockPanel></Border>
+    <TabControl x:Name="WorkspaceTabs" Grid.Row="1" SelectionChanged="PageChanged"/>
+    <GridSplitter Grid.Row="2" HorizontalAlignment="Stretch" VerticalAlignment="Stretch" ResizeDirection="Rows"/>
+    <DockPanel Grid.Row="3">
+     <Border DockPanel.Dock="Top" Background="{DynamicResource Chrome}" Padding="10,3"><DockPanel LastChildFill="False"><StackPanel Orientation="Horizontal"><TextBlock Text="输出" FontWeight="SemiBold"/><TextBlock x:Name="OutputCaption" Text="  /  工作区活动" Margin="3,0" Style="{StaticResource MutedText}"/></StackPanel><Button DockPanel.Dock="Right" Content="隐藏" Click="ToggleOutputClick" MinHeight="22" Padding="6,1"/><Button DockPanel.Dock="Right" Content="清空活动" Click="ClearActivityClick" MinHeight="22" Padding="6,1"/></DockPanel></Border>
+     <DataGrid x:Name="ActivityGrid" RowHeight="25" HeadersVisibility="None" AutomationProperties.Name="工作区活动"><DataGrid.Columns><DataGridTextColumn Binding="{Binding Time}" Width="80"/><DataGridTextColumn Binding="{Binding Level}" Width="60"/><DataGridTextColumn Binding="{Binding Message}" Width="*"/></DataGrid.Columns></DataGrid>
+    </DockPanel>
+   </Grid>
+  </Grid>
+ </DockPanel>
+</Window>

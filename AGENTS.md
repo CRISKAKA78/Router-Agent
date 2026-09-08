@@ -56,19 +56,23 @@ Phase 0 完成后，仓库内 Markdown 文档成为项目持续维护的当前�
 
 2026-09-07 用户明确要求继续完善当前 Router-Agent 产品，暂不进入后续阶段（ADR-028）。Phase 0～5 已验收；Phase 6 已有实现与验证，用户实机与最终产品验收状态以 PROJECT_STATUS 为准。当前在既有产品基线上持续迭代，不新建阶段，不把本次治理改造当作 Phase 6 产品验收。
 
-- 当前产品需求可涉及已有 Windows/React 客户端、Management Server、Probe、设备、维护、任务、文件与工具；Agent 按真实调用链判断必要改动，不因文件属于早期 Phase 而拒绝修复，也不借普通功能重构整个 Server。
-- 暂缓 Phase 7 MCP、Phase 8 AI Agent、微信小程序、正式公网 Web 部署、新 Tunnel 数据面及其他大规模架构扩展。路线图或长期架构中提到这些方向不构成实施授权。维护现有 React Shared Frontend 和已有 Web 维护入口不等于进入正式 Web 部署。
+- 当前产品需求可涉及新版 C# / WPF 客户端、C# / Blazor 模板生成器、Management Server、Probe、设备、维护、任务、文件与工具；Agent 按真实调用链判断必要改动，不因文件属于早期 Phase 而拒绝修复，也不借普通功能重构整个 Server。
+- 暂缓 Phase 7 MCP、Phase 8 AI Agent、微信小程序、正式公网 Web 部署、新 Tunnel 数据面及其他大规模架构扩展。路线图或长期架构中提到这些方向不构成实施授权。Blazor 生成器的本机浏览器访问及设备 Web 维护入口不等于正式公网 Web 部署；旧 React UI 已按 ADR-037 移除。
 - 认证、TLS、RBAC、租户、完整审计、跨进程任务恢复等未决设计继续保持未决；通用端口转发、任意目标端口、自研 SSH/Telnet 不纳入普通功能的隐含范围。
 - 本次 Agent Governance / Repository Guidance 改造仅修改治理与必要状态文档，不修改产品业务逻辑，也不实现上述暂缓能力。此限制针对本次交付，不阻止以后用户明确提出的范围内产品需求。
 
 ## 持续适用的已确认约束
 
-- 保留 Accepted ADR-009～023 及 ADR-024～027 未被后续 ADR 明确取代的约束。当前架构为 C# / WinUI 3 Thin Shell + WebView2 + React / TypeScript Shared Frontend；React 是统一产品 UI、HTTP/WS Client 与状态基线，Shell 仅承担受限平台 Bridge、本地资源、窗口、配置和平台适配。不恢复旧 XAML 业务页或 C# 业务网络层。
+- ADR-037：当前只保留 .NET 10 / WPF 主 UI 和 .NET 10 / Blazor / Fluent UI 探针模板生成器。React 前端、WinUI/Win32/WebView2 旧宿主及专属构建、测试、Bridge/ConPTY 已移除，不恢复旧 UI。当前启动入口为 `ui-windows.cmd` 与 `template-generator.cmd`，构建与验证见 docs/DEVELOPMENT.md；历史 ADR/验收文档不作为现存代码导航。运行数据和既有发布包不纳入源码清理或 Git 提交。
+- ADR-036：主客户端服务器配置仅在设置，启动自动连接上次保存地址；维护展示 Web/SSH/Telnet 公共链接并打开外部客户端，无默认内置 Shell、客户工具管理或通用任务入口。SSH 新配置默认 admin/admin，可修改，密码以 Windows 当前用户 DPAPI 加密保存、显式复制给外部客户端；不自动登录或接收主机密钥。文件传输与配置结果保留在各自页面；属性按设备上报模板快照完整展示。管理员工具通道后续另行规划，Server/Probe/API 业务契约保持。
+- ADR-035：Windows 主程序是原生 C# 工程工作区，页面在 `windows/RouterWorkbench.Desktop`，公开 API/WS Client 在 `windows/RouterWorkbench.Client`，Core 保留配置、外部启动与端点校验。当前规范与验证见 `docs/WINDOWS_DESKTOP_MIGRATION.md`；历史宿主验证不能替代 WPF 验证。
+- ADR-034：独立生成器在 `src/ProbeTemplateGenerator`，采用强类型 C# 模型、状态、编译与发布逻辑，按 Feature 聚合，通过本机浏览器使用。工程版本 1/2、旧草稿导入、公式/规则与原运行模板兼容，当前规范见 `docs/TEMPLATE_GENERATOR_MIGRATION.md`。
+- 保留 Accepted ADR-009～036 未被后续 ADR 明确取代的业务约束；ADR-025/026/027/030 的旧 UI 技术、旧布局冻结与内置终端不再适用。
 - 客户端通过公开 `/api/v1` 和 WebSocket 使用 Server；不访问内部 Service、数据库、Gateway 或 Tunnel 私有数据面，不复制业务状态机。API 缺口先查已有能力，只有符合已确认契约的必要最小补充可自主实施，并同步 API、调用方与测试。
-- UI 保持 docs/UI_FREEZE.md 的中文 Fluent、Light/Dark/系统主题与页面视觉基线。可完成需求所需的状态、错误、空态、可访问性和必要业务交互，不主动重排主页面或更换视觉语言。确需改变冻结设计时先说明具体影响并取得确认。
+- UI 沿用当前 WPF 与 Blazor 的中文、浅色/深色/系统主题及各自页面基线；普通功能完成必要状态、错误、空态和可访问性交互，不主动整体重设计。docs/UI_FREEZE.md 的 React 冻结清单仅作历史参考。
 - WebSocket 首连/重连回查 HTTP 快照；网络请求异步，切换 Server/退出取消并等待旧资源释放。响应不确定保留原幂等键、字节与 task_id，不自动创建替代任务；下载 committed/released 与 Task RESULT 分开。不得缓存或显示 Tunnel token、connection_id 或 data 私有细节。
 - Maintenance 固定 Web/SSH/Telnet → Probe 127.0.0.1:80/22/23，默认 240 分钟，允许自定义正租期；独立 data TCP、创建 Session 绑定、默认 24 小时端口隔离、Gateway 有界独立控制发送及 Probe 默认 8 条/最大 64 条流保持。
-- 按 ADR-027 默认内置 xterm.js + Windows ConPTY 承载本机 SSH/Telnet 客户端，保留外部入口；不自研协议。目录使用有界单次只读 Exec，内容传输继续走 File API；未提供遥测如实显示未提供。
+- SSH/Telnet 使用本机外部客户端，不自研协议；文件内容继续走 File API，未提供遥测如实显示未提供。
 - 资产持久化、身份、版本、匹配、归档与清理由 ADR-019 R1～R6 约束；artifact_id 全 Repository 唯一，tool_id/asset_id/artifact_id 不因归档、去重或路径变化重用。
 
 ## 任务执行要求

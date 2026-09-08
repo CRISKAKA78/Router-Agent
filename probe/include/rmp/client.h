@@ -4,10 +4,15 @@
 #include <cstdint>
 #include <cstddef>
 #include <string>
+#include <map>
 
 namespace rmp {
 
 struct ClientConfig {
+    std::string template_id, template_name;
+    std::string template_reference, attributes, collection_errors;
+    std::map<std::string,std::string> properties;
+    bool explicit_hostname = false;
     std::size_t tunnel_connections = 8;
     std::size_t file_queue_capacity = 8;
     unsigned task_workers = 4;

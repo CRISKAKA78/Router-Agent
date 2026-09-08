@@ -10,17 +10,22 @@ import (
 	"io"
 	"log"
 	"net"
+	"routerprobe/internal/routerconfig"
 	"sync"
 	"time"
 
 	"routerprobe/internal/device"
 	"routerprobe/internal/filetransfer"
+	"routerprobe/internal/probetemplate"
 	"routerprobe/internal/protocol"
 	"routerprobe/internal/task"
 	"routerprobe/internal/tunnel"
 )
 
 type Config struct {
+	Templates interface {
+		Resolve(string, string) (probetemplate.Template, error)
+	}
 	HeartbeatInterval  time.Duration
 	MaxControlPayload  uint32
 	FileChunkSize      uint32
@@ -67,13 +72,14 @@ type SessionEvent struct {
 }
 
 type session struct {
-	tunnelQueue chan tunnelMessage
-	tunnelDone  chan struct{}
-	lifetime    chan struct{}
-	done        chan struct{}
-	deviceID    string
-	sessionID   string
-	transport   *connectionWriter
+	capabilities []string
+	tunnelQueue  chan tunnelMessage
+	tunnelDone   chan struct{}
+	lifetime     chan struct{}
+	done         chan struct{}
+	deviceID     string
+	sessionID    string
+	transport    *connectionWriter
 }
 
 type connectionWriter struct {
@@ -317,6 +323,12 @@ func (s *Server) dispatchExec(active *session, spec task.Spec) (uint64, error) {
 }
 
 func (s *Server) dispatchChecked(active *session, spec task.Spec, requireCurrent bool) (uint64, error) {
+	if spec.Type == "router_config" {
+		if !supportsRouterConfig(active) {
+			return 0, routerconfig.ErrUnsupported
+		}
+		requireCurrent = true
+	}
 	wireExec := taskMessage{TaskID: spec.ID, Type: spec.Type, CreatedAt: spec.CreatedAt, Timeout: spec.Timeout, Params: execTaskParams{Command: spec.Command, Cwd: spec.Cwd, Env: spec.Env}}
 	var wire interface{} = wireExec
 	if spec.Type != "exec" {
@@ -506,6 +518,10 @@ func (s *Server) handleConnection(conn net.Conn) {
 				}
 				nextIncomingID++
 				if !registered {
+					if frame.Header.Type == protocol.TypeTemplateGet {
+						s.handleTemplate(writer, frame)
+						return
+					}
 					if frame.Header.Flags != 0 {
 						_ = s.sendError(writer, frame.Header.MessageID, "INVALID_PAYLOAD", "REGISTER flags must be zero")
 						return
@@ -529,6 +545,7 @@ func (s *Server) handleConnection(conn net.Conn) {
 						return
 					}
 					candidate := &session{deviceID: register.DeviceID, sessionID: sessionID, transport: writer, done: done, lifetime: make(chan struct{})}
+					candidate.capabilities = append([]string(nil), register.Capabilities...)
 					writer.onFailure = func() { s.endSession(candidate, device.WriteError) }
 					ack := registerAckSuccess{
 						ReplyTo: frame.Header.MessageID, Success: true, SessionID: sessionID,

@@ -3,6 +3,7 @@
 #include "rmp/priority_gate.h"
 #include "rmp/pending_heartbeats.h"
 #include "rmp/client.h"
+#include "rmp/collection.h"
 
 #include "rmp/frame.h"
 #include "rmp/json.h"
@@ -124,9 +125,13 @@ std::string RegisterPayload(const ClientConfig& config) {
     if (!config.hostname.empty()) {
         output << ",\"hostname\":" << EscapeJsonString(config.hostname);
     }
+    for(std::map<std::string,std::string>::const_iterator i=config.properties.begin();i!=config.properties.end();++i)
+        output<<','<<EscapeJsonString(i->first)<<':'<<EscapeJsonString(i->second);
+    if(!config.template_reference.empty())
+        output<<",\"template\":"<<config.template_reference<<",\"attributes\":"<<config.attributes<<",\"collection_errors\":"<<config.collection_errors;
     output << ",\"arch\":" << EscapeJsonString(config.arch)
            << ",\"boot_id\":" << EscapeJsonString(config.boot_id)
-           << ",\"capabilities\":[\"exec\",\"file\",\"tunnel\"]}";
+           << ",\"capabilities\":[\"exec\",\"file\",\"tunnel\",\"router_config\"]}";
     return output.str();
 }
 
@@ -141,7 +146,7 @@ std::string HeartbeatPayload(unsigned running_tasks) {
     return output.str();
 }
 
-int Connect(const ClientConfig& config, std::string* error) {
+int Connect(const ClientConfig& config, std::string* error, bool bounded = false) {
     struct addrinfo hints;
     std::memset(&hints, 0, sizeof(hints));
     hints.ai_family = AF_UNSPEC;
@@ -179,7 +184,17 @@ int Connect(const ClientConfig& config, std::string* error) {
         send_timeout.tv_sec = 10;
         send_timeout.tv_usec = 0;
         setsockopt(candidate, SOL_SOCKET, SO_SNDTIMEO, &send_timeout, sizeof(send_timeout));
-        if (connect(candidate, current->ai_addr, current->ai_addrlen) == 0) {
+        const int original_flags=fcntl(candidate,F_GETFL,0);
+        if(bounded && (original_flags<0 || fcntl(candidate,F_SETFL,original_flags|O_NONBLOCK)<0)) {last_error=errno;close(candidate);continue;}
+        int connect_result=connect(candidate,current->ai_addr,current->ai_addrlen);
+        if(bounded && connect_result<0 && errno==EINPROGRESS){
+            struct pollfd writable={candidate,POLLOUT,0};int pending=0;socklen_t size=sizeof(pending);
+            const int ready=poll(&writable,1,10000);
+            if(ready>0&&getsockopt(candidate,SOL_SOCKET,SO_ERROR,&pending,&size)==0&&pending==0)connect_result=0;
+            else errno=pending?pending:ETIMEDOUT;
+        }
+        if (connect_result == 0) {
+            if(bounded&&fcntl(candidate,F_SETFL,original_flags)<0){last_error=errno;close(candidate);continue;}
             connected = candidate;
             break;
         }
@@ -344,7 +359,7 @@ bool HandleOnlineFrames(const std::vector<Frame>& frames,
                 const bool accepted = state != "rejected";
                 std::string reason;
                 if (!parsed) reason = "invalid task payload";
-                else if (task.type != "exec" && !file) reason = "unsupported task type";
+                else if (task.type != "exec" && task.type != "router_config" && !file) reason = "unsupported task type";
                 else if (!accepted) reason = "task capacity exhausted";
                 std::string ack = TaskAckPayload(frame->header.message_id, task.task_id, accepted, reason, state);
                 if (!writer->Send(kTypeTaskAck, kFlagResponse, ack, &outgoing_id)) return false;
@@ -537,6 +552,33 @@ SessionResult RunSession(int socket_fd, const ClientConfig& config, TaskManager&
     }
 }
 
+// 0: ready, 1: transient transport failure, 2: rejection/invalid reply.
+int FetchTemplate(const ClientConfig& config,CollectionTemplate* selected,std::string* error){
+    const int fd=Connect(config,error,true);if(fd<0)return 1;
+    SessionWriter writer(fd);std::uint64_t sent=0;
+    const std::string request=config.template_id.empty()?"{\"name\":"+EscapeJsonString(config.template_name)+"}":"{\"template_id\":"+EscapeJsonString(config.template_id)+"}";
+    if(!writer.Send(kTypeTemplateGet,0,request,&sent)){close(fd);*error="template request send failed";return 1;}
+    StreamDecoder decoder(64*1024);std::vector<Frame> frames;
+    const SteadyClock::time_point deadline=SteadyClock::now()+std::chrono::seconds(10);
+    while(frames.empty()){
+        if(!ReceiveFrames(fd,&decoder,MillisecondsUntil(deadline),&frames,error)){close(fd);return (*error=="PAYLOAD_TOO_LARGE"||*error=="BAD_MAGIC"||*error=="UNSUPPORTED_VERSION")?2:1;}
+    }
+    close(fd);
+    if(frames.size()!=1||frames[0].header.message_id!=1||frames[0].header.flags!=kFlagResponse||frames[0].header.type!=kTypeTemplateReply){*error="server does not support TEMPLATE_REPLY or sent invalid reply";return 2;}
+    JsonObject reply;
+    const std::string payload(frames[0].payload.begin(),frames[0].payload.end());
+    if(!ParseJsonObject(payload,&reply,error)||reply["reply_to"].type!=JsonType::kUnsignedInteger||reply["reply_to"].unsigned_value!=sent||reply["success"].type!=JsonType::kBoolean){*error="invalid template reply";return 2;}
+    if(!reply["success"].bool_value){*error="server rejected template selection";if(reply["error_code"].type==JsonType::kString)*error=reply["error_code"].string_value;return 2;}
+    if(!ParseCollectionTemplate(reply["template"].raw_value,selected,error))return 2;
+    if(reply.find("max_control_payload")!=reply.end()) {
+        const JsonValue& limit=reply["max_control_payload"];
+        if(limit.type!=JsonType::kUnsignedInteger||limit.unsigned_value<1024||limit.unsigned_value>kMaxControlPayload){*error="invalid template payload limit";return 2;}
+        selected->max_control_payload=static_cast<std::uint32_t>(limit.unsigned_value);
+    }
+    if((!config.template_id.empty()&&selected->id!=config.template_id)||(!config.template_name.empty()&&selected->name!=config.template_name)){*error="template selection mismatch";return 2;}
+    return 0;
+}
+
 }  // namespace
 
 bool ParseServerAddress(const std::string& address,
@@ -578,7 +620,24 @@ bool ParseServerAddress(const std::string& address,
     return true;
 }
 
-int RunClient(const ClientConfig& config) {
+int RunClient(const ClientConfig& initial) {
+    ClientConfig config=initial;
+    if(!config.template_id.empty()||!config.template_name.empty()) {
+        const unsigned delays[]={1,2,5,10,30};std::size_t attempt=0;
+        while(true) {
+            CollectionTemplate selected;std::string error;
+            const int status=FetchTemplate(config,&selected,&error);
+            if(status==0){
+                CollectProperties(selected,&config);
+                if(RegisterPayload(config).size()>selected.max_control_payload){std::cerr<<"template_error=collected registration exceeds server control payload limit"<<std::endl;return 2;}
+                break;
+            }
+            if(status==2){std::cerr<<"template_error="<<error<<std::endl;return 2;}
+            const unsigned delay=delays[std::min(attempt++,static_cast<std::size_t>(4))];
+            std::cerr<<"state=FETCHING_TEMPLATE retry_delay="<<delay<<" reason="<<error<<std::endl;
+            std::this_thread::sleep_for(std::chrono::seconds(delay));
+        }
+    }
     TaskManager task_worker(config.task_workers, config.task_capacity, config.task_cache_bytes, config.file_queue_capacity);
     const unsigned delays[] = {1, 2, 5, 10, 30};
     std::size_t backoff_index = 0;

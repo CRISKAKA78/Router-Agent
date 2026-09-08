@@ -8,15 +8,48 @@
 
 ## 当前工作方向：Router-Agent 产品持续完善
 
+- [x] 旧 UI 清理（ADR-037）：仅保留 WPF 主 UI 和 Blazor 生成器，迁出必要测试对端与浏览器依赖，移除 React/WinUI/Win32/WebView2 源码及专属入口；当前交付与验证见 [UI_CLEANUP](UI_CLEANUP.md)。
+
+- [x] 连接状态与所选设备闪烁：连接完成/重连状态和日志同步，固定行按值通知，保留五秒刷新且不重建控件；98 项检查、12 份布局与 Release 启停通过，见 [WINDOWS_DESKTOP_MIGRATION](WINDOWS_DESKTOP_MIGRATION.md)。
+
+- [x] 维护关闭后重开 409：修复旧快照覆盖新维护选择、释放状态回退和重复创建；84 项原生/当前 Go 对端检查及修复包启停通过，未修改 Server/Probe，见 [WINDOWS_DESKTOP_MIGRATION](WINDOWS_DESKTOP_MIGRATION.md)。
+
+- [x] 客户端入口收敛（ADR-036）：设置与启动自动连接、维护通道链接/外部 Shell、SSH admin/admin 与可编辑加密偏好、移除客户工具和通用任务入口、模板全部属性；65 项自动检查、12 份布局与 Release 发布通过，见 [WINDOWS_DESKTOP_MIGRATION](WINDOWS_DESKTOP_MIGRATION.md)。
+- [-] 管理员工具配置/上传维护入口和新任务入口规划：本轮未实现，等待后续具体需求。
+
+- [x] Windows 主程序原生 C# / WPF 工程工作区（ADR-035）：整体布局、密集原生控件、浅深主题与现有设备/维护/任务/文件/工具/配置能力迁移；51 项客户端/Go 对端/WPF/ConPTY/WebView2 检查、16 份实际 WPF 矢量布局、Release 自包含发布通过。见 [WINDOWS_DESKTOP_MIGRATION](WINDOWS_DESKTOP_MIGRATION.md)。
+- [ ] 当前 WPF 包的厂商设备 SSH/Telnet、物理多屏 DPI/鼠标拖动及干净目标机验收。远程桌面原生捕获不可用；不将矢量布局验证当作屏幕验收，不影响下方保留的历史风险记录。
+
+- [x] 生成器 C# / Blazor 技术迁移与紧凑全屏工作区（ADR-034）：完整功能、工程版本 1/2、旧草稿与运行模板兼容；145 项 C#、8 组 Edge/Go API、宽窄主题、Release 发布启动通过，旧生成器代码清理及主前端/原生构建通过。见 [TEMPLATE_GENERATOR_MIGRATION](TEMPLATE_GENERATOR_MIGRATION.md)。
+
+- [x] 展示属性条件结果（ADR-033）：单值映射、多虚拟属性条件组合、文本比较、有序规则/默认值、预览命中项，复制与版本 1/2 工程兼容。87 项前端/BusyBox、浏览器/API、生成器单 EXE 构建通过，见 [TEMPLATE_GENERATOR](TEMPLATE_GENERATOR.md)。
+- [x] 二次确认改为提示弹框，移除确认词输入；属性支持独立复制、唯一标识与自动选中。54 项前端/BusyBox、浏览器/API 复制与直接确认/取消及两个单 EXE 编译通过，见 [TEMPLATE_GENERATOR](TEMPLATE_GENERATOR.md)。
+- [x] 独立模板生成器（ADR-032）：虚拟/展示属性、现有来源、逻辑/算术公式、工程导入导出及服务器发布；主 UI 设置移除模板配置。51 项前端/BusyBox、浏览器/API、专项原生 WebView2 检查及两个单 EXE 编译通过，见 [TEMPLATE_GENERATOR](TEMPLATE_GENERATOR.md)。
+- [-] 历史 Win32/ConPTY 与旧原生生成器验收：当时未完成；相应 UI 已按 ADR-037 移除，不再作为当前验收项。新版厂商实机与物理交互验收仍独立保留。
+
+- [x] nvram/uci 专用读取、写入、删除、独立 commit 与模板只读来源：Accepted ADR-031，API/Probe/React 闭环及 Release/真实 Probe/Go race/Windows Go/前端浏览器验证通过；单 EXE 编译完成，见 [验证](ROUTER_CONFIG_VERIFICATION.md)。
+- [ ] nvram/uci 厂商固件及交叉架构验收；C++ ASan/UBSan/TSan 因当前运行库缺失未完成，新 EXE 完整 Win32 业务验收仍待用户执行。
+
+- [x] 按用户确认 ADR-030 将宿主移植为 C++ Win32 / WebView2，单 EXE 构建入口与应用资源内嵌完成，编译通过。
+- [-] 历史 Win32 客户端最终验收：当时由用户自行执行，未记录通过；已由 WPF 取代并按 ADR-037 移除。
+
+- [x] Windows Server 一键清理重建/启动脚本及 pcv6.criskaka.com 配置；本机 API/控制/数据/维护入口双栈接入验证通过，远端 IPv6 验收独立待实测。
+
+- [x] 本机 Linux 测试环境迁入项目外独立 WSL 2 RouterAgentTest；复用指引、重启、CTest 与模板集成验证完成，项目原镜像可由用户移除。
+
 2026-09-07 用户明确要求暂不进入后续阶段，继续完善已有产品。普通功能依据 AGENTS / DEVELOPMENT / Accepted ADR 自主完成，不需要用户逐项提供技术提示词；这是当前基线内的持续迭代，不是新增 Phase，也不代表 Phase 6 最终验收完成。
 
 - [x] Agent Governance / Repository Guidance：明确普通功能自主范围、设计变更确认、模块导航、按影响验证与文档交付规则；本次仅文档改造。
+- [x] 服务端设备属性模板：按 ID/名称选择、自定义采集指令、服务端持久化/API/设置管理、设备快照展示；ADR-029 已确认，Release/真实 Probe/浏览器/Go race 验证通过。
+- [x] Probe 默认 `nvram get SN` 设备 ID：显式参数优先与失败校验、C++ 单测及真实 Probe 测试替身闭环通过。
+- [ ] 模板改动的 C++ ASan/UBSan/TSan（当前工具链缺运行库）及厂商固件实测；不记为已通过。
+- [ ] 恢复误删的原 cmd/server/1.txt、cmd/server/data/，需可用备份来源；事件与已恢复范围见 PROBE_TEMPLATES_VERIFICATION。
 - [ ] 按用户后续具体需求完善当前功能、行为和体验；每项单独形成可验证闭环，不预先扩展功能清单。
 - [ ] 用户实机与 Phase 6 最终产品验收，沿用下方尚未完成项。
 - [-] 正式公网 Web 部署、微信小程序、Phase 7 MCP、Phase 8 AI Agent。
 - [-] 新 Tunnel 数据面及其他大规模架构扩展；既有维护缺陷仍可在 Accepted 边界内修复。
 
-以下 Phase 0～6 为既有里程碑；历史“推送后停止/不得进入下一 Phase”描述各次交付边界，当前任务范围以上述方向和最新明确授权为准。
+以下 Phase 0～6 为历史里程碑，旧 UI 路径与“继续冻结/复用 React”是当时事实，已由 ADR-034～037 取代；历史“推送后停止/不得进入下一 Phase”描述各次交付边界，当前任务范围以上述方向和最新明确授权为准。
 
 ## Phase 0 Repository and Documentation Initialization
 

@@ -1,0 +1,28 @@
+<section class="editor-section rules-section" aria-label="条件结果规则">
+    <div class="section-heading"><h3>显示规则</h3><span class="muted">从上到下，采用第一个匹配结果</span></div>
+    <p class="field-hint">例如 <code>wan_proto == 0</code>、<code>a != 0 &amp;&amp; b == 0</code> 或 <code>wan_proto == "dhcp"</code>。文本比较使用英文双引号。</p>
+    <FieldError Message="@State.FieldError("rules", Row.Id)" />
+    <ol class="rule-list">
+        @for (var i = 0; i < (Row.Rules?.Count ?? 0); i++)
+        {
+            var index = i;
+            var rule = Row.Rules![i];
+            <li class="rule-row" @key="rule">
+                <div class="rule-header"><strong>规则 @(index + 1)</strong><div class="rule-actions"><button type="button" aria-label="上移规则 @(index + 1)" disabled="@(index == 0)" @onclick="@(() => State.MoveRule(Row, index, -1))">↑</button><button type="button" aria-label="下移规则 @(index + 1)" disabled="@(index == Row.Rules.Count - 1)" @onclick="@(() => State.MoveRule(Row, index, 1))">↓</button><button type="button" aria-label="删除规则 @(index + 1)" class="subtle-danger" @onclick="@(() => State.RemoveRule(Row, index))">删除</button></div></div>
+                <div class="field-grid">
+                    <label>满足条件<textarea class="code-input" aria-label="规则 @(index + 1) 条件" rows="2" spellcheck="false" @bind="rule.Condition" @bind:event="oninput" @bind:after="State.Touch" placeholder="wan_proto == 0"></textarea><FieldError Message="@RuleError(index, "condition")" /></label>
+                    <label>显示文本<textarea aria-label="规则 @(index + 1) 显示文本" rows="2" @bind="rule.Value" @bind:event="oninput" @bind:after="State.Touch" placeholder="例如：4G"></textarea><FieldError Message="@RuleError(index, "value")" /></label>
+                    <label class="compact-reference">插入属性<select aria-label="规则 @(index + 1) 插入属性" value="" @onchange="@(e => Append(rule, e.Value?.ToString() ?? ""))"><option value="">选择属性，追加到条件末尾…</option>@foreach (var reference in State.Project.Attributes.Where(a => a.Id != Row.Id && a.Key.Length > 0 && a.Source != AttributeSource.Rules)) { <option value="@reference.Key">@reference.Name · @reference.Key</option> }</select></label>
+                </div>
+            </li>
+        }
+    </ol>
+    <FluentButton Disabled="@(State.Locked || Row.Rules?.Count >= 32)" OnClick="@(() => State.AddRule(Row))">＋ 添加结果规则</FluentButton>
+    <div class="field-grid fallback-rule"><label>都不满足时显示<textarea aria-label="默认显示文本" rows="2" @bind="Row.Fallback" @bind:event="oninput" @bind:after="State.Touch" placeholder="例如：未知连接类型"></textarea><FieldError Message="@State.FieldError("fallback", Row.Id)" /></label><p class="field-hint">查询失败或计算错误仍会报错，不转为默认文本。每个展示属性最多 32 条规则；其他公式应引用原始输入或数值公式。</p></div>
+</section>
+@code {
+    [Parameter, EditorRequired] public EditorWorkspace State { get; set; } = default!;
+    [Parameter, EditorRequired] public TemplateAttribute Row { get; set; } = default!;
+    private void Append(ResultRule rule, string text) { rule.Condition += text; State.Touch(); }
+    private string? RuleError(int index, string field) => State.FieldError($"rules[{index}].{field}", Row.Id) ?? State.FieldError($"rules.{index}.{field}", Row.Id);
+}

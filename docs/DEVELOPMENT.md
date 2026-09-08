@@ -34,35 +34,40 @@ Agent 先从仓库查明已有行为，将需求整理为简短的可观察结�
 
 ## 模块导航
 
-| 需求落点 | 首先检查的现有实现 | 约束与验证入口 |
-| --- | --- | --- |
-| 页面、列表、表单、错误与交互 | [App.tsx](../frontend/src/App.tsx)、[ui/](../frontend/src/ui/)、[useWorkbench.ts](../frontend/src/useWorkbench.ts)、[useQuery.ts](../frontend/src/useQuery.ts) | [UI_FREEZE](UI_FREEZE.md)；生产页在 ui/，preview/ 仅作冻结参照；沿用中文 Fluent 与主题 |
-| HTTP、WebSocket、连接/选择隔离 | [api.ts](../frontend/src/api.ts)、[models.ts](../frontend/src/models.ts)、[connection.ts](../frontend/src/connection.ts) | API、ADR-023/026；首连/重连 HTTP 快照，原幂等请求，切换/退出取消并等待；api/connection 测试 |
-| Windows 平台、文件选择保存、终端 | [platform.ts](../frontend/src/platform.ts)、[RouterWorkbench/](../windows/RouterWorkbench/)、[RouterWorkbench.Core/](../windows/RouterWorkbench.Core/) | ADR-026/027、[PHASE6_DESIGN](PHASE6_DESIGN.md)、[Windows README](../windows/README.md)；受限 Bridge、来源校验与资源回收 |
-| 服务端用例和公开接口 | [internal/api/](../internal/api/)、[internal/management/](../internal/management/)，再到对应 device/task/repository/filetransfer/tunnel 服务 | Adapter 只调用 Application/Service，不能直达连接表或存储表；各包测试与 [tests/integration/](../tests/integration/) |
-| Probe、控制/文件链路、现有维护缺陷 | [probe/](../probe/)、[internal/gateway/](../internal/gateway/)、[internal/protocol/](../internal/protocol/) 及相应服务 | PROTOCOL、ADR-009～023；C++11/轻量、幂等、固定三入口与独立数据 TCP；Go 集成和 Probe CTest |
+ADR-037 之后只维护新版 WPF 主工作台与 Blazor 模板生成器，旧 React/WinUI/Win32 UI、Bridge/ConPTY 与专属脚本已经移除。旧设计文档仅用于回溯，不作为当前构建入口。
 
-客户端不复制服务端状态机或兼容性判断。不确定派发不自动新建任务；文件完整提交/释放不等于最终 RESULT 成功。UI 没有真实数据源时如实显示未提供。新增普通交互沿用冻结视觉；改变主页面布局或视觉语言须确认，不能把重新设计作为普通功能前置条件。
+| 需求落点 | 首先检查的实现 | 约束与验证入口 |
+| --- | --- | --- |
+| Windows 页面、列表、表单与生命周期 | [RouterWorkbench.Desktop](../windows/RouterWorkbench.Desktop)，DeviceViews/DeviceProperties、MaintenanceViews、FileTransfers、RepositoryViews、SettingsView、MainWindow 与 Themes | 原生 WPF，中文浅深/系统主题；[WINDOWS_DESKTOP_MIGRATION](WINDOWS_DESKTOP_MIGRATION.md) |
+| HTTP/WS、快照、幂等与取消 | [RouterWorkbench.Client](../windows/RouterWorkbench.Client)，ApiClient、Models、WorkspaceConnection | 只使用公开 API；首连/重连回查 HTTP，原请求键与字节，切换/退出取消并等待 |
+| 本机偏好、外部 SSH/Telnet、文件选择 | [RouterWorkbench.Core](../windows/RouterWorkbench.Core)、Desktop 的 SettingsView/RepositoryViews/SshPasswordStore | 无 WebView2 Bridge 或内置终端；端点复核，密码独立 DPAPI 保存，外部客户端由用户管理 |
+| 生成器编辑、公式、规则、导入导出与发布 | [ProbeTemplateGenerator](../src/ProbeTemplateGenerator)，Features、Models、Services、Persistence | 强类型 C#，原模板 API，版本 1/2 与旧草稿兼容；[TEMPLATE_GENERATOR_MIGRATION](TEMPLATE_GENERATOR_MIGRATION.md) |
+| 服务端用例和公开接口 | [internal/api](../internal/api)、[internal/management](../internal/management) 及对应服务 | Adapter 只调用 Application/Service；各包测试与 [tests/integration](../tests/integration) |
+| Probe、控制/文件链路与维护 | [probe](../probe)、[gateway](../internal/gateway)、[protocol](../internal/protocol) | C++11、既有幂等、固定三入口、独立数据 TCP；PROTOCOL 与 Phase 1～5 验证 |
+
+客户端不复制 Server 状态机或兼容性算法。文件 committed/released 与最终 RESULT 分开，未知遥测显示未提供。普通功能沿用当前 WPF/Blazor 视觉，不把整体重设计作为前置条件。
 
 ## 按影响范围验证
 
-以下为最低选择依据，跨层改动组合适用项；命令先核对仓库脚本与本机环境。测试数量是历史事实，不能硬编码成以后交付的固定目标。
+命令中的 dotnet 需要 .NET 10 SDK；本机可用 `build/dotnet10/dotnet.exe`，入口脚本也支持 `-Dotnet`。测试数量是各次验证事实，不能固定成未来交付目标。
 
 | 改动范围 | 必要验证 |
 | --- | --- |
-| 纯文档/治理 | `git diff --check`，差异范围、相对链接/路径及规则一致性检查；无需产品构建或业务测试 |
-| 文案、样式、普通 UI | `npm --prefix frontend run build`，受影响页面实际操作、错误/空态和适用主题/窗口检查；有行为逻辑时执行/补充相关前端测试，不为静态文案写镜像测试 |
-| 前端状态、API Client、异步操作 | 前端 build、`npm --prefix frontend test` 与有针对性的回归；验证重复点击、错误、不确定响应、断线/重连、切换时旧结果隔离等受影响场景；涉及平台联动时加真实 WebView2 |
-| Windows Shell、Bridge、文件保存、终端、发布 | 原生构建、策略/资源检查、真实 WebView2 及受影响的退出/到期/Session 替换；完整入口为 `windows/build.ps1 -Dotnet ./build/dotnet/dotnet.exe -Verify`，包括原生和正式包启动检查。终端交互变化另执行隔离真实 SSH/Telnet 往返，见 PHASE6_VERIFICATION |
-| Go 服务、HTTP/WS API | 受影响包及调用方集成测试、`go vet`、适用 Server build；并发/生命周期变化加 `go test -race`；公开契约变化覆盖旧客户端兼容、DTO、错误/幂等与 HTTP/WS 闭环。跨平台路径覆盖 Windows/Linux |
-| Probe、Gateway、协议实现、文件/现有 Tunnel 生命周期 | 保留并运行 Phase 1～5 全量回归、Go race/vet、C++ CTest/sanitizers、真实 Linux Probe 与 Windows/Linux Server 适用验证；已确认设计变更仍须先走确认流程 |
-| 跨层发布或阶段整体验收 | 覆盖完整 Windows 产品闭环及 Phase 1～5 回归；将集成对端、隔离服务、本机发布和用户实机结果分别记录 |
+| 纯文档/治理 | `git diff --check`，差异、相对链接与规则一致性，无需产品构建 |
+| WPF 文案、样式与普通 UI | `windows/build-desktop.ps1 -BuildOnly`；受影响页面、错误/空态、主题/窗口检查；有行为时加相关回归，不为静态文案写镜像测试 |
+| C# Client、Core、WPF 状态、文件保存或发布 | `windows/build-desktop.ps1 -BuildOnly -Verify`，构建当前 Go Server 并运行 Desktop.Tests；覆盖受影响的错误、不确定响应、断线/重连、重复操作、切换/退出与发布 EXE 启停 |
+| Blazor 编辑、编译、持久化或发布 | `template-generator.ps1 -BuildOnly`、`dotnet test ProbeTemplateGenerator.sln -c Release`；命令兼容测试设置 `RMP_GENERATOR_WSL=RouterAgentTest`。UI/发布链路变化增加下述浏览器流程 |
+| Go 服务、HTTP/WS API | 受影响包及调用方集成、`go vet` 与 Server build；并发/生命周期变化加 race，公开契约覆盖兼容/DTO/错误/幂等 |
+| Probe、Gateway、协议、文件/Tunnel 生命周期 | Phase 1～5 全量回归、Go race/vet、C++ CTest/sanitizers、真实 Linux Probe 及 Windows/Linux Server；未提供真实对端而跳过的用例不能记为通过 |
+| 跨层发布或阶段验收 | 完整当前 Windows 产品闭环及 Phase 1～5 回归，区分测试协议对端、隔离服务、本机发布与厂商实机 |
 
-Phase 1～5 完整入口：[tests/verify-phase5.sh](../tests/verify-phase5.sh)，在满足依赖的隔离 Linux 环境分别执行 `release`、`asan`、`race`，包含 CTest、Go 集成/竞态、ASan/UBSan/TSan。真实 80/22/23 服务测试使用隔离网络/devpts，不能占用用户生产服务。Windows 的 Go 通过不能替代 Linux Probe 集成，未设置真实 Probe 对端而跳过的用例不能记作通过。
+生成器浏览器验证依赖独立保存在 [tests/package.json](../tests/package.json) 和锁文件，先执行 `npm.cmd --prefix tests ci`，只安装已有 Playwright 测试依赖。启动本机 Blazor 后，设置 `GENERATOR_URL`、`RMP_SERVER_BIN`（当前 Go Server EXE），执行 `npm.cmd --prefix tests run test:generator`。默认使用本机 Edge，可通过 `RMP_BROWSER_CHANNEL` 改变已安装的浏览器；`RMP_GENERATOR_OUTPUT` 可设置隔离结果目录。Node 不是两套产品的构建或运行依赖。
 
-Windows 的 [build.ps1](../windows/build.ps1) 会恢复前端依赖并构建验证程序；[verify-native.ps1](../windows/verify-native.ps1) 依赖这些构建产物，不能假定单独运行即完成全部准备。真实终端测试使用 [terminal-test.Dockerfile](../windows/terminal-test.Dockerfile) 与 [verify-terminal-services.ps1](../windows/verify-terminal-services.ps1)，Docker 仅为测试依赖。命令、环境和证据详见 [PHASE6_VERIFICATION](PHASE6_VERIFICATION.md)；本机曾使用 `build/dotnet/dotnet.exe`，新环境须先检查 SDK。
+Desktop.Tests 的 TestProbe 为测试专用协议对端，不进入产品。测试输出 WPF XPS；`windows/RouterWorkbench.Desktop.Tests/render.py` 使用 Python/PyMuPDF 转为 PNG，属于实际控件矢量布局，不等于物理屏幕/DPI 验收。
 
-完整 Windows 产品闭环包括连接/断线/重连、设备实时更新/Session replacement、Maintenance 创建/关闭/默认与自定义租期/到期/Web-SSH-Telnet 三入口、Exec 最终结果、File/Tool、API 错误、重复点击/并发以及切换/退出资源释放。普通变更选择相关场景，整体验收覆盖全部；不删除既有回归要求，也不把每次文档编辑变成整阶段验收。
+Linux 测试复用项目外 WSL 2 `RouterAgentTest`，复制当前源码，在 network/devpts namespace 隔离运行；见 [WSL_TEST_ENVIRONMENT](WSL_TEST_ENVIRONMENT.md)。不将工作区 bind mount 进测试 rootfs。完整入口 [tests/verify-phase5.sh](../tests/verify-phase5.sh) 支持 release/asan/race，真实 80/22/23 服务不能占用用户生产端口；缺失运行库如实记录，不降低断言。
+
+当前 WPF 完整闭环包括连接/断线/重连、设备属性与 Session replacement、维护创建/关闭/默认和自定义租期/到期/外部三入口、文件传输与配置结果、API 错误和不确定请求、重复操作与切换/退出释放。通用任务/工具入口已按 ADR-036 移除，其公开 API 与业务集成仍保留。
 
 ## 文档与交付
 
@@ -78,4 +83,4 @@ Windows 的 [build.ps1](../windows/build.ps1) 会恢复前端依赖并构建验�
 - “切换设备后仍出现上一个设备结果”：检查 connection、查询取消和选择隔离，修复受影响链路并覆盖迟到响应，不据此重写所有状态管理。
 - “上传失败时更好理解”：沿用稳定错误码和中文提示，必要时补兼容的错误映射并验证；不因改善提示自行增加跨重启重试或自动创建替代任务。
 - “维护入口支持任意端口”：触及固定三入口与暂缓范围；给出具体影响和范围内选择，确认设计变更前不实现。
-- “把当前界面发布到公网”或“增加 MCP/AI 自动排障”：说明属于暂缓范围，先取得明确范围调整；不因共享 React 或仓库治理使用 AI 就开始对应产品能力。
+- “把当前界面发布到公网”或“增加 MCP/AI 自动排障”：说明属于暂缓范围，先取得明确范围调整；不因本机 Blazor 工作区或仓库治理使用 AI 就开始对应产品能力。

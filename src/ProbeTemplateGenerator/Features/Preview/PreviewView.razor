@@ -1,0 +1,16 @@
+@using ProbeTemplateGenerator.Features.Validation
+<div class="editor-page preview-page">
+    <header class="editor-heading"><div><div class="eyebrow">预览与校验</div><h2>展示属性预览</h2><p>使用模拟采集值计算；虚拟属性仅参与运算。</p></div><FluentButton OnClick="@(() => State.SetStage(0))">返回编辑</FluentButton></header>
+    <ProbeTemplateGenerator.Features.Validation.ValidationSummary State="State" />
+    @if (State.Compiled is not null)
+    {
+        <div class="data-table-wrap"><table class="data-table"><thead><tr><th>属性名称</th><th>属性标识</th><th>预览值</th><th>结果来源</th></tr></thead><tbody>
+            @foreach (var row in State.PreviewRows)
+            {
+                <tr><td>@row.Name</td><td><code>@row.Key</code></td><td class="preview-value @(row.Error is not null ? "error-text" : "")">@(row.Error ?? row.Value)</td><td class="muted">@(row.Error is not null ? "计算失败" : row.UsesRules ? row.MatchedRule is null ? "默认结果" : $"命中规则 {row.MatchedRule}" : "模拟采集 / 公式")</td></tr>
+            }
+        </tbody></table></div>
+    }
+    <section class="editor-section preview-notes"><h3>预览说明</h3><div class="note-columns"><p>预览不会连接设备或执行命令。实际采集失败、无效数值和除零沿用探针失败提示，不生成替代值。数值公式保留 12 位有效数字；逻辑运算输出 1 / 0。</p><p>公式和条件需要设备支持 POSIX awk，BusyBox awk 可用。每个展示属性独立读取依赖，不共享采样；整次采集仍受 60 秒预算限制。示例中的网络类型映射需要按设备实际含义修改。</p></div></section>
+</div>
+@code { [Parameter, EditorRequired] public EditorWorkspace State { get; set; } = default!; }
