@@ -1,6 +1,6 @@
 # 项目接管手册
 
-2026-09-09当前用户已明确授权将现有项目源码快照提交并推送至`origin/main`（`CRISKAKA78/Router-Agent`）。此次授权覆盖累积产品改造和本轮ADR-047，不受下方各轮“未提交/推送”的历史说明限制；不上传运行数据或构建包。后续接管以本次Git提交和远端状态核对同步结果，不推断实机已验收。
+2026-09-09已按当前用户授权将累积产品改造和ADR-047提交并推送至`origin/main`（`CRISKAKA78/Router-Agent`），源码提交`810de06be5b145c2a08504fd66589906eff5d405`已由远端查询确认。运行数据、构建包及本地配置未上传；随后文档提交仅同步此事实。下方各轮“未提交/推送”为历史说明，后续接管以Git记录核对最新状态，不推断实机已验收。
 
 2026-09-09最新产品基线为ADR-047，十项改造与本机验证已完成。先读[客户工作区验证](CUSTOMER_WORKSPACE_VERIFICATION.md)：Client FileExchange/RemoteDirectory编排公开API，WPF DeviceDirectoryView/ToolWorkspace负责交互，PresentationEditor/DisplayLayout负责稳定分类与storage_visible。WPF280、生成器172、浏览器13及Windows/Linux相关Go验证通过；客户端`build/windows-desktop-customer/win-x64/RouterWorkbench.exe`。用户运行实例未替换；正常重启Server/生成器加载源码，模板改动须发布后显式应用。管理员上传仍后续实施，真实固件/物理DPI/发布EXE启动限制见专项文档。无Git提交/推送。
 
