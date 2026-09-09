@@ -1,5 +1,7 @@
 # 项目接管手册
 
+2026-09-09最新界面基线为ADR-048，先读[接口工作区验证](INTERFACE_WORKSPACE_VERIFICATION.md)。MainWindow/TelemetryViews负责source_ip摘要及异步归属；DeviceViews收纳接口状态子分组，SamplingView仅构建弹窗并经原profile API保存。306项桌面检查、32份布局及自包含发布通过；最新客户端`build/windows-desktop-interfaces/win-x64/RouterWorkbench.exe`。本机公网归属实查超时，不记作真实解析成功；其余实机限制见专项文档。未替换用户运行实例/数据。本轮源码、测试及文档纳入当前进度提交，按用户追加授权同步GitHub的origin/main；提交号与远端状态通过Git核对，构建包和运行数据留在本机。
+
 2026-09-09已按当前用户授权将累积产品改造和ADR-047提交并推送至`origin/main`（`CRISKAKA78/Router-Agent`），源码提交`810de06be5b145c2a08504fd66589906eff5d405`已由远端查询确认。运行数据、构建包及本地配置未上传；随后文档提交仅同步此事实。下方各轮“未提交/推送”为历史说明，后续接管以Git记录核对最新状态，不推断实机已验收。
 
 2026-09-09最新产品基线为ADR-047，十项改造与本机验证已完成。先读[客户工作区验证](CUSTOMER_WORKSPACE_VERIFICATION.md)：Client FileExchange/RemoteDirectory编排公开API，WPF DeviceDirectoryView/ToolWorkspace负责交互，PresentationEditor/DisplayLayout负责稳定分类与storage_visible。WPF280、生成器172、浏览器13及Windows/Linux相关Go验证通过；客户端`build/windows-desktop-customer/win-x64/RouterWorkbench.exe`。用户运行实例未替换；正常重启Server/生成器加载源码，模板改动须发布后显式应用。管理员上传仍后续实施，真实固件/物理DPI/发布EXE启动限制见专项文档。无Git提交/推送。

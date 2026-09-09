@@ -93,14 +93,14 @@ public partial class MainWindow
         UpdateSwitchTable(d);
  Update(storageMetrics,ref storageRows,disks);Update(networkMetrics,ref networkRows,nets);
     }
-    private readonly IpLocation locations=new();
+    private readonly IpLocation locations;
     private CancellationTokenSource? locationCancel;
     private Task locationWork=Task.CompletedTask;
     private string locationKey="";
     private DateTimeOffset locationRetry;
     private readonly Dictionary<string,IpLocationResult> locationResults=[];
     private static string Address(Device d,string family)=>d.EffectiveMetrics?.GetValueOrDefault("egress_"+family) is {Status:"ok"} m?m.Value:"";
-    private IpLocationResult Location(string ip)=>locationResults.GetValueOrDefault(ip)??new("—","—",string.IsNullOrEmpty(ip)?"尚未获取出口 IP":"正在查询归属地与运营商");
+    private IpLocationResult Location(string? ip)=>string.IsNullOrEmpty(ip) ? new("—","—","尚未获取 IP") : locationResults.GetValueOrDefault(ip)??new("—","—","正在查询归属地与运营商");
     private IEnumerable<PropertyRow> LocationRows(Device d)
     {
         yield return new("连接","连接来源 IP",DeviceProperties.Text(d.SourceIp),string.IsNullOrEmpty(d.SourceIp)?"服务器未提供连接来源":""){Key="source_ip"};
@@ -111,11 +111,14 @@ public partial class MainWindow
             yield return new("出口",name+" 运营商",result.Isp,result.Reason){Key="egress_"+family+"_isp",MetricGroup="egress"};
         }
     }
-    private string EgressSummary(Device d)=>string.Join("\n",new[]{"ipv4","ipv6"}.Select(f=>{var ip=Address(d,f);var result=Location(ip);return $"{(f=="ipv4"?"IPv4":"IPv6")}：{DeviceProperties.Text(ip)}/{result.Place}/{result.Isp}";}));
-    private string EgressTip(Device d)=>string.Join("\n",LocationRows(d).Where(r=>r.Group=="出口"&&r.ValueTip.Length>0).Select(r=>r.Name+"："+r.ValueTip));
+    private string SourceLocationSummary(Device d)
+    {
+        var result = Location(d.SourceIp);
+        return result.Isp == "—" && result.Place == "—" ? "—" : result.Isp + " / " + result.Place;
+    }
     private void UpdateLocation(Device? device)
     {
-        var addresses=device==null?[]:new[]{Address(device,"ipv4"),Address(device,"ipv6")}.Where(s=>s.Length>0).Distinct().ToArray();
+        var addresses=device==null?[]:new[]{device.SourceIp,Address(device,"ipv4"),Address(device,"ipv6")}.OfType<string>().Where(s=>s.Length>0).Distinct().ToArray();
         var key=device==null?"":$"{device.DeviceId}|{device.CurrentSession?.SessionId??device.LatestSession?.SessionId}|{string.Join('|',addresses)}";
         if(key==locationKey&&(DateTimeOffset.UtcNow<locationRetry||!locationWork.IsCompleted))return;
         locationCancel?.Cancel();locationKey=key;locationRetry=DateTimeOffset.UtcNow.AddMinutes(5);locationResults.Clear();

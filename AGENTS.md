@@ -63,6 +63,7 @@ Phase 0 完成后，仓库内 Markdown 文档成为项目持续维护的当前�
 
 ## 持续适用的已确认约束
 
+- ADR-048：工作区名称为设备详情、远程维护、文件管理、配置管理、仓库工具。接口状态内并排外壳端口/系统端口，末尾接口采样时间只打开配置弹窗；所选设备出口IP只显示Server的source_ip，运营商及归属地异步解析该IP。局部取代ADR-045/047对应摘要与导航，公开契约保持。
 - ADR-037：当前只保留 .NET 10 / WPF 主 UI 和 .NET 10 / Blazor / Fluent UI 探针模板生成器。React 前端、WinUI/Win32/WebView2 旧宿主及专属构建、测试、Bridge/ConPTY 已移除，不恢复旧 UI。当前启动入口为 `ui-windows.cmd` 与 `template-generator.cmd`，构建与验证见 docs/DEVELOPMENT.md；历史 ADR/验收文档不作为现存代码导航。运行数据和既有发布包不纳入源码清理或 Git 提交。
 - ADR-036/047：服务器配置统一顶部设置弹窗，启动自动连接上次保存地址；维护展示 Web/SSH/Telnet 公共链接并打开外部客户端，无默认内置 Shell 或通用任务入口。SSH 新配置默认 admin/admin，可修改，密码以 Windows 当前用户 DPAPI 加密保存、显式复制给外部客户端；不自动登录或接收主机密钥。文件页负责设备目录与本地上传下载，工作区末项仓库工具仅查询、搜索和显式确认投放，不发布或自动执行。管理员上传通道后续另行实施。属性及存储页按已应用模板展示设置过滤，分类编辑顺序独立于展示归组；ADR-047取代相关旧导航/接口分组/存储恒显规则，Server/Probe文件业务契约保持。
 - ADR-035：Windows 主程序是原生 C# 工程工作区，页面在 `windows/RouterWorkbench.Desktop`，公开 API/WS Client 在 `windows/RouterWorkbench.Client`，Core 保留配置、外部启动与端点校验。当前规范与验证见 `docs/WINDOWS_DESKTOP_MIGRATION.md`；历史宿主验证不能替代 WPF 验证。

@@ -30,8 +30,10 @@ public partial class MainWindow : Window
     private Device? Device => snapshot.Devices.FirstOrDefault(d => d.DeviceId == selectedDevice);
     private bool Writable => connection is { Synchronized: true, Busy: false, Pending: null } && !working;
     public MainWindow() : this(ServerProfile.DefaultPath) { }
-    public MainWindow(string settingsPath)
+    public MainWindow(string settingsPath) : this(settingsPath, new IpLocation()) { }
+    internal MainWindow(string settingsPath, IpLocation locationService)
     {
+        locations = locationService;
         profilePath = settingsPath; SetResourceReference(StyleProperty, typeof(Window)); InitializeComponent();
         try { profile = File.Exists(profilePath) ? ServerProfile.Load(profilePath) : new() { SshUser = "admin" }; } catch (Exception e) { Log("错误", "读取配置失败：" + e.Message); }
         Theme.Apply(profile.Theme); ActivityGrid.ItemsSource = activity; QuickProperties.ItemsSource = quickProperties;
@@ -48,8 +50,8 @@ public partial class MainWindow : Window
     }
     private void BuildViews()
     {
-        AddPage("overview", "设备", BuildOverview()); DiscoveryTab.Content=BuildDiscoveries(); ConfigureDeviceMenu(); AddPage("maintenance", "维护", BuildMaintenance());
-        AddPage("files", "文件", BuildFiles()); AddPage("config", "配置", BuildConfig()); settingsContent = BuildSettings(); AddPage("tools", "仓库工具", BuildTools());
+        AddPage("overview", "设备详情", BuildOverview()); DiscoveryTab.Content=BuildDiscoveries(); ConfigureDeviceMenu(); AddPage("maintenance", "远程维护", BuildMaintenance());
+        AddPage("files", "文件管理", BuildFiles()); AddPage("config", "配置管理", BuildConfig()); settingsContent = BuildSettings(); AddPage("tools", "仓库工具", BuildTools());
     }
     private void AddPage(string key, string title, UIElement view) { var tab = new TabItem { Header = title, Tag = key, Content = view }; tabs[key] = tab; WorkspaceTabs.Items.Add(tab); }
     private string Page => (WorkspaceTabs.SelectedItem as TabItem)?.Tag?.ToString() ?? "overview";
@@ -78,7 +80,8 @@ public partial class MainWindow : Window
             new PropertyRow("","设备ID",device.DeviceId),
             DeviceProperties.Field(device,"firmware","固件版本",device.Registration.Firmware),
             DeviceProperties.Uptime(device),
-            new PropertyRow("","出口IP及归属地", EgressSummary(device), EgressTip(device)),
+            new PropertyRow("","出口IP", DeviceProperties.Text(device.SourceIp), string.IsNullOrEmpty(device.SourceIp) ? "服务器未提供连接来源 IP" : "服务器观察到的探针连接来源 IP"),
+            new PropertyRow("","运营商及归属地", SourceLocationSummary(device), Location(device.SourceIp).Reason),
             new PropertyRow("","探针版本",DeviceProperties.Text(device.Registration.ProbeVersion)),
             new PropertyRow("","模板版本",AppliedTemplateVersion(device),ConfigState(device.Profile?.ConfigurationState)+"\n"+(device.Profile?.ConfigurationError??"")),
             new PropertyRow("","最近心跳",Labels.Time(device.Runtime?.ReportedAt),device.Runtime==null?"尚未收到心跳":"") };
@@ -189,6 +192,7 @@ public partial class MainWindow : Window
         if(ConnectButton!=null) ConnectButton.IsEnabled = !working; var online = Device is { Online: true, Managed: true } && Writable;
         foreach (var button in deviceActions) button.IsEnabled = online;
         foreach (var button in writes) button.IsEnabled = Writable;
+        samplingButton.IsEnabled = Writable && Device is { Managed: true };
         configSubmit.IsEnabled = online && Device?.Registration.Capabilities.Contains("router_config") == true;
         UpdateMaintenanceClock(); UpdateQuickProperties(); UpdateConnectionHistoryClock();
     }

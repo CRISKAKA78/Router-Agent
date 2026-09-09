@@ -11,7 +11,7 @@ public partial class MainWindow
         new("builtin_system", "系统信息", 0),
         new("builtin_resources", "资源监控", 1),
         .. (presentation?.Groups ?? []).OrderBy(g => g.Order).ThenBy(g => g.Id, StringComparer.Ordinal),
-        new("builtin_interfaces", "外壳端口", 1000001),
+        new("builtin_interfaces", "接口状态", 1000001),
         new("other", "其他信息", 1000002)
     ];
 

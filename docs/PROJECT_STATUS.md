@@ -1,5 +1,7 @@
 # 项目状态
 
+2026-09-09 ADR-048已实现：所选设备拆分出口IP/运营商及归属地，仅以Server的source_ip显示并解析；接口状态包含外壳/系统端口，末尾同排接口采样时间打开弹窗；导航改为设备详情、远程维护、文件管理、配置管理。桌面306项检查、32份WPF布局及自包含发布通过，详见[本轮验证](INTERFACE_WORKSPACE_VERIFICATION.md)。成品为`build/windows-desktop-interfaces/win-x64/RouterWorkbench.exe`；公网归属服务本机实查超时，厂商实机/物理DPI及发布EXE直接启停未验收。未替换用户进程或运行数据。本轮源码、测试及文档纳入当前进度提交；用户已追加授权推送至GitHub的origin/main，构建产物与运行数据不上传。
+
 2026-09-09当前项目源码已按用户授权上传GitHub：`CRISKAKA78/Router-Agent`的main已确认包含源码提交`810de06be5b145c2a08504fd66589906eff5d405`，包含累计产品改造、测试、文档及必要依赖源码，排除运行数据、构建包和本地配置。下文“未提交/推送”为各开发轮次结束时的历史记录。上传前完成提交范围、凭据模式、文件大小及差异检查；保留上游依赖生成文件原有末尾空行。本次没有新增功能或重新执行产品测试，验证事实仍以各专项记录为准。
 
 2026-09-09 ADR-047十项改造已实现：设备列表/发现、模板选择、顶部设置、并列端口页、采样末页、图上说明清理、模板分类稳定编辑和独立磁盘展示、设备文件上传下载、仓库工具查询与确认投放。WPF280、生成器172（0跳过）、浏览器13组、31份WPF布局渲染及Windows/Linux相关Go测试/vet/build通过，Linux相关race通过。自包含客户端为`build/windows-desktop-customer/win-x64/RouterWorkbench.exe`；[本轮验证与限制](CUSTOMER_WORKSPACE_VERIFICATION.md)。管理员上传通道未建设；未替换用户进程/设备Probe或运行数据，未提交/推送。

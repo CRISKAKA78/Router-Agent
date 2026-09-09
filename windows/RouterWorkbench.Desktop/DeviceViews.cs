@@ -30,7 +30,9 @@ public partial class MainWindow
     private readonly Dictionary<string, PropertyPage> propertyPages = [];
     private UIElement interfaceView = null!, discoveryDetails = null!;
     private DataGrid discoveryProperties = null!;
-    private TabItem storageTab = null!, historyTab = null!, systemPortsTab = null!, samplingTab = null!;
+    private TabItem storageTab = null!, historyTab = null!;
+    private TabControl interfaceTabs = null!;
+    private Button samplingButton = null!;
 
     private UIElement BuildOverview()
     {
@@ -41,9 +43,14 @@ public partial class MainWindow
         foreach (var grid in new[] { networkMetrics, storageMetrics })
             foreach (var column in grid.Columns.OfType<DataGridTextColumn>()) column.ElementStyle = Ui.CellTextStyle(column.Binding is System.Windows.Data.Binding binding ? binding.Path.Path + "Tip" : null);
         networkMetrics.MouseDoubleClick += (_, e) => { if (e.OriginalSource is DependencyObject source && ItemsControl.ContainerFromElement(networkMetrics, source) is DataGridRow row && row.Item is MonitorTableRow selected) OpenNetworkChart(selected); };
-        interfaceView = BuildSwitchTable();
-        systemPortsTab = new TabItem { Header="系统端口", Tag="system_ports", Content=BuildSystemPorts() };
-        samplingTab = new TabItem { Header="接口采样设置", Tag="sampling", Content=BuildSamplingView() };
+        samplingButton = Ui.Button("接口采样时间", () => _ = Run("接口采样时间", OpenSampling));
+        samplingButton.Margin = new(10, 3, 0, 3);
+        System.Windows.Automation.AutomationProperties.SetName(samplingButton, "接口采样时间");
+        interfaceTabs = new TabControl { Style = (Style)FindResource("PropertyTabs"), Tag = samplingButton };
+        interfaceTabs.Items.Add(new TabItem { Header="外壳端口", Tag="physical_ports", Content=BuildSwitchTable() });
+        interfaceTabs.Items.Add(new TabItem { Header="系统端口", Tag="system_ports", Content=BuildSystemPorts() });
+        interfaceTabs.SelectedIndex = 0;
+        interfaceView = interfaceTabs;
         overviewTabs = new TabControl { Style = (Style)FindResource("PropertyTabs") };
         overviewTabs.SelectionChanged += (_, e) => {
             if (e.Source == overviewTabs && overviewTabs.SelectedItem is TabItem { Tag: string id } && propertyPages.TryGetValue(id, out var page)) properties = page.Table;
@@ -64,7 +71,7 @@ public partial class MainWindow
         var definitions = PropertyGroupDefinitions(device?.Presentation);
         var selected = (overviewTabs.SelectedItem as TabItem)?.Tag?.ToString();
         var current = overviewTabs.Items.Cast<TabItem>().Select(t => t.Tag?.ToString()).ToArray();
-        var expected = definitions.SelectMany(g => g.Id=="builtin_interfaces" ? new[]{g.Id,"system_ports"} : new[]{g.Id}).Concat(device?.Presentation?.StorageVisible==false?new[]{"history","sampling"}:new[]{"storage","history","sampling"}).ToArray();
+        var expected = definitions.Select(g => g.Id).Concat(device?.Presentation?.StorageVisible==false?new[]{"history"}:new[]{"storage","history"}).ToArray();
         foreach (var definition in definitions)
         {
             if (!propertyPages.TryGetValue(definition.Id, out var page))
@@ -87,9 +94,9 @@ public partial class MainWindow
         if (!current.SequenceEqual(expected))
         {
             overviewTabs.Items.Clear();
-            foreach (var definition in definitions) { overviewTabs.Items.Add(propertyPages[definition.Id].Tab); if(definition.Id=="builtin_interfaces") overviewTabs.Items.Add(systemPortsTab); }
+            foreach (var definition in definitions) overviewTabs.Items.Add(propertyPages[definition.Id].Tab);
             if(device?.Presentation?.StorageVisible!=false) overviewTabs.Items.Add(storageTab);
-            overviewTabs.Items.Add(historyTab); overviewTabs.Items.Add(samplingTab);
+            overviewTabs.Items.Add(historyTab);
             foreach (var id in propertyPages.Keys.Except(definitions.Select(g => g.Id)).ToArray()) propertyPages.Remove(id);
             overviewTabs.SelectedItem = overviewTabs.Items.Cast<TabItem>().FirstOrDefault(t => t.Tag?.ToString() == selected) ?? overviewTabs.Items[0];
         }
@@ -98,7 +105,7 @@ public partial class MainWindow
 
     private void UpdateOverview()
     {
-        var device = Device; UpdateLocation(device); UpdateMonitorTables(device); UpdateSamplingView(device);
+        var device = Device; UpdateLocation(device); UpdateMonitorTables(device);
         UpdatePropertyPages(device);
         var pending = device is { Managed: false };
         discoveryDetails.Visibility = pending ? Visibility.Visible : Visibility.Collapsed;

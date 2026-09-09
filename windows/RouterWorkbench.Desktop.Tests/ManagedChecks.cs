@@ -43,7 +43,7 @@ internal static partial class Program
         await TableRefinementChecks(window);
         var props=Field<DataGrid>(window,"properties");var rows=Field<PropertyRow[]>(window,"propertyRows");
         Check(rows.Where(r=>r.GroupId=="basic").Select(r=>r.Key).SequenceEqual(new[]{"hostname","device_id"})&&rows.Single(r=>r.Key=="signal").GroupId=="network","template field order and custom assignment");
-        Check(Field<TabControl>(window,"overviewTabs").Items.Cast<TabItem>().Select(t=>t.Header.ToString()).SequenceEqual(new[]{"系统信息","资源监控","基本信息","网络信息","外壳端口","系统端口","其他信息","存储空间","连接历史","接口采样设置"}),"built-in and custom groups are parallel; specialized pages retained");
+        Check(Field<TabControl>(window,"overviewTabs").Items.Cast<TabItem>().Select(t=>t.Header.ToString()).SequenceEqual(new[]{"系统信息","资源监控","基本信息","网络信息","接口状态","其他信息","存储空间","连接历史"}),"built-in and custom groups are parallel; interface status contains port groups without sampling page");
         props.UpdateLayout();Check(!Visuals<Expander>(props).Any(),"property pages have no nested group expanders");
         var switchValues=new Dictionary<string,object>();foreach(var (key,value) in new[]{("state","up"),("admin","down"),("chip","switch0"),("port","1"),("system","vlan3"),("uplink","eth0"),("label","端口1"),("speed","1000"),("duplex","full"),("role","external")})switchValues["switch_lan1_"+key]=new{name=key,value,unit="text",status="ok",entity="lan1",interval_seconds=5};
         foreach(var (field,value,unit) in new[]{("rx_bytes_per_sec","1000","bytes_per_sec"),("tx_bytes_per_sec","2000","bytes_per_sec"),("rx_bytes","1048576","bytes"),("tx_bytes","2097152","bytes"),("rx_raw_bytes","9007199254740993","bytes"),("tx_raw_bytes","9007199254741003","bytes"),("elapsed_seconds","60","seconds"),("counter_source","swconfig_mib switch0:1 RxGoodByte/TxByte","text"),("counter_basis","RX good / TX bytes","text")})switchValues["switch_lan1_"+field]=new{name=field,value,unit,status="ok",entity="lan1",interval_seconds=5};
@@ -63,15 +63,12 @@ internal static partial class Program
         await Eventually(()=>Task.FromResult(peer.ConfigurationRevision==2&&connection.Snapshot.Devices.Single(d=>d.DeviceId=="managed-ui").AppliedRevision==2),"sampling revision changes without reconnect");
         Check(peer.SessionId==d.CurrentSession?.SessionId,"configuration update retains original Session");
         await peer.ReportAsync("template",new{signal=new{name="信号",value="90",unit="text",status="ok",interval_seconds=7}});await peer.ReportAsync("switch",switchValues);await Eventually(()=>Task.FromResult(Field<DataGrid>(window,"switchPorts").Items.Count==1),"new configuration replaces previous port sample");
-        Render(window,"managed-groups.png");var tabs=Field<TabControl>(window,"overviewTabs");tabs.SelectedItem=tabs.Items.Cast<TabItem>().Single(t=>t.Header?.ToString()=="外壳端口");await Task.Delay(100);Render(window,"managed-switch-ports.png");tabs.SelectedIndex=0;
+        Render(window,"managed-groups.png");var tabs=Field<TabControl>(window,"overviewTabs");tabs.SelectedItem=tabs.Items.Cast<TabItem>().Single(t=>t.Header?.ToString()=="接口状态");Field<TabControl>(window,"interfaceTabs").SelectedIndex=0;await Task.Delay(100);Render(window,"managed-switch-ports.png");tabs.SelectedIndex=0;
         await WorkspaceChecks(window,api,connection);
         await api.ExecuteAsync(new("离线配置验证","devices/managed-ui/disconnect",new{}));
         await Eventually(()=>Task.FromResult(!connection.Snapshot.Devices.Single(d=>d.DeviceId=="managed-ui").Online),"device disconnect preserves managed offline record");
         devices.SelectedItem=devices.Items.Cast<Device>().Single(d=>d.DeviceId=="managed-ui");
-        var overview=Field<TabControl>(window,"overviewTabs");overview.SelectedItem=overview.Items.Cast<TabItem>().Single(t=>t.Header.ToString()=="接口采样设置");
-        window.UpdateLayout();Render(window,"interface-sampling.png");
-        Field<TextBox>(window,"samplingSeconds").Text="4";
-        await InvokeAsync(window,"SaveSamplingView",false);
+        await SamplingDialogChecks(window,api,connection);
         var offline=await api.GetAsync<Device>("devices/managed-ui");
         Check(!offline.Online&&offline.Profile?.InterfaceSampling?.NetworkSeconds==4&&offline.Profile.Monitoring==null&&offline.Profile.ConfigurationState=="waiting_dispatch","native offline sampling save persists desired configuration for reconnect");
         var counterTemplate=(await api.ExecuteAsync(new("可选计数能力模板","probe-templates",new{name="硬件字节",properties=new{},switch_probe=new{backend="swconfig",ports=new[]{new{id="lan1",switch_id="switch0",port=1,role="external"}},counters=new{backend="swconfig_mib",rx_field="RxGoodByte",tx_field="TxByte",bits=64,basis="hardware bytes"}}}))).Deserialize<ProbeTemplate>(ApiJson.Options)!;

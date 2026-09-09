@@ -62,7 +62,10 @@
   <Setter Property="Template"><Setter.Value><ControlTemplate TargetType="TabControl">
    <DockPanel KeyboardNavigation.TabNavigation="Local">
     <ScrollViewer DockPanel.Dock="Top" HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Disabled" Focusable="False">
-     <StackPanel IsItemsHost="True" Orientation="Horizontal" KeyboardNavigation.TabIndex="1"/>
+     <StackPanel Orientation="Horizontal">
+      <StackPanel IsItemsHost="True" Orientation="Horizontal" KeyboardNavigation.TabIndex="1"/>
+      <ContentPresenter Content="{TemplateBinding Tag}" VerticalAlignment="Center"/>
+     </StackPanel>
     </ScrollViewer>
     <Border Background="{TemplateBinding Background}" BorderBrush="{TemplateBinding BorderBrush}" BorderThickness="{TemplateBinding BorderThickness}">
      <ContentPresenter x:Name="PART_SelectedContentHost" ContentSource="SelectedContent" Margin="{TemplateBinding Padding}"/>

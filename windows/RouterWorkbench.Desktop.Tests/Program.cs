@@ -36,7 +36,7 @@ internal static partial class Program
         Theme.Apply("Light"); var exit = 1;
         app.Dispatcher.BeginInvoke(async () => {
             try {
-                await TelemetryChecks(); await ClientChecks(); await FileExchangeRetryChecks(); await IntegrationChecks(args[0]);
+                await TelemetryChecks(); await ClientChecks(); await SourceSummaryChecks(); await FileExchangeRetryChecks(); await IntegrationChecks(args[0]);
                 Console.WriteLine($"PASS {checks} checks; screenshots: {output}"); exit = 0;
             } catch (Exception e) { Console.Error.WriteLine(e); }
             finally { app.Shutdown(); }
@@ -232,7 +232,7 @@ internal static partial class Program
                 foreach (var page in new[] { "overview", "maintenance", "files", "config", "tools" }) {
                     Invoke(window, "Navigate", page); await Task.Delay(150); await InvokeAsync(window,"RefreshDetails");
                     Render(window, theme.ToLowerInvariant()+"-"+page+"-1480.png");
-                    if(page=="overview") {foreach(var pair in new[]{("storageMetrics","storage"),("networkMetrics","network")}) {var table=Field<DataGrid>(window,pair.Item1);var tabs=Field<TabControl>(window,"overviewTabs");var tab=tabs.Items.Cast<TabItem>().Single(t=>t.Header?.ToString()==(pair.Item2=="storage"?"存储空间":"系统端口"));tabs.SelectedItem=tab;await Task.Delay(80);Render(window,theme.ToLowerInvariant()+"-"+pair.Item2+"-1480.png");tabs.SelectedIndex=0;}}
+                    if(page=="overview") {foreach(var pair in new[]{("storageMetrics","storage"),("networkMetrics","network")}) {var table=Field<DataGrid>(window,pair.Item1);var tabs=Field<TabControl>(window,"overviewTabs");var tab=tabs.Items.Cast<TabItem>().Single(t=>t.Header?.ToString()==(pair.Item2=="storage"?"存储空间":"接口状态"));tabs.SelectedItem=tab;if(pair.Item2=="network")Field<TabControl>(window,"interfaceTabs").SelectedIndex=1;await Task.Delay(80);Render(window,theme.ToLowerInvariant()+"-"+pair.Item2+"-1480.png");tabs.SelectedIndex=0;}}
                 }
             }
             window.Width = 1000; window.Height = 700; Invoke(window,"Navigate","maintenance"); await Task.Delay(100); Render(window,"dark-maintenance-1000.png");
@@ -295,13 +295,14 @@ internal static partial class Program
         Check(ReferenceEquals(source, quick.ItemsSource) && ReferenceEquals(row, quick.Items[0]) && changes == 0 && log.Count == count, "periodic refresh keeps selected-device rows without reset or log spam");
         quick.UpdateLayout();
         Check(ReferenceEquals(container, quick.ItemContainerGenerator.ContainerFromIndex(0)) && unloaded == 0, "periodic refresh does not unload or recreate selected-device visual row");
-        var heartbeat = quick.Items[8]; var notified = new List<string?>();
+        object Heartbeat() => quick.Items.Cast<object>().Single(r => r.GetType().GetProperty("Name")!.GetValue(r)?.ToString() == "最近心跳");
+        var heartbeat = Heartbeat(); var notified = new List<string?>();
         ((System.ComponentModel.INotifyPropertyChanged)heartbeat).PropertyChanged += (_,e) => notified.Add(e.PropertyName);
         var original = Field<Snapshot>(window, "snapshot"); var selected = Field<string>(window, "selectedDevice");
         var device = original.Devices.Single(d => d.DeviceId == selected); var seen = (device.LastSeenAt ?? DateTimeOffset.UtcNow).AddMinutes(1);
         window.GetType().GetField("snapshot", BindingFlags.Instance | BindingFlags.NonPublic)!.SetValue(window, original with { Devices = original.Devices.Select(d => d.DeviceId == selected ? d with { Runtime = new DeviceRuntime(d.Runtime?.UptimeSeconds, seen), LastSeenAt = seen, Registration = d.Registration with { Model = "" } } : d).ToArray() });
         Invoke(window, "ApplySnapshot");
-        Check(ReferenceEquals(heartbeat, quick.Items[8]) && heartbeat.GetType().GetProperty("Value")!.GetValue(heartbeat)?.ToString() == Labels.Time(seen) && notified.SequenceEqual(device.Runtime == null ? new[] { "ValueTip", "Value" } : new[] { "Value" }) && changes == 0, "heartbeat updates only existing value binding without resetting rows");
+        Check(ReferenceEquals(heartbeat, Heartbeat()) && heartbeat.GetType().GetProperty("Value")!.GetValue(heartbeat)?.ToString() == Labels.Time(seen) && notified.SequenceEqual(device.Runtime == null ? new[] { "ValueTip", "Value" } : new[] { "Value" }) && changes == 0, "heartbeat updates only existing value binding without resetting rows");
         Check(quick.Items[1].GetType().GetProperty("Value")!.GetValue(quick.Items[1])?.ToString() == "—", "missing selected-device field clears old value explicitly");
         Invoke(window, "ApplySnapshot"); Check(notified.Count == (device.Runtime == null ? 2 : 1), "unchanged heartbeat value emits no redundant notification");
         window.GetType().GetField("snapshot", BindingFlags.Instance | BindingFlags.NonPublic)!.SetValue(window, original); Invoke(window, "ApplySnapshot");

@@ -3,39 +3,46 @@ using System.Windows.Controls;
 using RouterWorkbench.Client;
 
 namespace RouterWorkbench.Desktop;
+
 public partial class MainWindow
 {
-    private TextBox samplingSeconds=null!,samplingNames=null!;
-    private ComboBox samplingScope=null!;
-    private TextBlock samplingState=null!;
-    private string samplingIdentity="";
-    private UIElement BuildSamplingView()
+    private Task OpenSampling()
     {
-        samplingSeconds=Ui.Input("5");samplingNames=Ui.Input();samplingScope=Ui.Combo(["模板默认","全部接口","指定接口"],0,double.NaN);
-        samplingState=Ui.Text("",true);samplingState.TextWrapping=TextWrapping.Wrap;
-        var panel=new StackPanel {Margin=new(20),MaxWidth=560,HorizontalAlignment=HorizontalAlignment.Left};
-        panel.Children.Add(Ui.Labeled("采样周期（秒，0关闭）",samplingSeconds));panel.Children.Add(Ui.Labeled("采样接口",samplingScope));panel.Children.Add(Ui.Labeled("接口名称（逗号分隔）",samplingNames));
-        samplingScope.SelectionChanged+=(_,_)=>samplingNames.IsEnabled=samplingScope.SelectedIndex==2;
-        panel.Children.Add(Ui.Bar(WriteButton("保存接口设置",()=>_ = Run("保存接口设置",()=>SaveSamplingView(false))),WriteButton("恢复模板默认",()=>_ = Run("恢复模板默认",()=>SaveSamplingView(true)))));panel.Children.Add(samplingState);
-        return new ScrollViewer {Content=panel,VerticalScrollBarVisibility=ScrollBarVisibility.Auto};
-    }
-    private void UpdateSamplingView(Device? device)
-    {
-        if(samplingSeconds==null)return;
-        var identity=(connection?.Api.Origin.ToString()??"")+"|"+device?.DeviceId+"|"+device?.Profile?.Version;
-        samplingState.Text=device?.Profile is {} profile?ConfigState(profile.ConfigurationState)+(string.IsNullOrEmpty(profile.ConfigurationError)?"":" · "+profile.ConfigurationError):"请选择已纳管设备。";
-        if(samplingIdentity==identity)return;samplingIdentity=identity;
-        var defaults=device?.Profile?.Monitoring??device?.Profile?.BoundTemplate?.Monitoring??new();var sampling=device?.Profile?.InterfaceSampling;
-        samplingSeconds.Text=(sampling?.NetworkSeconds??defaults.NetworkSeconds).ToString();samplingNames.Text=sampling?.NetworkInterfaces??"";
-        samplingScope.SelectedIndex=sampling?.NetworkInterfaces is null?0:sampling.NetworkInterfaces.Length==0?1:2;samplingNames.IsEnabled=samplingScope.SelectedIndex==2;
-    }
-    private async Task SaveSamplingView(bool reset)
-    {
-        var device=RequireDevice(false);if(!device.Managed)throw new InvalidOperationException("请先纳管设备。");var profile=device.Profile!;
-        InterfaceSampling? sampling=null;
-        if(!reset){if(!uint.TryParse(samplingSeconds.Text,out var seconds)||seconds>86400)throw new InvalidOperationException("采样周期须为0～86400的整数。");
-            var names=samplingScope.SelectedIndex==0?null:samplingScope.SelectedIndex==1?"":samplingNames.Text.Trim();
-            if(samplingScope.SelectedIndex==2&&string.IsNullOrEmpty(names))throw new InvalidOperationException("请填写需要采样的接口名称。");sampling=new(seconds,names);}
-        await SaveProfile(device,"managed",profile.Name,profile.ModelId,profile.BoundTemplate?.TemplateId??"",0,false,profile.Monitoring,profile.PropertyIntervals,sampling,true);
+        var device = RequireDevice(false);
+        if (!device.Managed || device.Profile is not { } profile) throw new InvalidOperationException("请先纳管设备。");
+        var owner = Connected();
+        var defaults = profile.Monitoring ?? profile.BoundTemplate?.Monitoring ?? new();
+        var sampling = profile.InterfaceSampling;
+        var seconds = Ui.Input((sampling?.NetworkSeconds ?? defaults.NetworkSeconds).ToString());
+        var names = Ui.Input(sampling?.NetworkInterfaces ?? "");
+        var scope = Ui.Combo(["模板默认", "全部接口", "指定接口"], sampling?.NetworkInterfaces is null ? 0 : sampling.NetworkInterfaces.Length == 0 ? 1 : 2, double.NaN);
+        var inherit = new CheckBox { Content = "恢复模板默认", Margin = new(0, 0, 0, 12) };
+        var fields = new StackPanel();
+        fields.Children.Add(Ui.Labeled("采样周期（秒，0关闭）", seconds));
+        fields.Children.Add(Ui.Labeled("采样接口", scope));
+        fields.Children.Add(Ui.Labeled("接口名称（逗号分隔）", names));
+        names.IsEnabled = scope.SelectedIndex == 2;
+        scope.SelectionChanged += (_, _) => names.IsEnabled = scope.SelectedIndex == 2;
+        inherit.Checked += (_, _) => fields.IsEnabled = false;
+        inherit.Unchecked += (_, _) => fields.IsEnabled = true;
+        var note = Ui.Text($"设备：{device.DisplayName}\n" + ConfigState(profile.ConfigurationState) +
+            (string.IsNullOrEmpty(profile.ConfigurationError) ? "" : " · " + profile.ConfigurationError) +
+            (device.Online ? "" : " · 保存后等待设备上线应用"), true);
+        note.TextWrapping = TextWrapping.Wrap; note.Margin = new(0, 0, 0, 16);
+        var panel = new StackPanel { Children = { note, inherit, fields } };
+        new ActionWindow(this, "接口采样时间", new ScrollViewer { Content = panel, VerticalScrollBarVisibility = ScrollBarVisibility.Auto }, "保存", async () => {
+            if (owner != connection || closing || selectedDevice != device.DeviceId) throw new OperationCanceledException();
+            InterfaceSampling? value = null;
+            if (inherit.IsChecked != true)
+            {
+                if (!uint.TryParse(seconds.Text, out var interval) || interval > 86400) throw new InvalidOperationException("采样周期须为0～86400的整数。");
+                var interfaces = scope.SelectedIndex == 0 ? null : scope.SelectedIndex == 1 ? "" : names.Text.Trim();
+                if (scope.SelectedIndex == 2 && string.IsNullOrEmpty(interfaces)) throw new InvalidOperationException("请填写需要采样的接口名称。");
+                value = new(interval, interfaces);
+            }
+            await SaveProfile(device, "managed", profile.Name, profile.ModelId, profile.BoundTemplate?.TemplateId ?? "", 0, false,
+                profile.Monitoring, profile.PropertyIntervals, value, true);
+        }) { Width = 570, Height = 450 }.ShowDialog();
+        return Task.CompletedTask;
     }
 }
