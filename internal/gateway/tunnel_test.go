@@ -14,7 +14,7 @@ import (
 
 func TestTunnelBindingReplacementAndWriterRevalidation(t *testing.T) {
 	s, address := startTestServer(t)
-	payload := `{"device_id":"bound","probe_version":"v1","arch":"arm","boot_id":"boot","capabilities":["tunnel"]}`
+	payload := `{"device_id":"bound","probe_version":"v1","arch":"arm","boot_id":"boot","capabilities":["tunnel","managed_config_v1","telemetry_v2"]}`
 	deviceConnect(t, s, address, payload)
 	binding, e := s.BindTunnel("bound")
 	if e != nil {
@@ -62,7 +62,7 @@ func TestTunnelBindingReplacementAndWriterRevalidation(t *testing.T) {
 
 func TestMaintenanceReleaseIndependentOfBlockedControlAndFullQueue(t *testing.T) {
 	g, address := startTestServer(t)
-	peer := deviceConnect(t, g, address, `{"device_id":"blocked","probe_version":"v1","arch":"arm","boot_id":"boot","capabilities":["tunnel"]}`)
+	peer := deviceConnect(t, g, address, `{"device_id":"blocked","probe_version":"v1","arch":"arm","boot_id":"boot","capabilities":["tunnel","managed_config_v1","telemetry_v2"]}`)
 	s, e := tunnel.New(tunnel.Config{DataListen: "127.0.0.1:0", PortFirst: 28000, PortLast: 28100}, g)
 	if e != nil {
 		t.Fatal(e)

@@ -59,10 +59,12 @@ func deviceConnect(t *testing.T, s *Server, address, payload string) net.Conn {
 
 func TestDeviceGatewayLifecycle(t *testing.T) {
 	s, address := startTestServer(t)
-	full := `{"device_id":"inventory","serial":"S","model":"M","firmware":"F","probe_version":"v1","hostname":"主机","arch":"arm","kernel":"K","libc":"uclibc","boot_id":"boot","capabilities":["exec","file","future"],"extra":true}`
+	full := `{"device_id":"inventory","serial":"S","model":"M","firmware":"F","probe_version":"v1","hostname":"主机","arch":"arm","kernel":"K","libc":"uclibc","boot_id":"boot","capabilities":["exec","file","future","managed_config_v1","telemetry_v2"],"extra":true}`
 	firstConn := deviceConnect(t, s, address, full)
 	first := deviceGet(t, s, "inventory")
 	parsed, _ := parseRegister([]byte(full))
+	parsed.SourceIP = "127.0.0.1"
+ parsed.ManagedConfig=true
 	if !reflect.DeepEqual(first.Registration, device.Registration(parsed)) || first.Status != device.Online || !first.LastOfflineAt.IsZero() {
 		t.Fatalf("registration lost: %#v", first)
 	}
@@ -71,7 +73,7 @@ func TestDeviceGatewayLifecycle(t *testing.T) {
 	s.mu.Unlock()
 	// Windows wall clocks may return the same timestamp across adjacent I/O.
 	time.Sleep(20 * time.Millisecond)
-	writeJSONFrame(t, firstConn, protocol.TypeHeartbeat, 2, `{"uptime":1,"running_tasks":0}`)
+	writeJSONFrame(t, firstConn, protocol.TypeHeartbeat, 2, `{"uptime":1,"uptime_valid":true,"running_tasks":0}`)
 	readFrame(t, firstConn)
 	active := deviceGet(t, s, "inventory")
 	if !active.LastSeenAt.After(first.LastSeenAt) {
@@ -130,7 +132,7 @@ func TestDeviceInvalidRegisterAndInvalidActivity(t *testing.T) {
 	}
 	c2 := deviceConnect(t, s, address, validRegister("bad-heartbeat"))
 	before := deviceGet(t, s, "bad-heartbeat")
-	writeJSONFrame(t, c2, protocol.TypeHeartbeat, 2, `{"uptime":"bad","running_tasks":0}`)
+	writeJSONFrame(t, c2, protocol.TypeHeartbeat, 2, `{"uptime":"bad","uptime_valid":true,"running_tasks":0}`)
 	readFrame(t, c2)
 	deviceEvent(t, s, EventDisconnected)
 	after := deviceGet(t, s, "bad-heartbeat")

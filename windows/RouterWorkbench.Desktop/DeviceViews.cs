@@ -8,41 +8,129 @@ namespace RouterWorkbench.Desktop;
 
 public partial class MainWindow
 {
+    private TabControl overviewTabs = null!;
     private DataGrid properties = null!, sessions = null!;
-    private TextBlock overviewHint = null!;
+    private PropertyRow[] propertyRows = [];
+    private string propertyDeviceId = "";
+
     private ComboBox configBackend = null!, configOperation = null!;
     private TextBox configKey = null!, configValue = null!, configTimeout = null!;
     private TextBlock configHelp = null!, configSupport = null!, configKeyLabel = null!;
     private TextBox configOutput = null!;
     private string configTaskId = "";
     private Button configSubmit = null!;
+    private sealed class PropertyPage(string id, DataGrid table, TabItem tab)
+    {
+        public string Id { get; } = id;
+        public DataGrid Table { get; } = table;
+        public TabItem Tab { get; } = tab;
+        public PropertyRow[] Rows { get; set; } = [];
+        public TextBlock? Empty { get; set; }
+    }
+    private readonly Dictionary<string, PropertyPage> propertyPages = [];
+    private UIElement interfaceView = null!, discoveryDetails = null!;
+    private DataGrid discoveryProperties = null!;
+    private TabItem storageTab = null!, historyTab = null!, systemPortsTab = null!, samplingTab = null!;
+
     private UIElement BuildOverview()
     {
-        properties = Ui.Table("设备上报属性", ("分组", "Group", 90), ("属性", "Name", 155), ("值 / 采集状态", "Value", -1));
-        var cellText = new Style(typeof(TextBlock));
-        cellText.Setters.Add(new Setter(TextBlock.VerticalAlignmentProperty, VerticalAlignment.Top));
-        cellText.Setters.Add(new Setter(TextBlock.TextWrappingProperty, TextWrapping.Wrap));
-        cellText.Setters.Add(new Setter(TextBlock.MarginProperty, new Thickness(6,4,6,4)));
-        ((DataGridTextColumn)properties.Columns[2]).ElementStyle = cellText;
-        properties.RowHeight = double.NaN; properties.MinRowHeight = 28;
-        sessions = Ui.Table("连接历史", ("Session", "SessionId", -1), ("开始时间", "StartedText", 157), ("结束原因", "EndReason", 100));
-        overviewHint = Ui.Text("请选择设备查看属性。", true); overviewHint.Margin = new(10,8,10,8); overviewHint.TextWrapping = TextWrapping.Wrap;
-        var detailTabs = new TabControl();
-        detailTabs.Items.Add(new TabItem { Header = "全部属性", Content = properties });
-        detailTabs.Items.Add(new TabItem { Header = "连接历史", Content = sessions });
-        return Ui.Page(Ui.Bar(DeviceButton("远程维护", () => Navigate("maintenance")),
-            DeviceButton("配置读写", () => Navigate("config")),
-            Ui.Button("完整设备信息", () => { if (Device != null) Inspect("设备公开快照", Device); }),
-            DeviceButton("断开设备…", () => _ = Run("断开设备", DisconnectDevice))), detailTabs, overviewHint);
+        sessions = Ui.Table("连接历史", ("状态", "StateText", 90), ("上线时间", "OnlineText", 160), ("下线时间", "OfflineText", 160), ("在线时长", "OnlineDuration", 180), ("离线时长", "OfflineDuration", 180), ("下线原因", "ReasonText", 140));
+        sessions.CanUserSortColumns = false;
+        storageMetrics = Ui.Table("存储空间", ("挂载点", "Entity", 160), ("使用率", "A", 110), ("已用 / 总量", "B", 180), ("可用", "C", 110), ("文件系统", "D", 155), ("更新时间", "E", -1));
+        networkMetrics = Ui.Table("接口实时速率", ("接口", "Entity", 85), ("接收", "A", 100), ("发送", "B", 100), ("状态", "C", 65), ("接口类型", "D", 90), ("累计接收", "F", 100), ("累计发送", "G", 100), ("统计时长", "H", 145), ("更新时间", "E", 160));
+        foreach (var grid in new[] { networkMetrics, storageMetrics })
+            foreach (var column in grid.Columns.OfType<DataGridTextColumn>()) column.ElementStyle = Ui.CellTextStyle(column.Binding is System.Windows.Data.Binding binding ? binding.Path.Path + "Tip" : null);
+        networkMetrics.MouseDoubleClick += (_, e) => { if (e.OriginalSource is DependencyObject source && ItemsControl.ContainerFromElement(networkMetrics, source) is DataGridRow row && row.Item is MonitorTableRow selected) OpenNetworkChart(selected); };
+        interfaceView = BuildSwitchTable();
+        systemPortsTab = new TabItem { Header="系统端口", Tag="system_ports", Content=BuildSystemPorts() };
+        samplingTab = new TabItem { Header="接口采样设置", Tag="sampling", Content=BuildSamplingView() };
+        overviewTabs = new TabControl { Style = (Style)FindResource("PropertyTabs") };
+        overviewTabs.SelectionChanged += (_, e) => {
+            if (e.Source == overviewTabs && overviewTabs.SelectedItem is TabItem { Tag: string id } && propertyPages.TryGetValue(id, out var page)) properties = page.Table;
+        };
+        storageTab = new TabItem { Header = "存储空间", Tag = "storage", Content = storageMetrics };
+        historyStatus = Ui.Text("暂无连接记录", true);
+        historyTab = new TabItem { Header = "连接历史", Tag = "history", Content = Ui.Page(Ui.Bar(historyStatus), sessions) };
+        UpdatePropertyPages(null);
+        discoveryProperties = Ui.Table("发现资料", ("属性", "Name", 155), ("值", "Value", -1));
+        discoveryDetails = Ui.Page(Ui.Bar(Ui.Button("纳管设备", () => _ = Run("纳管设备", async () => { if (Device is { } device) await EnrollDevice(device); }), true)), discoveryProperties);
+        var root = new Grid(); root.Children.Add(overviewTabs); root.Children.Add(discoveryDetails);
+        discoveryDetails.Visibility = Visibility.Collapsed;
+        return root;
     }
+
+    private void UpdatePropertyPages(Device? device)
+    {
+        var definitions = PropertyGroupDefinitions(device?.Presentation);
+        var selected = (overviewTabs.SelectedItem as TabItem)?.Tag?.ToString();
+        var current = overviewTabs.Items.Cast<TabItem>().Select(t => t.Tag?.ToString()).ToArray();
+        var expected = definitions.SelectMany(g => g.Id=="builtin_interfaces" ? new[]{g.Id,"system_ports"} : new[]{g.Id}).Concat(device?.Presentation?.StorageVisible==false?new[]{"history","sampling"}:new[]{"storage","history","sampling"}).ToArray();
+        foreach (var definition in definitions)
+        {
+            if (!propertyPages.TryGetValue(definition.Id, out var page))
+            {
+                var table = Ui.Table(definition.Name, ("属性", "Name", 155), ("值", "Value", 300));
+                table.CanUserSortColumns = false;
+                ((DataGridTextColumn)table.Columns[1]).ElementStyle = Ui.CellTextStyle("ValueTip");
+                table.ContextMenu = PropertyMenu(table);
+                var empty = Ui.Text("此分组暂无显示属性", true); empty.HorizontalAlignment = HorizontalAlignment.Center; empty.VerticalAlignment = VerticalAlignment.Top; empty.Margin = new(10, 55, 10, 10); empty.IsHitTestVisible = false;
+                var contents = new Grid(); contents.Children.Add(table); contents.Children.Add(empty);
+                var tab = new TabItem { Header = definition.Name, Tag = definition.Id, Content = contents };
+                if (definition.Id == "builtin_interfaces")
+                {
+                    tab.Content = interfaceView;
+                }
+                page = new PropertyPage(definition.Id, table, tab) { Empty = definition.Id == "builtin_interfaces" ? null : empty }; propertyPages.Add(definition.Id, page);
+            }
+            page.Tab.Header = definition.Name;
+        }
+        if (!current.SequenceEqual(expected))
+        {
+            overviewTabs.Items.Clear();
+            foreach (var definition in definitions) { overviewTabs.Items.Add(propertyPages[definition.Id].Tab); if(definition.Id=="builtin_interfaces") overviewTabs.Items.Add(systemPortsTab); }
+            if(device?.Presentation?.StorageVisible!=false) overviewTabs.Items.Add(storageTab);
+            overviewTabs.Items.Add(historyTab); overviewTabs.Items.Add(samplingTab);
+            foreach (var id in propertyPages.Keys.Except(definitions.Select(g => g.Id)).ToArray()) propertyPages.Remove(id);
+            overviewTabs.SelectedItem = overviewTabs.Items.Cast<TabItem>().FirstOrDefault(t => t.Tag?.ToString() == selected) ?? overviewTabs.Items[0];
+        }
+        properties = propertyPages.GetValueOrDefault(selected ?? "")?.Table ?? propertyPages["builtin_system"].Table;
+    }
+
     private void UpdateOverview()
     {
-        var d = Device;
-        if (d == null) { properties.ItemsSource = sessions.ItemsSource = null; overviewHint.Text = "连接服务器并选择设备后查看属性。"; return; }
-        Ui.SetRows(properties, DeviceProperties.Rows(d));
-        overviewHint.Text = (d.Registration.Template is { } t ? $"{t.Name} · v{t.Version} · " : "未使用模板 · ") +
-            $"展示该设备实际上报的属性与采集失败项。启动快照不会因模板编辑或配置写入自动更新。累计连接 {d.TotalSessions} 次。";
+        var device = Device; UpdateLocation(device); UpdateMonitorTables(device); UpdateSamplingView(device);
+        UpdatePropertyPages(device);
+        var pending = device is { Managed: false };
+        discoveryDetails.Visibility = pending ? Visibility.Visible : Visibility.Collapsed;
+        overviewTabs.Visibility = pending ? Visibility.Collapsed : Visibility.Visible;
+        if (pending) { var rows=DeviceProperties.Rows(device!);discoveryProperties.ItemsSource=rows;TableBehavior.FitPropertyColumns(discoveryProperties,rows); }
+        var incoming = device == null ? [] : PresentRows(device, DeviceProperties.Rows(device).Concat(LocationRows(device)).Concat(new[] {
+            new PropertyRow("", "管理型号", device.Profile?.ModelName ?? "—") { Key = "managed_model" },
+            new PropertyRow("", "配置状态", ConfigState(device.Profile?.ConfigurationState), device.Profile?.ConfigurationError ?? "") { Key = "configuration_state" }
+        }));
+        foreach (var page in propertyPages.Values)
+        {
+            var rows = incoming.Where(r => r.GroupId == page.Id).ToArray();
+            if (page.Empty != null) page.Empty.Visibility = rows.Length == 0 ? Visibility.Visible : Visibility.Collapsed;
+            if (propertyDeviceId == device?.DeviceId && page.Rows.Select(r => (r.Key, r.Name)).SequenceEqual(rows.Select(r => (r.Key, r.Name))))
+            {
+                for (var i = 0; i < rows.Length; i++) { page.Rows[i].Value = rows[i].Value; page.Rows[i].ValueTip = rows[i].ValueTip; }
+            }
+            else
+            {
+                var anchor = TableBehavior.Capture(page.Table);
+                var selected = (page.Table.SelectedItem as PropertyRow)?.Key;
+                page.Rows = rows; page.Table.ItemsSource = rows;
+                page.Table.SelectedItem = rows.FirstOrDefault(r => r.Key == selected);
+                if (propertyDeviceId == device?.DeviceId) TableBehavior.Restore(page.Table, anchor);
+            }
+            TableBehavior.FitPropertyColumns(page.Table, rows);
+        }
+        if (propertyDeviceId != device?.DeviceId) ClearConnectionHistory();
+        propertyRows = incoming; propertyDeviceId = device?.DeviceId ?? "";
+        UpdateQuickProperties();
     }
+
     private async Task DisconnectDevice()
     {
         var device = RequireDevice();
@@ -67,7 +155,7 @@ public partial class MainWindow
         configHelp.Margin = new(0,5,0,18); form.Children.Add(configHelp); configSubmit.HorizontalAlignment = HorizontalAlignment.Left; form.Children.Add(configSubmit);
         configOutput = Ui.Code("操作结果将在此显示。", true);
         return Ui.Page(Ui.Heading("设备配置 · NVRAM / UCI"), Ui.Split(new ScrollViewer { Content = form, VerticalScrollBarVisibility = ScrollBarVisibility.Auto }, Ui.Page(Ui.Heading("配置操作结果"), configOutput), true, 2),
-            Ui.Note("执行结果在本页显示。写入和删除不自动提交、不重启服务。"));
+            Ui.Note("写入和删除不自动提交、不重启服务。"));
     }
     private void UpdateConfig()
     {

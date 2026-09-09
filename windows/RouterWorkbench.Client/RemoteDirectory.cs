@@ -10,6 +10,23 @@ public sealed record RemoteEntry(string Name, string Kind, long Size, long Modif
 }
 public static class RemoteDirectory
 {
+    public static string Normalize(string path) {
+        if(!path.StartsWith('/')||path.Contains('\0'))throw new ArgumentException("请输入不含 NUL 的绝对路径。");
+        var parts=new List<string>();foreach(var p in path.Split('/')){if(p is "" or ".")continue;if(p==".."){if(parts.Count>0)parts.RemoveAt(parts.Count-1);}else parts.Add(p);}
+        return "/"+string.Join('/',parts);
+    }
+    public static string FileName(string path){var name=Normalize(path).Split('/').Last();return name.Length==0?throw new ArgumentException("请填写包含文件名的完整路径。"):name;}
+    public static string Join(string directory,string name)=>Normalize(directory.TrimEnd('/')+"/"+name);
+    public static string Parent(string path){var value=Normalize(path);var at=value.LastIndexOf('/');return at<=0?"/":value[..at];}
+    public static Task<(RemoteEntry[] Entries,bool Limited)> ReadAsync(WorkspaceConnection owner,string deviceId,string path,CancellationToken token)=>owner.TrackAsync(async()=>{
+        token.ThrowIfCancellationRequested();
+        var response=await owner.ExecuteAsync(new Mutation("读取设备目录","tasks",new{device_id=deviceId,command=Command(Normalize(path)),timeout_seconds=10}));
+        var taskId=response.GetProperty("task_id").GetString()!;
+        using var cancel=CancellationTokenSource.CreateLinkedTokenSource(token,owner.Token);cancel.CancelAfter(TimeSpan.FromSeconds(20));
+        while(true){var task=await owner.Api.GetAsync<TaskDetail>("tasks/"+ApiClient.Segment(taskId),cancel.Token);
+            if(task.Result is {} result){if(result.Status!="success"||result.ExitCode!=0)throw new IOException("读取目录失败："+result.Stderr);if(result.Truncated)throw new IOException("目录响应超出上限，请选择更小的子目录。");return Parse(result.Stdout);}
+            if(task.State=="rejected")throw new IOException("设备拒绝读取目录。");await Task.Delay(150,cancel.Token);}
+    });
     public static string Command(string path)
     {
         if (!path.StartsWith('/') || path.Contains('\0')) throw new ArgumentException("请输入不含 NUL 的绝对目录路径。");

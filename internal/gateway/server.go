@@ -10,22 +10,21 @@ import (
 	"io"
 	"log"
 	"net"
+	"routerprobe/internal/enrollment"
 	"routerprobe/internal/routerconfig"
+	"slices"
 	"sync"
 	"time"
 
 	"routerprobe/internal/device"
 	"routerprobe/internal/filetransfer"
-	"routerprobe/internal/probetemplate"
 	"routerprobe/internal/protocol"
 	"routerprobe/internal/task"
 	"routerprobe/internal/tunnel"
 )
 
 type Config struct {
-	Templates interface {
-		Resolve(string, string) (probetemplate.Template, error)
-	}
+	Enrollment         *enrollment.Service
 	HeartbeatInterval  time.Duration
 	MaxControlPayload  uint32
 	FileChunkSize      uint32
@@ -49,8 +48,8 @@ func (c Config) withDefaults() (Config, error) {
 	if c.HeartbeatInterval < 10*time.Second || c.HeartbeatInterval > 300*time.Second || c.HeartbeatInterval%time.Second != 0 {
 		return Config{}, errors.New("heartbeat interval must be an integer from 10 to 300 seconds")
 	}
-	if c.MaxControlPayload < 1024 || c.MaxControlPayload > protocol.MaxControlPayload {
-		return Config{}, errors.New("max control payload must be from 1024 to 1048576")
+	if c.MaxControlPayload < 65536 || c.MaxControlPayload > protocol.MaxControlPayload {
+		return Config{}, errors.New("max control payload must be from 65536 to 1048576")
 	}
 	if c.FileChunkSize < 1024 || c.FileChunkSize > 512*1024 {
 		return Config{}, errors.New("file chunk size must be from 1024 to 524288")
@@ -72,14 +71,18 @@ type SessionEvent struct {
 }
 
 type session struct {
-	capabilities []string
-	tunnelQueue  chan tunnelMessage
-	tunnelDone   chan struct{}
-	lifetime     chan struct{}
-	done         chan struct{}
-	deviceID     string
-	sessionID    string
-	transport    *connectionWriter
+	configDone    chan struct{}
+	appliedConfig uint64
+	sentConfig    enrollment.Configuration
+	configMessage uint64
+	capabilities  []string
+	tunnelQueue   chan tunnelMessage
+	tunnelDone    chan struct{}
+	lifetime      chan struct{}
+	done          chan struct{}
+	deviceID      string
+	sessionID     string
+	transport     *connectionWriter
 }
 
 type connectionWriter struct {
@@ -184,6 +187,16 @@ func (s *Server) recordActivity(active *session) time.Time {
 	return at
 }
 
+func (s *Server) recordHeartbeat(active *session, seconds *uint64) time.Time {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	at := time.Now()
+	if s.sessions[active.deviceID] == active {
+		s.devices.Heartbeat(active.deviceID, active.sessionID, seconds, at)
+	}
+	return at
+}
+
 func (s *Server) Serve(listener net.Listener) error {
 	s.mu.Lock()
 	if s.closed {
@@ -271,6 +284,9 @@ func (s *Server) Disconnect(deviceID string) bool {
 }
 
 func (s *Server) CreateExec(ctx context.Context, deviceID string, request task.ExecRequest) (string, error) {
+	if e := s.requireManaged(deviceID); e != nil {
+		return "", e
+	}
 	if err := ctx.Err(); err != nil {
 		return "", err
 	}
@@ -323,6 +339,9 @@ func (s *Server) dispatchExec(active *session, spec task.Spec) (uint64, error) {
 }
 
 func (s *Server) dispatchChecked(active *session, spec task.Spec, requireCurrent bool) (uint64, error) {
+	if e := s.requireManaged(active.deviceID); e != nil {
+		return 0, e
+	}
 	if spec.Type == "router_config" {
 		if !supportsRouterConfig(active) {
 			return 0, routerconfig.ErrUnsupported
@@ -379,6 +398,8 @@ func newSessionID() (string, error) {
 }
 
 type registerAckSuccess struct {
+	ManagedConfig     bool   `json:"managed_config_v1,omitempty"`
+	TelemetryV2       bool   `json:"telemetry_v2,omitempty"`
 	ReplyTo           uint64 `json:"reply_to"`
 	Success           bool   `json:"success"`
 	SessionID         string `json:"session_id"`
@@ -494,6 +515,9 @@ func (s *Server) handleConnection(conn net.Conn) {
 		// Unblock the transport worker before joining it; Maintenance release does
 		// not wait for this control-session-owned worker.
 		_ = conn.Close()
+		if active.configDone != nil {
+			<-active.configDone
+		}
 		if active.tunnelDone != nil {
 			<-active.tunnelDone
 		}
@@ -518,10 +542,6 @@ func (s *Server) handleConnection(conn net.Conn) {
 				}
 				nextIncomingID++
 				if !registered {
-					if frame.Header.Type == protocol.TypeTemplateGet {
-						s.handleTemplate(writer, frame)
-						return
-					}
 					if frame.Header.Flags != 0 {
 						_ = s.sendError(writer, frame.Header.MessageID, "INVALID_PAYLOAD", "REGISTER flags must be zero")
 						return
@@ -531,6 +551,9 @@ func (s *Server) handleConnection(conn net.Conn) {
 						return
 					}
 					register, err := parseRegister(frame.Payload)
+					if err == nil && (!slices.Contains(register.Capabilities, "managed_config_v1") || !slices.Contains(register.Capabilities, "telemetry_v2")) {
+						err = errors.New("current Probe capabilities managed_config_v1 and telemetry_v2 are required")
+					}
 					if err != nil {
 						failure := registerAckFailure{
 							ReplyTo: frame.Header.MessageID, Success: false, ErrorCode: "INVALID_REGISTER",
@@ -547,7 +570,7 @@ func (s *Server) handleConnection(conn net.Conn) {
 					candidate := &session{deviceID: register.DeviceID, sessionID: sessionID, transport: writer, done: done, lifetime: make(chan struct{})}
 					candidate.capabilities = append([]string(nil), register.Capabilities...)
 					writer.onFailure = func() { s.endSession(candidate, device.WriteError) }
-					ack := registerAckSuccess{
+					ack := registerAckSuccess{ManagedConfig: true, TelemetryV2: true,
 						ReplyTo: frame.Header.MessageID, Success: true, SessionID: sessionID,
 						HeartbeatInterval: int64(s.config.HeartbeatInterval / time.Second),
 						ServerTime:        time.Now().Unix(), MaxControlPayload: s.config.MaxControlPayload,
@@ -555,6 +578,14 @@ func (s *Server) handleConnection(conn net.Conn) {
 					}
 					if _, err := writer.sendJSON(protocol.TypeRegisterAck, protocol.FlagResponse, ack, nil); err != nil {
 						return
+					}
+					sourceIP, _, _ := net.SplitHostPort(conn.RemoteAddr().String())
+					register.SourceIP = sourceIP
+					register.ManagedConfig = ack.ManagedConfig
+					if s.config.Enrollment != nil {
+						if e := s.config.Enrollment.Discover(device.Registration(register)); e != nil {
+							return
+						}
 					}
 					// Publish only after the complete registration response. The
 					// registry lock orders concurrent replacements without holding
@@ -580,17 +611,46 @@ func (s *Server) handleConnection(conn net.Conn) {
 					active = candidate
 					registered = true
 					lastSeen = time.Now()
+					register.SourceIP = sourceIP
+					register.ManagedConfig = ack.ManagedConfig
 					s.devices.Publish(device.Registration(register), sessionID, lastSeen)
 					s.emit(SessionEvent{Type: EventOnline, DeviceID: active.deviceID, SessionID: active.sessionID})
 					s.mu.Unlock()
 					if previous != nil {
 						_ = previous.transport.conn.Close()
 					}
+					if s.config.Enrollment != nil {
+						candidate.configDone = make(chan struct{})
+						go s.runConfiguration(candidate)
+					}
 					s.config.Logger.Printf("state=ONLINE device_id=%s session_id=%s", active.deviceID, active.sessionID)
 					continue
 				}
 
 				switch frame.Header.Type {
+				case protocol.TypeConfigAck:
+					if !s.acceptConfiguration(active, frame) {
+						return
+					}
+					lastSeen = s.recordActivity(active)
+				case protocol.TypeEvent:
+					group, values, err := parseTelemetry(frame.Payload)
+					if frame.Header.Flags != 0 || err != nil {
+						_ = s.sendError(writer, frame.Header.MessageID, "INVALID_PAYLOAD", "invalid telemetry")
+						return
+					}
+					var envelope struct {
+						Revision uint64 `json:"config_revision"`
+					}
+					_ = json.Unmarshal(frame.Payload, &envelope)
+					{
+						d, e := s.devices.Get(active.deviceID)
+						if e != nil || d.LatestSession.ConfigRevision != envelope.Revision {
+							lastSeen = s.recordActivity(active)
+							continue
+						}
+					}
+					lastSeen = s.recordTelemetry(active, group, values)
 				case protocol.TypeTunnelStatus:
 					var status tunnel.Status
 					if frame.Header.Flags != 0 || !protocol.ValidUnicodeJSON(frame.Payload) || json.Unmarshal(frame.Payload, &status) != nil || s.tunnelStatus == nil {
@@ -605,11 +665,12 @@ func (s *Server) handleConnection(conn net.Conn) {
 						_ = s.sendError(writer, frame.Header.MessageID, "INVALID_PAYLOAD", "HEARTBEAT flags must be zero")
 						return
 					}
-					if err := validateHeartbeat(frame.Payload); err != nil {
+					seconds, err := parseHeartbeat(frame.Payload)
+					if err != nil {
 						_ = s.sendError(writer, frame.Header.MessageID, "INVALID_PAYLOAD", err.Error())
 						return
 					}
-					lastSeen = s.recordActivity(active)
+					lastSeen = s.recordHeartbeat(active, seconds)
 					ack := heartbeatAck{ReplyTo: frame.Header.MessageID, ServerTime: time.Now().Unix()}
 					if _, err := writer.sendJSON(protocol.TypeHeartbeatAck, protocol.FlagResponse, ack, nil); err != nil {
 						return

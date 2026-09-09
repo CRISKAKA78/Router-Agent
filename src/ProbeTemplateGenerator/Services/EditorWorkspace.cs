@@ -6,7 +6,7 @@ using ProbeTemplateGenerator.Persistence;
 namespace ProbeTemplateGenerator.Services;
 
 /// <summary>One browser workspace: selection, editing lifecycle, persistence and user actions.</summary>
-public sealed class EditorWorkspace(TemplateCompiler compiler, ProjectFiles files, WorkspacePersistence persistence,
+public sealed partial class EditorWorkspace(TemplateCompiler compiler, ProjectFiles files, WorkspacePersistence persistence,
     TemplatePublishingService publishing, IJSRuntime js) : IAsyncDisposable
 {
     public TemplateProject Project { get; private set; } = TemplateCompiler.EmptyProject();
@@ -67,8 +67,8 @@ public sealed class EditorWorkspace(TemplateCompiler compiler, ProjectFiles file
         Notify();
     }
 
-    public void Select(string id) { SelectedId = id; Stage = 0; Notify(); }
-    public void SetStage(int stage) { Stage = stage; Notify(); }
+    public void Select(string id) { SelectedId = id; Stage = 1; Notify(); }
+    public void SetStage(int stage) { Stage = Math.Clamp(stage,0,3); Notify(); }
     public void Touch()
     {
         if (!Ready || disposed) return;
@@ -83,7 +83,8 @@ public sealed class EditorWorkspace(TemplateCompiler compiler, ProjectFiles file
     public void GoToIssue(ValidationIssue issue)
     {
         if (issue.AttributeId is not null) SelectedId = issue.AttributeId;
-        Stage = 0;
+        Stage = issue.AttributeId is null ? 0 : 1;
+        if(issue.Field=="SwitchProbe")ConfigurationTab=2;else if(issue.Field=="Presentation")ConfigurationTab=1;
         Notify();
     }
     public void AddAttribute(AttributeVisibility visibility)
@@ -93,7 +94,7 @@ public sealed class EditorWorkspace(TemplateCompiler compiler, ProjectFiles file
         Project.Attributes.Add(row);
         SelectedId = row.Id;
         Search = "";
-        Stage = 0;
+        Stage = 1;
         Touch();
     }
     public void CopyAttribute()
@@ -101,6 +102,8 @@ public sealed class EditorWorkspace(TemplateCompiler compiler, ProjectFiles file
         if (Locked || Selected is not { } row || Project.Attributes.Count >= 128) return;
         var copy = TemplateCompiler.CopyAttribute(Project.Attributes, row.Id);
         Project.Attributes.Insert(Project.Attributes.IndexOf(row) + 1, copy);
+        if(Project.Presentation?.Fields.TryGetValue(row.Key,out var placement)==true)
+            Layout.Fields[copy.Key]=new(){GroupId=placement.GroupId,Order=NextOrder(placement.GroupId,copy.Key),Visible=placement.Visible};
         SelectedId = copy.Id;
         Touch();
         ShowToast("已复制属性，副本使用独立标识。");
@@ -112,6 +115,8 @@ public sealed class EditorWorkspace(TemplateCompiler compiler, ProjectFiles file
         {
             var index = Project.Attributes.IndexOf(row);
             Project.Attributes.Remove(row);
+            Project.Presentation?.Fields.Remove(pendingLayoutKeys.GetValueOrDefault(row.Id,row.Key));
+            pendingLayoutKeys.Remove(row.Id);
             SelectedId = Project.Attributes.ElementAtOrDefault(Math.Max(0, index - 1))?.Id ?? "";
             Touch();
             return Task.CompletedTask;
@@ -163,11 +168,12 @@ public sealed class EditorWorkspace(TemplateCompiler compiler, ProjectFiles file
             if (pending is not null && publishing.Origin is not null && publishing.Origin != pending.Origin)
                 await publishing.DisconnectAsync();
             Project = project;
+            pendingLayoutKeys.Clear();
             publishing.Restore(target, pending);
             if (origin is not null) ServerUrl = origin;
             SelectedId = project.Attributes.FirstOrDefault()?.Id ?? "";
             Search = "";
-            Stage = 0;
+            Stage = 1;
             canPersist = true;
             PersistenceError = null;
             Touch();
@@ -212,7 +218,7 @@ public sealed class EditorWorkspace(TemplateCompiler compiler, ProjectFiles file
         async Task PublishCore()
         {
             var item = await publishing.PublishAsync(compiler.Compile(Project), update);
-            ShowToast($"“{item.Name}”已发布，版本 {item.Version}。下次启动探针时生效。");
+            ShowToast($"“{item.Name}”已发布，版本 {item.Version}。请在纳管或设备资料中选择并应用此版本。");
         }
         if (update) Confirm("更新服务器模板", $"确认使用当前工程覆盖已绑定模板？预期版本为 {publishing.Target?.Version}。", PublishCore, "更新");
         else _ = RunAsync(PublishCore);
@@ -226,7 +232,7 @@ public sealed class EditorWorkspace(TemplateCompiler compiler, ProjectFiles file
     public void ImportTemplate(PublishedTemplate item) => ReplaceWithConfirmation($"导入“{item.Name}”", files.FromTemplate(item),
         new PublishingTarget(publishing.Origin!, item.TemplateId, item.Version), "运行模板已导入；生成的命令保留为命令来源。");
     public void DeleteTemplate(PublishedTemplate item) => Confirm("删除服务器模板",
-        $"确认删除“{item.Name}”（版本 {item.Version}）？删除后探针下次启动将无法选择它，已有会话快照不变。",
+        $"确认删除“{item.Name}”（版本 {item.Version}）？型号或设备仍引用此模板时服务端会拒绝删除。",
         async () => { await publishing.DeleteAsync(item); ShowToast("服务器模板已删除。"); }, "删除", true);
     public void RetryPending() => Confirm("核对并重试原请求",
         "请核对服务器没有重启。确认后将使用保留的原始请求及幂等键重试；服务器已重启时请取消并先核对执行结果。",

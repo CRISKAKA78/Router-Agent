@@ -78,10 +78,10 @@ public sealed class WorkspaceConnection : IAsyncDisposable
                 if (!ready) continue;
                 var epoch = Volatile.Read(ref generation);
                 try {
-                    var devices = await Api.ListAsync<Device>("devices");
+                    var devices = await Api.ListAsync<Device>("devices?admission=all");
                     var tasks = await Api.ListAsync<TaskSummary>("tasks");
-                    var assets = await Api.ListAsync<Asset>("assets?include_archived=true");
-                    Tool[] tools = [];
+                    Asset[] assets = [];
+                    var tools = await Api.ListAsync<Tool>("tools");
                     Maintenance[] maintenance = []; var maintenanceError = "";
                     try { maintenance = await Api.ListAsync<Maintenance>("maintenance"); }
                     catch (ApiException e) when (e.Code == "maintenance_disabled") { maintenanceError = "服务器未启用远程维护"; }

@@ -46,7 +46,7 @@ func (a *Server) templateRoutes() {
 		if decode(r, &q) != nil || q.Version == 0 {
 			return invalid()
 		}
-		e := a.app.ProbeTemplates().Delete(r.PathValue("id"), q.Version)
+		e := a.app.DeleteTemplate(r.PathValue("id"), q.Version)
 		return ok(object{"deleted": true}, e)
 	})
 }

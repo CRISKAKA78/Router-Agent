@@ -11,7 +11,7 @@ namespace ProbeTemplateGenerator.Persistence;
 
 public sealed class WorkspaceDraft
 {
-    [JsonPropertyName("workspace_version")] public int WorkspaceVersion { get; set; } = 2;
+    [JsonPropertyName("workspace_version")] public int WorkspaceVersion { get; set; } = 3;
     [JsonPropertyName("project")] public TemplateProject Project { get; set; } = new();
     [JsonPropertyName("target")] public PublishingTarget? Target { get; set; }
     [JsonPropertyName("pending")] public PendingTemplateMutation? Pending { get; set; }
@@ -20,11 +20,10 @@ public sealed class WorkspaceDraft
     [JsonPropertyName("theme")] public string Theme { get; set; } = "Default";
 }
 
-/// <summary>Versioned browser draft storage, including imported native generator drafts.</summary>
+/// <summary>Current browser workspace storage.</summary>
 public sealed class WorkspacePersistence(IJSRuntime js, ProjectFiles files)
 {
-    public const string StorageKey = "router-template-generator.workspace.v2";
-    public const string LegacyStorageKey = "router-template-generator.draft.v1";
+    public const string StorageKey = "router-template-generator.workspace.v3";
     private const int MaximumBytes = 1024 * 1024;
     private static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web)
     {
@@ -36,10 +35,7 @@ public sealed class WorkspacePersistence(IJSRuntime js, ProjectFiles files)
     public async Task<WorkspaceDraft?> LoadAsync()
     {
         var current = await js.InvokeAsync<string?>("workspace.storageGet", StorageKey);
-        // A corrupt current draft is never replaced by an older project or silently overwritten.
-        if (!string.IsNullOrEmpty(current)) return Parse(current);
-        var legacy = await js.InvokeAsync<string?>("workspace.storageGet", LegacyStorageKey);
-        return string.IsNullOrEmpty(legacy) ? null : Parse(legacy);
+        return string.IsNullOrEmpty(current) ? null : Parse(current);
     }
 
     public async Task SaveAsync(WorkspaceDraft draft)
@@ -68,17 +64,15 @@ public sealed class WorkspacePersistence(IJSRuntime js, ProjectFiles files)
             throw new InvalidDataException("不是可识别的生成器草稿，请使用导入工程读取工程或模板文件");
         var draft = JsonSerializer.Deserialize<WorkspaceDraft>(text, Json)
             ?? throw new InvalidDataException("草稿格式无效");
-        if (root.TryGetProperty("workspace_version", out var version) &&
-            (!version.TryGetInt32(out var parsedVersion) || parsedVersion is not (1 or 2)))
+        if (!root.TryGetProperty("workspace_version", out var version) ||
+            !version.TryGetInt32(out var parsedVersion) || parsedVersion != 3)
             throw new InvalidDataException("不支持此草稿版本；原草稿已保留");
         if (!root.TryGetProperty("savedAt", out var timestamp) || !timestamp.TryGetInt64(out var savedAt) || savedAt < 0)
             throw new InvalidDataException("草稿时间格式无效");
-        // Version and compatibility checks belong to the same project-file reader used by Open.
+        // Opening and restoring use the same current project validation.
         draft.Project = files.ReadProject(project.GetRawText());
         draft.SavedAt = savedAt;
-        draft.WorkspaceVersion = 2;
-        if (!root.TryGetProperty("serverUrl", out _))
-            draft.ServerUrl = draft.Pending?.Origin ?? draft.Target?.Origin ?? "http://127.0.0.1:8080";
+        if (!root.TryGetProperty("serverUrl", out _)) throw new InvalidDataException("草稿缺少服务器地址");
         ValidateMetadata(draft);
         return draft;
     }
@@ -87,7 +81,7 @@ public sealed class WorkspacePersistence(IJSRuntime js, ProjectFiles files)
     {
         CheckSize(text);
         using var document = JsonDocument.Parse(text, new JsonDocumentOptions { MaxDepth = 32 });
-        // The original native generator stores this exact envelope in generator-draft.json.
+        // Current workspace exports may include publication state.
         if (document.RootElement.ValueKind == JsonValueKind.Object && document.RootElement.TryGetProperty("project", out _))
             return Parse(text);
         return new WorkspaceDraft
@@ -99,7 +93,7 @@ public sealed class WorkspacePersistence(IJSRuntime js, ProjectFiles files)
 
     private static void ValidateMetadata(WorkspaceDraft draft)
     {
-        if (draft.Project is null || draft.SavedAt < 0)
+        if (draft.WorkspaceVersion != 3 || draft.Project is null || draft.Project.SchemaVersion != 8 || draft.SavedAt < 0)
             throw new InvalidDataException("草稿工程或时间格式无效");
         if (draft.Target is not null) TemplatePublishingService.ValidateTarget(draft.Target);
         if (draft.Pending is not null) TemplatePublishingService.ValidatePending(draft.Pending);

@@ -1,10 +1,10 @@
 #include "rmp/collection.h"
 #include "rmp/json.h"
 #include "rmp/task.h"
-#include <chrono>
-#include <iostream>
+#include "rmp/switch_probe.h"
 #include <sstream>
 #include <algorithm>
+#include <fstream>
 
 namespace rmp {
 namespace {
@@ -23,18 +23,43 @@ bool Key(const std::string& k){
  return k!="device_id"&&k!="arch"&&k!="boot_id"&&k!="probe_version"&&k!="capabilities"&&k!="template"&&k!="attributes"&&k!="collection_errors";
 }
 std::string Trim(const std::string&s){const std::size_t first=s.find_first_not_of(" \t\r\n"),last=s.find_last_not_of(" \t\r\n");return first==std::string::npos?"":s.substr(first,last-first+1);}
-void Entry(std::ostringstream& out,bool* first,const std::string& key,const std::string& name,const std::string& field,const std::string& value){if(!*first)out<<',';*first=false;out<<EscapeJsonString(key)<<":{\"name\":"<<EscapeJsonString(name)<<','<<EscapeJsonString(field)<<':'<<EscapeJsonString(value)<<'}';}
+}
+bool ParseNetworkInterfaces(const std::string& text,std::vector<std::string>* names){
+ names->clear();if(text.empty())return true;
+ std::istringstream in(text);std::string name;
+ while(std::getline(in,name,',')){
+  if(name.empty()||name.size()>15||name.find_first_not_of("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_.-")!=std::string::npos||name=="."||name==".."||names->size()>=32||std::find(names->begin(),names->end(),name)!=names->end())return false;
+  names->push_back(name);
+ }
+ return text.back()!=',';
+}
+void CollectFirmware(ClientConfig* config,const std::string& root){
+ auto boardModel=[&]{for(const auto&path:{"/tmp/sysinfo/model","/sys/firmware/devicetree/base/model","/proc/device-tree/model"}){std::ifstream f((root+path).c_str(),std::ios::binary);char buf[130]={};f.read(buf,129);auto n=f.gcount();if(n<=0||n>128)continue;std::string model=Trim(std::string(buf,static_cast<std::size_t>(n)));while(!model.empty()&&model.back()=='\0')model.pop_back();JsonObject check;std::string error;if(!model.empty()&&model.find('\0')==std::string::npos&&ParseJsonObject("{\"model\":"+EscapeJsonString(model)+"}",&check,&error)){config->properties["model"]=model;config->builtin_errors.erase("model");return;}}};
+ ExecTask task;task.type="router_config";task.config["backend"]="nvram";task.config["operation"]="get";task.config["key"]="softver";task.timeout=5;
+ const auto result=ExecuteExec(task,NULL);const auto value=Trim(result.stdout_text);std::string reason;
+ JsonObject check;std::string error;
+ if(result.status=="timeout")reason="timeout";
+ else if(result.status!="success")reason="command_failed";
+ else if(value.empty())reason="empty";
+ else if(result.truncated||value.size()>128||value.find('\0')!=std::string::npos||!ParseJsonObject("{\"v\":"+EscapeJsonString(value)+"}",&check,&error))reason="invalid_output";
+ if(!reason.empty()){config->builtin_errors["model"]=reason;config->builtin_errors["firmware"]=reason;boardModel();return;}
+ config->properties["firmware"]=value;const auto v=value.find('v');const auto model=v==std::string::npos?"":Trim(value.substr(0,v));
+ if(model.empty()){config->builtin_errors["model"]="model_prefix_missing";boardModel();}else config->properties["model"]=model;
 }
 bool ParseCollectionTemplate(const std::string& json,CollectionTemplate* value,std::string* error){
  *error="invalid collection template";JsonObject root,props;
  if(json.size()>64*1024||!ParseJsonObject(json,&root,error))return false;
- CollectionTemplate parsed;
+ CollectionTemplate parsed;parsed.raw_json=json;
  if(!Text(root,"template_id",128,&parsed.id)||!Text(root,"name",128,&parsed.name)||!Number(root,"version",1,UINT64_MAX,&parsed.version))return false;
- if(root.find("properties")==root.end()||!ParseJsonObject(root["properties"].raw_value,&props,error)||props.empty()||props.size()>38)return false;
+ if(root.find("properties")==root.end()||!ParseJsonObject(root["properties"].raw_value,&props,error)||props.size()>38)return false;
+ if(root.count("monitoring")){JsonObject m;if(!ParseJsonObject(root["monitoring"].raw_value,&m,error))return false;const char*groups[]={"cpu","memory","disk","network","egress"};const unsigned defaults[]={5,5,60,5,600};for(unsigned n=0;n<5;++n){std::string key=std::string(groups[n])+"_seconds";std::uint64_t seconds=defaults[n];if(m.count(key)&&!Number(m,key,0,86400,&seconds))return false;parsed.monitoring[groups[n]]=static_cast<unsigned>(seconds);}
+ if(m.count("network_interfaces")){if(m["network_interfaces"].type!=JsonType::kString||!ParseNetworkInterfaces(m["network_interfaces"].string_value,&parsed.network_interfaces))return false;parsed.has_network_interfaces=true;}}
+ if(root.count("switch_probe")){if(!ValidateSwitchProbe(root["switch_probe"].raw_value))return false;parsed.switch_json=root["switch_probe"].raw_value;}
  unsigned custom=0;
  for(JsonObject::const_iterator i=props.begin();i!=props.end();++i){
   JsonObject p;CollectionProperty property;std::uint64_t seconds;
   if(!Key(i->first)||!ParseJsonObject(i->second.raw_value,&p,error)||!Text(p,"name",128,&property.name)||!Number(p,"timeout_seconds",1,30,&seconds))return false;
+  if(p.count("interval_seconds")){std::uint64_t interval;if(!Number(p,"interval_seconds",0,86400,&interval))return false;property.interval=static_cast<unsigned>(interval);}
   std::string source="command";
   if(p.count("source")&&!Text(p,"source",16,&source))return false;
   if(source=="command") {
@@ -51,40 +76,5 @@ bool ParseCollectionTemplate(const std::string& json,CollectionTemplate* value,s
  }
  if(custom>32)return false;
  *value=parsed;error->clear();return true;
-}
-void CollectProperties(const CollectionTemplate& value,ClientConfig* config){
- typedef std::chrono::steady_clock Clock;
- const Clock::time_point deadline=Clock::now()+std::chrono::seconds(60);
- std::ostringstream attributes,errors,reference;attributes<<'{';errors<<'{';bool first_attr=true,first_error=true;
- config->properties.clear();
- if(!config->explicit_hostname)config->hostname.clear();
- for(std::map<std::string,CollectionProperty>::const_iterator i=value.properties.begin();i!=value.properties.end();++i){
-  if(i->first=="hostname"&&config->explicit_hostname)continue;
-  const CollectionProperty&p=i->second;std::string reason,output;
-  const long remaining=static_cast<long>(std::chrono::duration_cast<std::chrono::seconds>(deadline-Clock::now()).count());
-  if(remaining<1)reason="budget_exhausted";
-  else{
-   ExecTask task;task.command=p.command;task.timeout=std::min(p.timeout,static_cast<unsigned>(remaining));
-   if(!p.config.empty()){task.type="router_config";task.config=p.config;}
-   const ExecResult result=ExecuteExec(task,NULL);
-   output=Trim(result.stdout_text);
-   if(result.status=="timeout")reason="timeout";
-   else if(result.status!="success")reason="command_failed";
-   else if(output.empty())reason="empty";
-   else{
-    const std::size_t limit=StandardLimit(i->first)?StandardLimit(i->first):4096;
-    JsonObject test;std::string e;
-    if(result.truncated||output.size()>limit||output.find('\0')!=std::string::npos||!ParseJsonObject("{\"v\":"+EscapeJsonString(output)+"}",&test,&e))reason="invalid_output";
-    if(i->first=="libc")for(std::size_t n=0;n<output.size();++n)if(static_cast<unsigned char>(output[n])>127)reason="invalid_output";
-   }
-  }
-  if(!reason.empty()){Entry(errors,&first_error,i->first,p.name,"reason",reason);std::cerr<<"collection_property="<<i->first<<" reason="<<reason<<std::endl;}
-  else if(i->first=="hostname")config->hostname=output;
-  else if(StandardLimit(i->first))config->properties[i->first]=output;
-  else Entry(attributes,&first_attr,i->first,p.name,"value",output);
- }
- attributes<<'}';errors<<'}';
- reference<<"{\"template_id\":"<<EscapeJsonString(value.id)<<",\"name\":"<<EscapeJsonString(value.name)<<",\"version\":"<<value.version<<'}';
- config->template_reference=reference.str();config->attributes=attributes.str();config->collection_errors=errors.str();
 }
 }

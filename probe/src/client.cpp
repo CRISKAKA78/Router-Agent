@@ -4,6 +4,8 @@
 #include "rmp/pending_heartbeats.h"
 #include "rmp/client.h"
 #include "rmp/collection.h"
+#include "rmp/telemetry.h"
+#include "rmp/live_config.h"
 
 #include "rmp/frame.h"
 #include "rmp/json.h"
@@ -28,7 +30,7 @@
 #include <sstream>
 #include <stdexcept>
 #include <sys/socket.h>
-#include <sys/sysinfo.h>
+#include "rmp/system_info.h"
 #include <sys/time.h>
 #include <thread>
 #include <unistd.h>
@@ -127,22 +129,9 @@ std::string RegisterPayload(const ClientConfig& config) {
     }
     for(std::map<std::string,std::string>::const_iterator i=config.properties.begin();i!=config.properties.end();++i)
         output<<','<<EscapeJsonString(i->first)<<':'<<EscapeJsonString(i->second);
-    if(!config.template_reference.empty())
-        output<<",\"template\":"<<config.template_reference<<",\"attributes\":"<<config.attributes<<",\"collection_errors\":"<<config.collection_errors;
     output << ",\"arch\":" << EscapeJsonString(config.arch)
            << ",\"boot_id\":" << EscapeJsonString(config.boot_id)
-           << ",\"capabilities\":[\"exec\",\"file\",\"tunnel\",\"router_config\"]}";
-    return output.str();
-}
-
-std::string HeartbeatPayload(unsigned running_tasks) {
-    struct sysinfo info;
-    std::uint64_t uptime = 0;
-    if (sysinfo(&info) == 0 && info.uptime > 0) {
-        uptime = static_cast<std::uint64_t>(info.uptime);
-    }
-    std::ostringstream output;
-    output << "{\"uptime\":" << uptime << ",\"running_tasks\":" << running_tasks << '}';
+           << ",\"capabilities\":[\"exec\",\"file\",\"tunnel\",\"router_config\",\"telemetry_v2\",\"managed_config_v1\",\"port_counters_v1\"]}";
     return output.str();
 }
 
@@ -295,6 +284,7 @@ bool HandleOnlineFrames(const std::vector<Frame>& frames,
                         TaskManager* task_worker,
                         FileManager* files,
                         TunnelManager* tunnels,
+ LiveTelemetry* telemetry,
                         std::uint32_t file_chunk_size,
                         std::uint32_t max_payload,
                         SteadyClock::time_point* last_seen,
@@ -308,7 +298,8 @@ bool HandleOnlineFrames(const std::vector<Frame>& frames,
         if (!ValidateIncomingMessageID(*frame, expected_server_message_id, error)) {
             return false;
         }
-        if (frame->header.type==kTypeTunnelConnect || frame->header.type==kTypeTunnelClose) {
+        if(frame->header.type==0x07){if(frame->header.flags!=0||!telemetry->Apply(std::string(frame->payload.begin(),frame->payload.end()),frame->header.message_id,error))return false;*last_seen=SteadyClock::now();continue;}
+ if (frame->header.type==kTypeTunnelConnect || frame->header.type==kTypeTunnelClose) {
             if(!tunnels->Feed(*frame,error))return false;
             *last_seen=SteadyClock::now();continue;
         }
@@ -389,7 +380,7 @@ bool HandleOnlineFrames(const std::vector<Frame>& frames,
     return true;
 }
 
-SessionResult RunSession(int socket_fd, const ClientConfig& config, TaskManager& task_worker) {
+SessionResult RunSession(int socket_fd, const ClientConfig& config, TaskManager& task_worker, SystemSampler& sampler) {
     SessionResult result;
     std::uint64_t expected_server_message_id = 1;
     SessionWriter writer(socket_fd);
@@ -453,6 +444,7 @@ SessionResult RunSession(int socket_fd, const ClientConfig& config, TaskManager&
               << " session_id=" << register_ack.session_id
               << " heartbeat_interval=" << register_ack.heartbeat_interval << std::endl;
 
+    LiveTelemetry telemetry(config,&sampler);
     PendingHeartbeats pending_heartbeats;
     writer.SetLimit(register_ack.max_control_payload);
     task_worker.BeginSession();
@@ -460,12 +452,12 @@ SessionResult RunSession(int socket_fd, const ClientConfig& config, TaskManager&
     TunnelManager tunnels(register_ack.session_id,config.tunnel_connections,[&writer](const std::string& p){std::uint64_t id=0;return writer.Send(kTypeTunnelStatus,0,p,&id);});
     const std::chrono::seconds heartbeat_interval(register_ack.heartbeat_interval);
     SteadyClock::time_point last_seen = SteadyClock::now();
-    SteadyClock::time_point next_heartbeat = last_seen + heartbeat_interval;
+    SteadyClock::time_point next_heartbeat = last_seen;
 
     while (true) {
         if (!frames.empty()) {
             if (!HandleOnlineFrames(frames, &expected_server_message_id, &pending_heartbeats,
-                                    &writer, &task_worker, &files, &tunnels, register_ack.file_chunk_size, register_ack.max_control_payload, &last_seen, &validation_error)) {
+                                    &writer, &task_worker, &files, &tunnels, &telemetry, register_ack.file_chunk_size, register_ack.max_control_payload, &last_seen, &validation_error)) {
                 std::cerr << "state=PROTOCOL_ERROR detail=" << validation_error << std::endl;
                 return result;
             }
@@ -511,7 +503,7 @@ SessionResult RunSession(int socket_fd, const ClientConfig& config, TaskManager&
                 }
                 if (!frames.empty() &&
                     !HandleOnlineFrames(frames, &expected_server_message_id, &pending_heartbeats,
-                                        &writer, &task_worker, &files, &tunnels, register_ack.file_chunk_size, register_ack.max_control_payload, &last_seen, &validation_error)) {
+                                        &writer, &task_worker, &files, &tunnels, &telemetry, register_ack.file_chunk_size, register_ack.max_control_payload, &last_seen, &validation_error)) {
                     std::cerr << "state=PROTOCOL_ERROR detail=" << validation_error << std::endl;
                     return result;
                 }
@@ -519,6 +511,9 @@ SessionResult RunSession(int socket_fd, const ClientConfig& config, TaskManager&
             }
         }
 
+        std::string observation;
+ if(telemetry.NextAck(&observation)){std::uint64_t id;if(!writer.Send(0x08,kFlagResponse,observation,&id))return result;}
+        if(telemetry.Next(register_ack.max_control_payload,&observation)){std::uint64_t id;if(!writer.Send(0x20,0,observation,&id))return result;}
         files.Tick();
         if(!tunnels.Tick())return result;
         std::string result_payload;
@@ -540,7 +535,7 @@ SessionResult RunSession(int socket_fd, const ClientConfig& config, TaskManager&
             }
             const unsigned running_tasks = task_worker.RunningTasks();
             std::uint64_t heartbeat_message_id = 0;
-            if (!writer.Send(kTypeHeartbeat, 0, HeartbeatPayload(running_tasks),
+            if (!writer.Send(kTypeHeartbeat, 0, HeartbeatPayload(running_tasks, ReadSystemUptime()),
                              &heartbeat_message_id)) {
                 return result;
             }
@@ -552,32 +547,6 @@ SessionResult RunSession(int socket_fd, const ClientConfig& config, TaskManager&
     }
 }
 
-// 0: ready, 1: transient transport failure, 2: rejection/invalid reply.
-int FetchTemplate(const ClientConfig& config,CollectionTemplate* selected,std::string* error){
-    const int fd=Connect(config,error,true);if(fd<0)return 1;
-    SessionWriter writer(fd);std::uint64_t sent=0;
-    const std::string request=config.template_id.empty()?"{\"name\":"+EscapeJsonString(config.template_name)+"}":"{\"template_id\":"+EscapeJsonString(config.template_id)+"}";
-    if(!writer.Send(kTypeTemplateGet,0,request,&sent)){close(fd);*error="template request send failed";return 1;}
-    StreamDecoder decoder(64*1024);std::vector<Frame> frames;
-    const SteadyClock::time_point deadline=SteadyClock::now()+std::chrono::seconds(10);
-    while(frames.empty()){
-        if(!ReceiveFrames(fd,&decoder,MillisecondsUntil(deadline),&frames,error)){close(fd);return (*error=="PAYLOAD_TOO_LARGE"||*error=="BAD_MAGIC"||*error=="UNSUPPORTED_VERSION")?2:1;}
-    }
-    close(fd);
-    if(frames.size()!=1||frames[0].header.message_id!=1||frames[0].header.flags!=kFlagResponse||frames[0].header.type!=kTypeTemplateReply){*error="server does not support TEMPLATE_REPLY or sent invalid reply";return 2;}
-    JsonObject reply;
-    const std::string payload(frames[0].payload.begin(),frames[0].payload.end());
-    if(!ParseJsonObject(payload,&reply,error)||reply["reply_to"].type!=JsonType::kUnsignedInteger||reply["reply_to"].unsigned_value!=sent||reply["success"].type!=JsonType::kBoolean){*error="invalid template reply";return 2;}
-    if(!reply["success"].bool_value){*error="server rejected template selection";if(reply["error_code"].type==JsonType::kString)*error=reply["error_code"].string_value;return 2;}
-    if(!ParseCollectionTemplate(reply["template"].raw_value,selected,error))return 2;
-    if(reply.find("max_control_payload")!=reply.end()) {
-        const JsonValue& limit=reply["max_control_payload"];
-        if(limit.type!=JsonType::kUnsignedInteger||limit.unsigned_value<1024||limit.unsigned_value>kMaxControlPayload){*error="invalid template payload limit";return 2;}
-        selected->max_control_payload=static_cast<std::uint32_t>(limit.unsigned_value);
-    }
-    if((!config.template_id.empty()&&selected->id!=config.template_id)||(!config.template_name.empty()&&selected->name!=config.template_name)){*error="template selection mismatch";return 2;}
-    return 0;
-}
 
 }  // namespace
 
@@ -622,22 +591,9 @@ bool ParseServerAddress(const std::string& address,
 
 int RunClient(const ClientConfig& initial) {
     ClientConfig config=initial;
-    if(!config.template_id.empty()||!config.template_name.empty()) {
-        const unsigned delays[]={1,2,5,10,30};std::size_t attempt=0;
-        while(true) {
-            CollectionTemplate selected;std::string error;
-            const int status=FetchTemplate(config,&selected,&error);
-            if(status==0){
-                CollectProperties(selected,&config);
-                if(RegisterPayload(config).size()>selected.max_control_payload){std::cerr<<"template_error=collected registration exceeds server control payload limit"<<std::endl;return 2;}
-                break;
-            }
-            if(status==2){std::cerr<<"template_error="<<error<<std::endl;return 2;}
-            const unsigned delay=delays[std::min(attempt++,static_cast<std::size_t>(4))];
-            std::cerr<<"state=FETCHING_TEMPLATE retry_delay="<<delay<<" reason="<<error<<std::endl;
-            std::this_thread::sleep_for(std::chrono::seconds(delay));
-        }
-    }
+    SystemSampler sampler("",config.network_interfaces);
+    sampler.StartHardware(config.monitoring.at("cpu")?config.monitoring.at("cpu"):5);
+    CollectFirmware(&config);
     TaskManager task_worker(config.task_workers, config.task_capacity, config.task_cache_bytes, config.file_queue_capacity);
     const unsigned delays[] = {1, 2, 5, 10, 30};
     std::size_t backoff_index = 0;
@@ -657,7 +613,7 @@ int RunClient(const ClientConfig& initial) {
         }
 
         backoff_index = 0;
-        const SessionResult session = RunSession(socket_fd, config, task_worker);
+        const SessionResult session = RunSession(socket_fd, config, task_worker, sampler);
         close(socket_fd);
         if (session.retry_after > 0) {
             std::cerr << "state=RECONNECTING delay=" << session.retry_after << std::endl;

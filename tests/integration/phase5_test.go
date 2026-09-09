@@ -145,6 +145,7 @@ func TestPhase5RealProbeHTTPWebSocketWorkflow(t *testing.T) {
 		}
 		time.Sleep(10 * time.Millisecond)
 	}
+	adoptProbe(t, app, "phase5-device", "", nil)
 	d := p5request(t, base, "GET", "/devices/phase5-device", "", nil, 200)
 	first := d["current_session"].(map[string]any)["session_id"]
 	dir := t.TempDir()

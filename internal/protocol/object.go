@@ -9,7 +9,11 @@ import (
 
 // Reject duplicate members, null, non-object roots and trailing JSON. This is
 // HTTP input validation only; it does not change the Probe decoder contract.
-func ValidObject(b []byte) error {
+func ValidObject(b []byte) error { return validObject(b, false) }
+
+// ValidStoredObject permits explicit unknown fields in durable observation snapshots.
+func ValidStoredObject(b []byte) error { return validObject(b, true) }
+func validObject(b []byte, allowNull bool) error {
 	if !ValidUnicodeJSON(b) {
 		return errors.New("invalid Unicode")
 	}
@@ -24,7 +28,7 @@ func ValidObject(b []byte) error {
 		if e != nil {
 			return e
 		}
-		if t == nil {
+		if t == nil && !allowNull {
 			return errors.New("null not supported")
 		}
 		if delimiter, ok := t.(json.Delim); ok {

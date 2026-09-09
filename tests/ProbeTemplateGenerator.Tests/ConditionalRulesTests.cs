@@ -143,7 +143,7 @@ public class ConditionalRulesTests
         Assert.Equal("4G", project.Attributes[2].Rules![0].Value);
         var restored = files.ReadProject(files.SerializeProject(project));
         Assert.Equal(files.SerializeTemplate(compiler.Compile(project)), files.SerializeTemplate(compiler.Compile(restored)));
-        Assert.Equal(2, restored.SchemaVersion);
+        Assert.Equal(8,restored.SchemaVersion);
     }
     [Theory]
     [InlineData("null")]
@@ -161,8 +161,8 @@ public class ConditionalRulesTests
     {
         var node = JsonNode.Parse(files.SerializeProject(Fixture(Mapping())))!;
         node["schema_version"] = 1;
-        Assert.Contains("属性格式", Assert.ThrowsAny<InvalidOperationException>(() => files.ReadProject(node.ToJsonString())).Message);
-        node["schema_version"] = 3;
+        Assert.Contains("版本", Assert.ThrowsAny<InvalidOperationException>(() => files.ReadProject(node.ToJsonString())).Message);
+        node["schema_version"] = 999;
         Assert.Contains("版本", Assert.ThrowsAny<InvalidOperationException>(() => files.ReadProject(node.ToJsonString())).Message);
     }
 }

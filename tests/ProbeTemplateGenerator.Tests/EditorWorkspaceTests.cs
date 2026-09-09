@@ -6,7 +6,7 @@ using ProbeTemplateGenerator.Services;
 
 namespace ProbeTemplateGenerator.Tests;
 
-public sealed class EditorWorkspaceTests
+public sealed partial class EditorWorkspaceTests
 {
     [Fact]
     public async Task OpeningProjectRequiresReplacementConfirmationAndCancelPreservesEdits()

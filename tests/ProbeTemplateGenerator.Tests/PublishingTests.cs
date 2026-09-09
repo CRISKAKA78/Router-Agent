@@ -22,21 +22,11 @@ namespace ProbeTemplateGenerator.Tests;
 public sealed class PublishingTests
 {
     [Theory]
-    [InlineData(1)]
-    [InlineData(2)]
-    public void ImportsLegacyNativeDraftWithoutLosingBinding(int version)
+    [InlineData(1)] [InlineData(2)]
+    public void RejectsPreviousWorkspaceDrafts(int version)
     {
-        var persistence = CreatePersistence();
-        var draft = persistence.ReadImport($$"""
-            {"project":{"format":"router-agent-template-project","schema_version":{{version}},"name":"旧工程","attributes":[]},
-             "target":{"origin":"http://127.0.0.1:8080","id":"stable-template-id","version":17},"savedAt":123456}
-            """);
-        Assert.Equal(2, draft.Project.SchemaVersion);
-        Assert.Equal("旧工程", draft.Project.Name);
-        Assert.Equal((ulong)17, draft.Target!.Version);
-        Assert.Equal("stable-template-id", draft.Target.Id);
-        Assert.Equal(draft.Target.Origin, draft.ServerUrl);
-        Assert.Equal(123456, draft.SavedAt);
+        var persistence=CreatePersistence();
+        Assert.ThrowsAny<Exception>(()=>persistence.ReadImport($$"""{"workspace_version":{{version}},"project":{"format":"router-agent-template-project","schema_version":8,"name":"旧草稿","attributes":[]},"savedAt":1}"""));
     }
 
     [Fact]
@@ -65,11 +55,10 @@ public sealed class PublishingTests
     }
 
     [Fact]
-    public async Task CorruptNewDraftNeverFallsBackAndOverwritesItWithLegacyData()
+    public async Task CorruptCurrentDraftIsPreserved()
     {
         var memory = new BrowserStorage();
         memory.Values[WorkspacePersistence.StorageKey] = "{\"broken\"";
-        memory.Values[WorkspacePersistence.LegacyStorageKey] = "{\"project\":{}}";
         var persistence = new WorkspacePersistence(memory, new ProjectFiles());
         await Assert.ThrowsAnyAsync<JsonException>(() => persistence.LoadAsync());
         Assert.Equal("{\"broken\"", memory.Values[WorkspacePersistence.StorageKey]);

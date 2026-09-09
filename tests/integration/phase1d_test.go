@@ -25,7 +25,7 @@ import (
 func fileServer(t *testing.T) (*gateway.Server, string, *lockedBuffer) {
 	t.Helper()
 	bin := probeBinary(t)
-	s, e := gateway.New(gateway.Config{HeartbeatInterval: 10 * time.Second, MaxControlPayload: 1024, FileChunkSize: 65536, Logger: log.New(io.Discard, "", 0)})
+	s, e := gateway.New(gateway.Config{HeartbeatInterval: 10 * time.Second, MaxControlPayload: 65536, FileChunkSize: 65536, Logger: log.New(io.Discard, "", 0)})
 	if e != nil {
 		t.Fatal(e)
 	}
@@ -291,7 +291,7 @@ func acceptFilePeer(t *testing.T, l net.Listener, session string) *phase1cPeer {
 	if f.Header.Type != protocol.TypeRegister {
 		t.Fatal("register")
 	}
-	p.send(protocol.TypeRegisterAck, protocol.FlagResponse, map[string]interface{}{"reply_to": 1, "success": true, "session_id": session, "heartbeat_interval": 10, "server_time": time.Now().Unix(), "max_control_payload": 1024, "file_chunk_size": 65536})
+	p.send(protocol.TypeRegisterAck, protocol.FlagResponse, map[string]interface{}{"reply_to": 1, "success": true, "session_id": session, "heartbeat_interval": 10, "server_time": time.Now().Unix(), "max_control_payload": 65536, "telemetry_v2": true, "managed_config_v1": true, "file_chunk_size": 65536})
 	return p
 }
 func wireFile(n int, kind, remote string, data []byte) (map[string]interface{}, filetransfer.Params) {

@@ -78,10 +78,12 @@ func parseRegister(payload []byte) (registerMessage, error) {
 	if err != nil {
 		return registerMessage{}, err
 	}
-	var message registerMessage
-	if err = parseCollection(object, &message); err != nil {
-		return registerMessage{}, err
+	for _, key := range []string{"template", "attributes", "collection_errors", "report_intervals"} {
+		if _, ok := object[key]; ok {
+			return registerMessage{}, fmt.Errorf("unsupported REGISTER field: %s", key)
+		}
 	}
+	var message registerMessage
 	if message.DeviceID, err = requiredString(object, "device_id", 1, 128, false); err != nil {
 		return registerMessage{}, err
 	}
@@ -111,14 +113,6 @@ func parseRegister(payload []byte) (registerMessage, error) {
 	}
 	if message.Libc, err = optionalString(object, "libc", 64, true); err != nil {
 		return registerMessage{}, err
-	}
-	for key := range message.CollectionErrors {
-		if raw, ok := object[key]; ok {
-			var value string
-			if json.Unmarshal(raw, &value) == nil && value != "" {
-				return registerMessage{}, errors.New("failed collection field also has a value")
-			}
-		}
 	}
 
 	rawCapabilities, ok := object["capabilities"]
@@ -172,42 +166,57 @@ func parseNonNegativeNumber(raw json.RawMessage, name string) error {
 	return nil
 }
 
-func validateHeartbeat(payload []byte) error {
+func parseHeartbeat(payload []byte) (*uint64, error) {
 	object, err := decodeObject(payload)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	uptime, ok := object["uptime"]
 	if !ok {
-		return errors.New("uptime is required")
+		return nil, errors.New("uptime is required")
 	}
-	if _, err := parseUnsignedInteger(uptime, "uptime", math.MaxInt64); err != nil {
-		return err
+	seconds, err := parseUnsignedInteger(uptime, "uptime", math.MaxInt64)
+	if err != nil {
+		return nil, err
+	}
+	raw, present := object["uptime_valid"]
+	if !present {
+		return nil, errors.New("uptime_valid is required")
+	}
+	valid, err := parseBoolean(raw, "uptime_valid")
+	if err != nil {
+		return nil, err
+	}
+	if !valid && seconds != 0 {
+		return nil, errors.New("uptime must be zero when uptime_valid is false")
 	}
 	runningTasks, ok := object["running_tasks"]
 	if !ok {
-		return errors.New("running_tasks is required")
+		return nil, errors.New("running_tasks is required")
 	}
 	if _, err := parseUnsignedInteger(runningTasks, "running_tasks", 65535); err != nil {
-		return err
+		return nil, err
 	}
 	if load1, ok := object["load1"]; ok {
 		if bytes.Equal(bytes.TrimSpace(load1), []byte("null")) {
-			return errors.New("load1 must not be null")
+			return nil, errors.New("load1 must not be null")
 		}
 		if err := parseNonNegativeNumber(load1, "load1"); err != nil {
-			return err
+			return nil, err
 		}
 	}
 	if freeMemory, ok := object["free_memory"]; ok {
 		if bytes.Equal(bytes.TrimSpace(freeMemory), []byte("null")) {
-			return errors.New("free_memory must not be null")
+			return nil, errors.New("free_memory must not be null")
 		}
 		if _, err := parseUnsignedInteger(freeMemory, "free_memory", math.MaxInt64); err != nil {
-			return err
+			return nil, err
 		}
 	}
-	return nil
+	if !valid {
+		return nil, nil
+	}
+	return &seconds, nil
 }
 
 func parseBoolean(raw json.RawMessage, name string) (bool, error) {

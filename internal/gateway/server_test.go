@@ -145,7 +145,7 @@ func TestConnectionWritesSerializeTaskAndHeartbeatAck(t *testing.T) {
 			err error
 		}{id: id, err: err}
 	}()
-	writeJSONFrame(t, conn, protocol.TypeHeartbeat, 2, `{"uptime":1,"running_tasks":0}`)
+	writeJSONFrame(t, conn, protocol.TypeHeartbeat, 2, `{"uptime":1,"uptime_valid":true,"running_tasks":0}`)
 
 	first := readFrame(t, conn)
 	second := readFrame(t, conn)
@@ -188,7 +188,7 @@ func validRegister(deviceID string) string {
 		"probe_version": "1.0.0",
 		"arch":          "x86_64",
 		"boot_id":       "test-boot",
-		"capabilities":  []string{},
+		"capabilities":  []string{"managed_config_v1", "telemetry_v2"},
 	})
 	return string(payload)
 }
@@ -223,7 +223,7 @@ func TestRegisterAndHeartbeatReplyTo(t *testing.T) {
 		t.Fatal("online event timeout")
 	}
 
-	writeJSONFrame(t, conn, protocol.TypeHeartbeat, 2, `{"uptime":123,"running_tasks":0}`)
+	writeJSONFrame(t, conn, protocol.TypeHeartbeat, 2, `{"uptime":123,"uptime_valid":true,"running_tasks":0}`)
 	heartbeatResponseFrame := readFrame(t, conn)
 	if heartbeatResponseFrame.Header.Type != protocol.TypeHeartbeatAck || heartbeatResponseFrame.Header.Flags != protocol.FlagResponse || heartbeatResponseFrame.Header.MessageID != 2 {
 		t.Fatalf("HEARTBEAT_ACK header = %#v", heartbeatResponseFrame.Header)
@@ -242,7 +242,7 @@ func TestRegisterValidationFailure(t *testing.T) {
 		name    string
 		payload string
 	}{
-		{name: "missing required field", payload: `{"probe_version":"1.0.0","arch":"x86_64","boot_id":"boot","capabilities":[]}`},
+		{name: "missing required field", payload: `{"probe_version":"1.0.0","arch":"x86_64","boot_id":"boot","capabilities":["managed_config_v1","telemetry_v2"]}`},
 		{name: "field out of range", payload: validRegister(strings.Repeat("d", 129))},
 	}
 	for _, test := range tests {

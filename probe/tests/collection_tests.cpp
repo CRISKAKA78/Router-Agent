@@ -1,4 +1,4 @@
-#include "rmp/collection.h"
+#include "template_fixture.h"
 #include "rmp/json.h"
 #include <iostream>
 #include <chrono>
@@ -19,15 +19,19 @@ int main(){
  value.properties["invalid"]={"Invalid","printf '\\377'",5};
  value.properties["libc"]={"Libc","printf '\\303\\251'",5};
  rmp::ClientConfig config;config.hostname="manual";config.explicit_hostname=true;
- const auto start=std::chrono::steady_clock::now();rmp::CollectProperties(value,&config);
+ const auto start=std::chrono::steady_clock::now();auto metrics=CollectCurrent(value,config);
  check(std::chrono::steady_clock::now()-start<std::chrono::seconds(8),"timeout failed");
- check(config.hostname=="manual"&&config.properties["model"]=="model"&&config.properties.count("libc")==0,"standard values");
- rmp::JsonObject attrs,errs,custom;
- check(rmp::ParseJsonObject(config.attributes,&attrs,&error)&&attrs.size()==1,"custom attributes");
- check(rmp::ParseJsonObject(attrs["custom"].raw_value,&custom,&error)&&custom["value"].string_value=="hello","trimmed output");
- check(rmp::ParseJsonObject(config.collection_errors,&errs,&error)&&errs.size()==5,"failure summary");
- check(config.collection_errors.find("secret")==std::string::npos,"stderr leak");
- config.explicit_hostname=false;value.properties.clear();value.properties["model"]={"Model","printf replacement",5};
- rmp::CollectProperties(value,&config);check(config.hostname.empty()&&config.attributes=="{}"&&config.collection_errors=="{}","old snapshot retained");
+ check(config.hostname=="manual"&&metrics["model"].value=="model"&&metrics["libc"].status=="error","standard values");
+ check(metrics["custom"].value=="hello","trimmed output");
+ for(const auto& key:{"empty","failure","timeout","invalid","libc"})check(metrics[key].status=="error","failure summary");
+ check(metrics["failure"].reason=="command_failed"&&metrics["failure"].value.empty(),"stderr leak");
+ value.properties.clear();value.properties["model"]={"Model","printf replacement",5};
+ metrics=CollectCurrent(value,config);check(metrics.size()==1&&metrics["model"].value=="replacement","configuration replaces previous collection");
+ config.properties["kernel"]="6.6-vendor";
+ metrics=CollectCurrent(value,config);check(!metrics.count("kernel")&&config.properties["kernel"]=="6.6-vendor","template without kernel preserves built-in fact");
+ value.properties["kernel"]={"Kernel","printf 5.10-custom",5};
+ metrics=CollectCurrent(value,config);check(metrics["kernel"].value=="5.10-custom","explicit kernel observation");
+ value.properties["kernel"]={"Kernel","exit 3",5};metrics=CollectCurrent(value,config);
+ check(metrics["kernel"].status=="error"&&metrics["kernel"].value.empty(),"failed kernel must be explicit");
  return failures?1:0;
 }

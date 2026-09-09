@@ -19,16 +19,32 @@ public enum AttributeSource
     [JsonStringEnumMemberName("rules")] Rules
 }
 
+public sealed class MonitoringSettings
+{
+ [JsonPropertyName("egress_seconds")] public int EgressSeconds {get;set;}=600;
+ [JsonPropertyName("network_interfaces"),JsonIgnore(Condition=JsonIgnoreCondition.WhenWritingNull)] public string? NetworkInterfaces {get;set;}
+
+ public MonitoringSettings Copy() => new(){CpuSeconds=CpuSeconds,MemorySeconds=MemorySeconds,DiskSeconds=DiskSeconds,NetworkSeconds=NetworkSeconds,EgressSeconds=EgressSeconds,NetworkInterfaces=NetworkInterfaces};
+ [JsonPropertyName("cpu_seconds")] public int CpuSeconds {get;set;}=5;
+ [JsonPropertyName("memory_seconds")] public int MemorySeconds {get;set;}=5;
+ [JsonPropertyName("disk_seconds")] public int DiskSeconds {get;set;}=60;
+ [JsonPropertyName("network_seconds")] public int NetworkSeconds {get;set;}=5;
+}
+
 public sealed class TemplateProject
 {
+ [JsonPropertyName("presentation"),JsonIgnore(Condition=JsonIgnoreCondition.WhenWritingNull)] public PresentationSettings? Presentation {get;set;}
+ [JsonPropertyName("switch_probe"),JsonIgnore(Condition=JsonIgnoreCondition.WhenWritingNull)] public SwitchSettings? SwitchProbe {get;set;}
     [JsonPropertyName("format")] public string Format { get; set; } = "router-agent-template-project";
-    [JsonPropertyName("schema_version")] public int SchemaVersion { get; set; } = 2;
+    [JsonPropertyName("schema_version")] public int SchemaVersion { get; set; } = 8;
+    [JsonPropertyName("monitoring"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public MonitoringSettings? Monitoring {get;set;}
     [JsonPropertyName("name")] public string Name { get; set; } = "新模板";
     [JsonPropertyName("attributes")] public List<TemplateAttribute> Attributes { get; set; } = [];
 }
 
 public sealed class TemplateAttribute
 {
+    [JsonPropertyName("interval_seconds")] public int IntervalSeconds {get;set;}
     [JsonPropertyName("id")] public string Id { get; set; } = Guid.NewGuid().ToString();
     [JsonPropertyName("key")] public string Key { get; set; } = "";
     [JsonPropertyName("name")] public string Name { get; set; } = "";
@@ -51,12 +67,16 @@ public sealed class ResultRule
 
 public class RuntimeTemplate
 {
+ [JsonPropertyName("presentation"),JsonIgnore(Condition=JsonIgnoreCondition.WhenWritingNull)] public PresentationSettings? Presentation {get;set;}
+ [JsonPropertyName("switch_probe"),JsonIgnore(Condition=JsonIgnoreCondition.WhenWritingNull)] public SwitchSettings? SwitchProbe {get;set;}
+    [JsonPropertyName("monitoring"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public MonitoringSettings? Monitoring {get;set;}
     [JsonPropertyName("name")] public string Name { get; set; } = "";
     [JsonPropertyName("properties")] public Dictionary<string, RuntimeProperty> Properties { get; set; } = new(StringComparer.Ordinal);
 }
 
 public sealed class RuntimeProperty
 {
+    [JsonPropertyName("interval_seconds"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)] public int IntervalSeconds {get;set;}
     [JsonPropertyName("name")] public string Name { get; set; } = "";
     [JsonPropertyName("command"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public string? Command { get; set; }

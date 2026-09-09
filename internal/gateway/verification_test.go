@@ -15,12 +15,12 @@ import (
 
 func TestHeartbeatNumberType(t *testing.T) {
 	for _, value := range []string{`"0.21"`, `null`, `true`, `[]`, `{}`, `-1`, `1e999`} {
-		if err := validateHeartbeat([]byte(`{"uptime":0,"running_tasks":0,"load1":` + value + `}`)); err == nil {
+		if _, err := parseHeartbeat([]byte(`{"uptime":0,"uptime_valid":true,"running_tasks":0,"load1":` + value + `}`)); err == nil {
 			t.Errorf("accepted load1=%s", value)
 		}
 	}
 	for _, value := range []string{`0`, `0.21`, `1e2`} {
-		if err := validateHeartbeat([]byte(`{"uptime":0,"running_tasks":0,"load1":` + value + `}`)); err != nil {
+		if _, err := parseHeartbeat([]byte(`{"uptime":0,"uptime_valid":true,"running_tasks":0,"load1":` + value + `}`)); err != nil {
 			t.Errorf("load1=%s: %v", value, err)
 		}
 	}
@@ -45,7 +45,7 @@ func TestServerInvalidProtocolConverges(t *testing.T) {
 		{"array", 3, 0, `[]`, nil},
 		{"null", 3, 0, `null`, nil},
 		{"invalid-utf8", 3, 0, "{\"future\":\"\xff\"}", nil},
-		{"load-string", 3, 0, `{"uptime":0,"running_tasks":0,"load1":"0"}`, nil},
+		{"load-string", 3, 0, `{"uptime":0,"uptime_valid":true,"running_tasks":0,"load1":"0"}`, nil},
 		{"ack-missing-response", 0x11, 0, `{}`, nil},
 		{"result-response", 0x12, 1, `{}`, nil},
 		{"chunk-no-binary", 0x31, 0, `{}`, nil},
@@ -58,7 +58,7 @@ func TestServerInvalidProtocolConverges(t *testing.T) {
 			flags   uint16
 			payload string
 			mutate  func([]byte) []byte
-		}{fmt.Sprintf("heartbeat-flag-%d", bit), 3, 1 << bit, `{"uptime":0,"running_tasks":0}`, nil})
+		}{fmt.Sprintf("heartbeat-flag-%d", bit), 3, 1 << bit, `{"uptime":0,"uptime_valid":true,"running_tasks":0}`, nil})
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -68,7 +68,7 @@ func TestServerInvalidProtocolConverges(t *testing.T) {
 			}
 			defer c.Close()
 			c.SetDeadline(time.Now().Add(2 * time.Second))
-			writeJSONFrame(t, c, 1, 1, `{"device_id":"invalid","probe_version":"1","arch":"x86_64","boot_id":"boot","capabilities":[]}`)
+			writeJSONFrame(t, c, 1, 1, `{"device_id":"invalid","probe_version":"1","arch":"x86_64","boot_id":"boot","capabilities":["managed_config_v1","telemetry_v2"]}`)
 			// Consume REGISTER_ACK before injecting an online violation.
 			readFrame := func() (protocol.Frame, error) {
 				var h [20]byte
@@ -129,7 +129,7 @@ func TestServerInvalidProtocolConverges(t *testing.T) {
 }
 
 func TestControlUnicodeContract(t *testing.T) {
-	base := `{"device_id":"DEVICE","probe_version":"1","arch":"x86_64","boot_id":"boot","capabilities":[]}`
+	base := `{"device_id":"DEVICE","probe_version":"1","arch":"x86_64","boot_id":"boot","capabilities":["managed_config_v1","telemetry_v2"]}`
 	for _, value := range []string{`\ud800`, `\udc00`, `\ud800x`, `\ud800\u0041`, string([]byte{0xff})} {
 		if _, err := parseRegister([]byte(strings.Replace(base, "DEVICE", value, 1))); err == nil {
 			t.Errorf("accepted invalid Unicode %q", value)

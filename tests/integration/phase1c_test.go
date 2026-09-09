@@ -153,7 +153,7 @@ func acceptPhase1cPeer(t *testing.T, listener net.Listener, session string) *pha
 	}
 	p.send(protocol.TypeRegisterAck, protocol.FlagResponse, map[string]interface{}{
 		"reply_to": 1, "success": true, "session_id": session, "heartbeat_interval": 10,
-		"server_time": time.Now().Unix(), "max_control_payload": protocol.MaxControlPayload, "file_chunk_size": 65536,
+		"server_time": time.Now().Unix(), "max_control_payload": protocol.MaxControlPayload, "telemetry_v2":true,"managed_config_v1":true, "file_chunk_size": 65536,
 	})
 	return p
 }

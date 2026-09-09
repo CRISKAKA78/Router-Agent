@@ -11,6 +11,9 @@ func (s *Server) SetTunnelStatus(report func(string, tunnel.Status) error) { s.t
 
 // BindTunnel exposes a revocable transport handle, never the connection map.
 func (s *Server) BindTunnel(deviceID string) (tunnel.Binding, error) {
+	if e := s.requireManaged(deviceID); e != nil {
+		return tunnel.Binding{}, e
+	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	active := s.sessions[deviceID]

@@ -24,6 +24,8 @@ import (
 	"github.com/gorilla/websocket"
 )
 
+var fixtureURLs sync.Map
+
 func fixture(t *testing.T, c Config) (*Server, *management.Server, string, string) {
 	t.Helper()
 	app, e := management.New(management.Config{RepositoryDirectory: t.TempDir(), Gateway: gateway.Config{HeartbeatInterval: 10 * time.Second, Logger: log.New(io.Discard, "", 0)}, Tunnel: &tunnel.Config{DataListen: "127.0.0.1:0", PortFirst: 28000, PortLast: 28999, PortReuseDelay: time.Millisecond}})
@@ -41,6 +43,8 @@ func fixture(t *testing.T, c Config) (*Server, *management.Server, string, strin
 		t.Fatal(e)
 	}
 	server := httptest.NewServer(a)
+	fixtureURLs.Store(l.Addr().String(), server.URL)
+	t.Cleanup(func() { fixtureURLs.Delete(l.Addr().String()) })
 	t.Cleanup(func() {
 		a.Close()
 		server.Close()
@@ -80,14 +84,14 @@ func request(t *testing.T, base, method, path, key, body string, status int) obj
 	return out
 }
 func data(v object) object { return v["data"].(map[string]any) }
-func register(t *testing.T, address, id string) (net.Conn, string) {
+func register(t *testing.T, address, id string, pending ...bool) (net.Conn, string) {
 	t.Helper()
 	c, e := net.Dial("tcp", address)
 	if e != nil {
 		t.Fatal(e)
 	}
 	t.Cleanup(func() { c.Close() })
-	b, _ := json.Marshal(object{"device_id": id, "probe_version": "test", "arch": "x86_64", "boot_id": "test", "capabilities": []string{"exec", "file", "tunnel"}})
+	b, _ := json.Marshal(object{"device_id": id, "probe_version": "test", "arch": "x86_64", "boot_id": "test", "capabilities": []string{"exec", "file", "tunnel", "managed_config_v1", "telemetry_v2"}})
 	frame := protocol.Frame{Header: protocol.Header{Version: 1, Type: protocol.TypeRegister, MessageID: 1}, Payload: b}
 	wire, e := protocol.EncodeFrame(frame)
 	if e != nil {
@@ -112,6 +116,12 @@ func register(t *testing.T, address, id string) (net.Conn, string) {
 			var ack object
 			json.Unmarshal(frames[0].Payload, &ack)
 			c.SetReadDeadline(time.Time{})
+			if len(pending) == 0 {
+				base, _ := fixtureURLs.Load(address)
+				if base != nil {
+					adoptHTTP(t, base.(string), id)
+				}
+			}
 			return c, ack["session_id"].(string)
 		}
 	}
@@ -335,9 +345,15 @@ func TestWebSocketClientsSlowConsumerAndShutdown(t *testing.T) {
 	a.mu.Unlock()
 	a.broadcast("tasks")
 	a.broadcast("tasks")
-	if _, _, e := two.ReadMessage(); e == nil {
-		if _, _, e = two.ReadMessage(); e == nil {
-			t.Fatal("slow client remains open")
+	// Registration/admission can leave multiple notifications buffered before close.
+	// Require an actual close within the deadline, independent of that buffer size.
+	two.SetReadDeadline(time.Now().Add(time.Second))
+	for {
+		if _, _, readErr := two.ReadMessage(); readErr != nil {
+			if _, closed := readErr.(*websocket.CloseError); !closed && readErr != io.EOF && readErr != io.ErrUnexpectedEOF {
+				t.Fatalf("slow client did not close: %v", readErr)
+			}
+			break
 		}
 	}
 	a.mu.Lock()
@@ -479,4 +495,24 @@ func TestBoundedListenerAndIdleShutdown(t *testing.T) {
 	if len(b.slots) != 0 {
 		t.Fatal("slot retained")
 	}
+}
+
+// Existing business tests explicitly enroll their fixture after discovery.
+func adoptHTTP(t *testing.T, base, id string) {
+	t.Helper()
+	eventually(t, func() bool {
+		v, e := http.Get(base + "/api/v1/devices/" + id)
+		if e != nil {
+			return false
+		}
+		defer v.Body.Close()
+		return v.StatusCode == 200
+	})
+	d := data(request(t, base, "GET", "/api/v1/devices/"+id, "", "", 200))
+	p := d["profile"].(map[string]any)
+	if p["admission"] == "managed" {
+		return
+	}
+	b, _ := json.Marshal(object{"version": p["version"], "admission": "managed", "name": id, "model_id": "", "template_id": ""})
+	request(t, base, "PUT", "/api/v1/devices/"+id+"/profile", "adopt-"+id, string(b), 200)
 }

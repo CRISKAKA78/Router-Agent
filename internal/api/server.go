@@ -13,6 +13,7 @@ import (
 	"net/http"
 	"net/url"
 	"routerprobe/internal/device"
+	"routerprobe/internal/enrollment"
 	"routerprobe/internal/gateway"
 	"routerprobe/internal/management"
 	"routerprobe/internal/probetemplate"
@@ -190,6 +191,8 @@ func write(w http.ResponseWriter, v response) {
 func failure(err error) response {
 	s, c := 500, "internal_error"
 	switch {
+	case errors.Is(err, enrollment.ErrNotManaged):
+		s, c = 409, "device_not_managed"
 	case errors.Is(err, repository.ErrInvalid), errors.Is(err, probetemplate.ErrInvalid), errors.Is(err, routerconfig.ErrInvalid):
 		s, c = 400, "invalid_request"
 	case errors.Is(err, routerconfig.ErrUnsupported):

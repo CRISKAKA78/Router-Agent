@@ -29,7 +29,7 @@ func TestPersistenceConflictsAndDeletion(t *testing.T) {
 	if e != nil || got.Properties["serial"].Command != "nvram get SN" {
 		t.Fatal(got, e)
 	}
-	if _, e = s.Put("", 0, Input{got.Name, got.Properties}); !errors.Is(e, ErrConflict) {
+	if _, e = s.Put("", 0, Input{Name: got.Name, Properties: got.Properties}); !errors.Is(e, ErrConflict) {
 		t.Fatal(e)
 	}
 	var wg sync.WaitGroup
@@ -38,7 +38,7 @@ func TestPersistenceConflictsAndDeletion(t *testing.T) {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			_, e := s.Put(got.ID, 1, Input{got.Name, got.Properties})
+			_, e := s.Put(got.ID, 1, Input{Name: got.Name, Properties: got.Properties})
 			success <- e == nil
 		}()
 	}
@@ -70,12 +70,12 @@ func TestPersistenceConflictsAndDeletion(t *testing.T) {
 	if _, e = s.Resolve(got.ID, ""); !errors.Is(e, ErrNotFound) {
 		t.Fatal(e)
 	}
-	replacement, e := s.Put("", 0, Input{got.Name, got.Properties})
+	replacement, e := s.Put("", 0, Input{Name: got.Name, Properties: got.Properties})
 	if e != nil || replacement.ID == got.ID {
 		t.Fatal(replacement, e)
 	}
 }
-func TestRejectCorruptAndMissingCatalog(t *testing.T) {
+func TestRejectCorruptCatalog(t *testing.T) {
 	for _, body := range []string{`{"schema_version":1,"schema_version":1,"templates":[]}`, `{"schema_version":2,"templates":[]}`, `{"schema_version":1,"templates":null}`} {
 		path := filepath.Join(t.TempDir(), "templates.json")
 		os.WriteFile(path, []byte(body), 0600)
@@ -84,6 +84,9 @@ func TestRejectCorruptAndMissingCatalog(t *testing.T) {
 			t.Fatal("accepted", body)
 		}
 	}
+}
+
+func TestMissingCatalogCanBeRepublished(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "templates.json")
 	s, e := Open(path)
 	if e != nil {
@@ -91,14 +94,21 @@ func TestRejectCorruptAndMissingCatalog(t *testing.T) {
 	}
 	s.Close()
 	os.Remove(path)
-	if s, e = Open(path); e == nil {
-		s.Close()
-		t.Fatal("missing established catalog silently reset")
+	s, e = Open(path)
+	if e != nil {
+		t.Fatal(e)
+	}
+	defer s.Close()
+	if len(s.StartupWarnings()) != 1 {
+		t.Fatal("missing recovery warning", s.StartupWarnings())
+	}
+	if _, e = s.Put("", 0, Input{Name: "replacement", Properties: map[string]Property{"serial": {Name: "serial", Command: "true"}}}); e != nil {
+		t.Fatal(e)
 	}
 }
 func TestValidation(t *testing.T) {
 	for _, key := range []string{"device_id", "arch", "boot_id", "probe_version", "capabilities", "template", "attributes", "collection_errors", "Bad", "a-b", ""} {
-		if Validate(Input{"t", map[string]Property{key: {Name: "x", Command: "true", Timeout: 5}}}) == nil {
+		if Validate(Input{Name: "t", Properties: map[string]Property{key: {Name: "x", Command: "true", Timeout: 5}}}) == nil {
 			t.Fatal(key)
 		}
 	}
@@ -108,13 +118,13 @@ func TestValidation(t *testing.T) {
 	}
 	defer s.Close()
 	for _, p := range []Property{{Name: "x", Command: "true", Timeout: 31}, {Name: "x", Command: " "}, {Name: "x", Command: "a\x00b"}} {
-		if _, e = s.Put("", 0, Input{"t", map[string]Property{"custom": p}}); !errors.Is(e, ErrInvalid) {
+		if _, e = s.Put("", 0, Input{Name: "t", Properties: map[string]Property{"custom": p}}); !errors.Is(e, ErrInvalid) {
 			t.Fatal(p, e)
 		}
 	}
 	// Persistence failure must not publish an in-memory template.
 	s.path = filepath.Join(t.TempDir(), "missing", "catalog.json")
-	if _, e = s.Put("", 0, Input{"t", map[string]Property{"custom": {Name: "x", Command: "true"}}}); e == nil {
+	if _, e = s.Put("", 0, Input{Name: "t", Properties: map[string]Property{"custom": {Name: "x", Command: "true"}}}); e == nil {
 		t.Fatal("save unexpectedly succeeded")
 	}
 	if list, _ := s.List(); len(list) != 0 {

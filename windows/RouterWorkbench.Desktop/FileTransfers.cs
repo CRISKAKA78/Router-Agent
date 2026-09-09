@@ -9,7 +9,7 @@ public partial class MainWindow
 {
     private DataGrid tasksGrid = null!, transferGrid = null!;
     private ComboBox taskScope = null!, taskState = null!;
-    private TextBox taskSearch = null!, stdout = null!, stderr = null!, taskSpec = null!;
+    private TextBox taskSearch = null!;
     private TextBlock taskHeading = null!, taskFooter = null!, taskEmpty = null!;
     private string taskId = "";
     private TaskDetail? task;
@@ -29,18 +29,13 @@ public partial class MainWindow
         tasksGrid.MouseDoubleClick += (_, _) => { if (task != null) Inspect("任务详情", task); };
         taskEmpty = Ui.Text("当前筛选下没有任务", true); taskEmpty.HorizontalAlignment = HorizontalAlignment.Center; taskEmpty.VerticalAlignment = VerticalAlignment.Top; taskEmpty.Margin = new(10,55,10,0); taskEmpty.IsHitTestVisible = false;
         var list = new Grid(); list.Children.Add(tasksGrid); list.Children.Add(taskEmpty);
-        stdout = Ui.Code("选择任务以查看最终输出。", true); stderr = Ui.Code("", true); taskSpec = Ui.Code("", true);
-        transferGrid = Ui.Table("文件传输事实", ("属性", "Name", 170), ("值", "Value", -1));
-        var detailTabs = new TabControl(); detailTabs.Items.Add(new TabItem { Header = "标准输出", Content = stdout }); detailTabs.Items.Add(new TabItem { Header = "标准错误", Content = stderr });
-        detailTabs.Items.Add(new TabItem { Header = "任务规格", Content = taskSpec }); detailTabs.Items.Add(new TabItem { Header = "传输 / 资产", Content = transferGrid });
-        taskHeading = Ui.Text("未选择任务", true); taskHeading.Margin = new(10,0,0,0);
-        taskFooter = Ui.Text("202 表示已记录或派发；任务完成以最终 RESULT 为准。", true); taskFooter.Margin = new(10,7,10,7); taskFooter.TextWrapping = TextWrapping.Wrap;
-        var detail = Ui.Page(Ui.Bar(
-            Ui.Button("重发原任务…", () => _ = Run("重发任务", ResendTask)),
-            Ui.Button("下载入库", () => _ = Run("下载入库", CompleteDownload)),
-            Ui.Button("清理下载暂存…", () => _ = Run("清理暂存", CleanupDownload)), taskHeading), detailTabs, taskFooter);
-        return Ui.Page(Ui.Bar(taskScope, taskState, taskSearch, Ui.Button("刷新", () => { connection?.Invalidate(); _ = RefreshDetails(); })), Ui.Split(list, detail, true, 1.1));
+        transferGrid = Ui.Table("传输详情", ("属性", "Name", 150), ("值", "Value", -1));
+        taskHeading = Ui.Text("未选择传输", true);taskFooter=Ui.Text("",true);taskFooter.TextWrapping=TextWrapping.Wrap;
+        var detail=Ui.Page(Ui.Bar(Ui.Button("保存已下载文件…",()=>_ = Run("保存下载",SaveCompletedDownload)),taskHeading),transferGrid,Ui.Note(""));
+        var footer=(DockPanel)detail;footer.Children.RemoveAt(1);DockPanel.SetDock(taskFooter,Dock.Bottom);footer.Children.Insert(1,taskFooter);
+        return Ui.Page(Ui.Bar(taskScope,taskState,taskSearch,Ui.Button("刷新",()=>{connection?.Invalidate();_ = RefreshDetails();})),Ui.Split(list,detail));
     }
+
     private void UpdateTasks()
     {
         if (tasksGrid == null) return;
@@ -55,42 +50,30 @@ public partial class MainWindow
     private void ShowCreatedTask(JsonElement response)
     {
         if (!response.TryGetProperty("task_id", out var id)) return;
-        taskId = id.GetString()!; task = null; transfer = null; operation = null; Navigate("files"); fileTabs.SelectedIndex = 1;
+        taskId = id.GetString()!; task = null; transfer = null; operation = null; UpdateTasks();
         _ = RefreshDetails();
     }
     private void UpdateTaskDetail()
     {
-        if (task == null) { taskHeading.Text = taskId == "" ? "未选择任务" : "正在查询原任务…"; stdout.Text = taskId == "" ? "选择任务以查看输出。" : "正在查询任务结果…"; stderr.Clear(); taskSpec.Clear(); transferGrid.ItemsSource = null; return; }
-        taskHeading.Text = $"{task.TypeText} · {task.StateText}";
-        stdout.Text = task.Result?.Stdout ?? "尚无最终 RESULT"; stderr.Text = task.Result?.Stderr ?? "";
-        taskSpec.Text = ApiJson.Pretty(new { task.TaskId, task.DeviceId, task.Type, task.State, task.Command, task.Cwd, task.TimeoutSeconds, task.Env, Params = task.Params.ValueKind == JsonValueKind.Undefined ? (JsonElement?)null : task.Params, task.LastSessionId, task.DispatchCount, task.CreatedAt });
-        taskFooter.Text = task.Result == null ? $"原任务 {task.TaskId} · 已派发 {task.DispatchCount} 次 · 尚无最终 RESULT" : $"原任务 {task.TaskId} · 退出码 {task.Result.ExitCode} · {Labels.Time(task.Result.FinishedAt)}" + (task.Result.Truncated ? " · 输出已截断" : "");
-        var facts = new List<PropertyRow>();
-        if (transfer != null) facts.AddRange([new("", "完整提交 committed", transfer.Committed.ToString()), new("", "句柄释放 released", transfer.Released.ToString()), new("", "传输失败 failed", transfer.Failed.ToString()), new("", "长度", Labels.Bytes(transfer.Size)), new("", "SHA-256", transfer.Sha256)]);
-        if (operation != null) facts.AddRange([new("", "资产 ID", operation.AssetId), new("", "工具 ID", operation.ToolId), new("", "版本", operation.Version), new("", "产物 ID", operation.ArtifactId)]);
-        if (facts.Count == 0) facts.Add(new("", "传输", "此任务没有文件传输"));
-        transferGrid.ItemsSource = facts;
+        if(task==null){taskHeading.Text=taskId==""?"未选择传输":"正在查询原传输…";taskFooter.Text="";transferGrid.ItemsSource=null;return;}
+        taskHeading.Text=task.TypeText+" · "+task.StateText;
+        taskFooter.Text=task.Result==null?"等待设备确认结果":task.Result.Status=="success"?"设备已确认完成":task.StateText+" · "+task.Result.Stderr;
+        var facts=new List<PropertyRow> {new("","设备",task.DeviceId),new("","操作",task.TypeText),new("","状态",task.StateText)};
+        if(transfer!=null){facts.Add(new("","文件大小",Labels.Bytes(transfer.Size)));facts.Add(new("","文件接收",transfer.Committed?"完整文件已提交":transfer.Failed?"传输失败":"等待完整文件"));}
+        if(operation is {ToolId.Length:>0}){facts.Add(new("","工具",snapshot.Tools.FirstOrDefault(t=>t.ToolId==operation.ToolId)?.Name??operation.ToolId));facts.Add(new("","版本",operation.Version));}
+        if(exchange?.TaskId==task.TaskId){facts.Add(new("","设备路径",exchange.RemotePath));facts.Add(new("","本地路径",exchange.LocalPath));facts.Add(new("","本地状态",exchange.Status));}
+        transferGrid.ItemsSource=facts;
     }
-    private async Task ResendTask()
+    private async Task SaveCompletedDownload()
     {
-        var id = taskId; if (id == "") throw new InvalidOperationException("请选择任务。");
-        if (!Confirm("重发原任务", "确认服务器未重启且目标仍是原探针进程。使用原 task_id 重发规格，查询或补报结果；不会创建替代任务。继续？")) return;
-        await Write(new("重发原任务", $"tasks/{Id(id)}/resend")); _ = RefreshDetails();
+        var selected=task;if(selected?.Type!="download"||transfer is not {Committed:true,Released:true})throw new InvalidOperationException("请选择已完整接收的下载记录。");
+        var device=RequireDevice(false);if(selected.DeviceId!=device.DeviceId)throw new InvalidOperationException("请先选择这条记录对应的设备。");
+        var picker=new Microsoft.Win32.SaveFileDialog {Title="保存已下载文件",FileName=exchange?.TaskId==selected.TaskId?System.IO.Path.GetFileName(exchange.LocalPath):"download.bin",OverwritePrompt=true};
+        if(picker.ShowDialog(this)!=true)return;
+        exchange=FileExchange.ExistingDownload(Connected(),selected.DeviceId,selected.TaskId,picker.FileName);
+        await RunExchange(exchange);
     }
-    private async Task CompleteDownload()
-    {
-        if (task?.Type != "download" || transfer is not { Committed: true, Released: true }) throw new InvalidOperationException("请选择已完整提交且释放的下载任务。");
-        var result = await Write(new("下载入库", $"downloads/{Id(task.TaskId)}/complete"));
-        if (result.TryGetProperty("asset", out var asset)) Log("资产", "已入库 " + asset.GetProperty("asset_id").GetString() + "；Task RESULT 单独保留。");
-        if (result.TryGetProperty("cleanup_pending", out var pending) && pending.ValueKind == JsonValueKind.True) Log("提示", "资产已成功入库，暂存清理仍待完成。");
-        _ = RefreshDetails();
-    }
-    private async Task CleanupDownload()
-    {
-        if (task?.Type != "download") throw new InvalidOperationException("请选择下载任务。");
-        if (!Confirm("清理下载暂存", "仅请求清理该下载已释放的服务器暂存。尚未入库的完整文件会由服务器拒绝清理。继续？")) return;
-        await Write(new("清理下载暂存", $"downloads/{Id(task.TaskId)}/cleanup"));
-    }
+
     private void CancelDetails() { detailsCancel.Cancel(); detailsCancel.Dispose(); detailsCancel = new(); detailsDirty = true; }
     private async Task RefreshDetails()
     {
@@ -100,17 +83,17 @@ public partial class MainWindow
         var cancel = detailsCancel.Token; var device = selectedDevice; var id = taskId; var page = Page;
         try {
             if (page == "overview" && device != "") {
-                var rows = await c.TrackAsync(() => c.Api.ListAsync<DeviceSession>($"devices/{Id(device)}/sessions", cancel));
-                if (c == connection && device == selectedDevice && !cancel.IsCancellationRequested) sessions.ItemsSource = rows;
+                var rows = await c.TrackAsync(() => c.Api.ListAsync<ConnectionPeriod>($"devices/{Id(device)}/connections", cancel));
+                if (c == connection && device == selectedDevice && !cancel.IsCancellationRequested) SetConnectionHistory(rows);
             }
-            if (page == "files" && id != "") {
+            if ((page == "files" || page == "tools") && id != "") {
                 var detail = await c.TrackAsync(() => c.Api.GetAsync<TaskDetail>($"tasks/{Id(id)}", cancel));
                 Transfer? file = null; Operation? op = null;
                 if (detail.Type is not ("exec" or "router_config")) {
                     file = await c.TrackAsync(() => c.Api.GetAsync<Transfer>($"tasks/{Id(id)}/transfer", cancel));
                     op = await c.TrackAsync(() => c.Api.GetAsync<Operation>($"tasks/{Id(id)}/operation", cancel));
                 }
-                if (c == connection && id == taskId && !cancel.IsCancellationRequested) { task = detail; transfer = file; operation = op; UpdateTaskDetail(); }
+                if (c == connection && id == taskId && !cancel.IsCancellationRequested) { task = detail; transfer = file; operation = op; UpdateTaskDetail(); if(page=="tools")toolStatus.Text=detail.Result==null?"投放中 · "+detail.StateText:detail.Result.Status=="success"?"工具已投放到设备。":"投放"+detail.StateText+" · "+detail.Result.Stderr; }
             }
             if (page == "config" && configTaskId != "") {
                 var configId = configTaskId;

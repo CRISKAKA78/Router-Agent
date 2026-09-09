@@ -11,6 +11,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"routerprobe/internal/api"
+	"routerprobe/internal/device"
 	"routerprobe/internal/gateway"
 	"routerprobe/internal/management"
 	"strings"
@@ -83,7 +84,7 @@ esac
 	seed("uci", "system.@system[0].hostname", "openwrt-one")
 	props := p5object{"serial": p5object{"name": "序列号", "source": "nvram", "key": "SN"}, "hostname": p5object{"name": "主机名", "source": "uci", "key": "system.@system[0].hostname"}, "missing": p5object{"name": "缺失", "source": "nvram", "key": "absent"}}
 	template := p5request(t, server.URL, "POST", "/probe-templates", "config-template", p5object{"name": "config sources", "properties": props}, 201)
-	proc := exec.Command(binary, "--server", listener.Addr().String(), "--device-id", "config-probe", "--template-id", template["template_id"].(string))
+	proc := exec.Command(binary, "--server", listener.Addr().String(), "--device-id", "config-probe")
 	proc.Env = append(os.Environ(), "PATH="+tmp+":"+os.Getenv("PATH"), "CONFIG_DIR="+tmp)
 	proc.Stdout = io.Discard
 	proc.Stderr = io.Discard
@@ -103,10 +104,11 @@ esac
 		t.Fatal("config wait timeout")
 	}
 	wait(func() bool { v, e := app.Devices().Get("config-probe"); return e == nil && v.CurrentSession != nil })
-	first, _ := app.Devices().Get("config-probe")
-	if first.Registration.Serial != "serial-one" || first.Registration.Hostname != "openwrt-one" || first.Registration.CollectionErrors["missing"].Reason != "command_failed" {
-		t.Fatal(first.Registration)
-	}
+	adoptProbe(t, app, "config-probe", template["template_id"].(string), nil)
+	first := waitManagedMetric(t, app, "config-probe", func(d device.Snapshot, m map[string]device.Metric) bool {
+		return m["serial"].Value == "serial-one" && m["hostname"].Value == "openwrt-one" && m["missing"].Reason == "command_failed"
+	})
+
 	count := 0
 	create := func(q p5object) p5object {
 		t.Helper()
@@ -183,10 +185,10 @@ esac
 		return e == nil && v.CurrentSession != nil && v.CurrentSession.ID != first.CurrentSession.ID
 	})
 	check(slow, "success", "")
-	latest, _ := app.Devices().Get("config-probe")
-	if latest.Registration.Serial != "serial-one" || latest.Registration.Hostname != "openwrt-one" {
-		t.Fatal("reconnect recollected", latest.Registration)
-	}
+	waitManagedMetric(t, app, "config-probe", func(d device.Snapshot, m map[string]device.Metric) bool {
+		return m["serial"].Value == "serial-one" && m["hostname"].Value == "openwrt-one"
+	})
+
 	calls, _ := os.ReadFile(filepath.Join(tmp, "nvram-store", "calls"))
 	if strings.Count(string(calls), "set\n") != 3 {
 		t.Fatal("write ran more than once", string(calls))

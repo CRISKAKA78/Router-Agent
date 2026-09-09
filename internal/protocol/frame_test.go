@@ -62,7 +62,7 @@ func TestDecoderHalfHeader(t *testing.T) {
 }
 
 func TestDecoderHalfPayload(t *testing.T) {
-	encoded := testFrame(t, 1, `{"uptime":1,"running_tasks":0}`)
+	encoded := testFrame(t, 1, `{"uptime":1,"uptime_valid":true,"running_tasks":0}`)
 	split := HeaderSize + 5
 	decoder := NewDecoder(MaxControlPayload)
 	frames, err := decoder.Feed(encoded[:split])
@@ -77,7 +77,7 @@ func TestDecoderHalfPayload(t *testing.T) {
 
 func TestDecoderMultipleFramesInOneRead(t *testing.T) {
 	first := testFrame(t, 1, `{}`)
-	second := testFrame(t, 2, `{"uptime":2,"running_tasks":0}`)
+	second := testFrame(t, 2, `{"uptime":2,"uptime_valid":true,"running_tasks":0}`)
 	decoder := NewDecoder(MaxControlPayload)
 	frames, err := decoder.Feed(append(first, second...))
 	if err != nil {

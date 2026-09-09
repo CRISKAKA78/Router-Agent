@@ -1,0 +1,18 @@
+<details class="editor-section managed-editor">
+ <summary>型号与默认模板映射</summary>
+ <fieldset disabled="@(!State.Publishing.Synchronized || State.Locked || busy)">
+ <button @onclick="Refresh">刷新型号目录</button><button @onclick="NewModel">新建型号</button>
+ <p>型号名称与别名精确匹配；更改默认模板影响后续纳管，已纳管设备需要显式应用。</p>
+ <select aria-label="编辑型号" value="@editing.ModelId" @onchange="Select"><option value="">选择已有型号…</option>@foreach(var m in models){<option value="@m.ModelId">@m.Name</option>}</select>
+ <div class="field-grid"><label>型号名称<input aria-label="型号名称" @bind="editing.Name" /></label><label>识别别名（每行一个）<textarea aria-label="型号识别别名" @bind="aliases"></textarea></label><label>默认模板<select aria-label="型号默认模板" @bind="editing.TemplateId"><option value="">内置采集</option>@foreach(var t in State.Publishing.Templates){<option value="@t.TemplateId">@t.Name · v@(t.Version)</option>}</select></label></div>
+ <button @onclick="Save">保存型号映射</button>
+ </fieldset><p role="status">@message</p>
+</details>
+@code {
+ [Parameter,EditorRequired]public EditorWorkspace State{get;set;}=default!;
+ private DeviceModel[] models=[];private DeviceModel editing=new();private string aliases="",message="";private bool busy;
+ private async Task Refresh(){busy=true;try{models=await State.Publishing.ListModelsAsync();message=$"已读取 {models.Length} 个型号";}catch(Exception e){message=e.Message;}finally{busy=false;}}
+ private void NewModel(){editing=new();aliases="";message="新型号";}
+ private void Select(ChangeEventArgs e){var m=models.FirstOrDefault(m=>m.ModelId==e.Value?.ToString());if(m==null)return;editing=new(){ModelId=m.ModelId,Name=m.Name,Version=m.Version,Aliases=m.Aliases,TemplateId=m.TemplateId};aliases=string.Join("\n",m.Aliases);}
+ private async Task Save(){busy=true;try{editing.Aliases=aliases.Split('\n',StringSplitOptions.RemoveEmptyEntries|StringSplitOptions.TrimEntries);await State.Publishing.SaveModelAsync(editing);models=await State.Publishing.ListModelsAsync();editing=models.First(m=>m.ModelId==editing.ModelId);message="型号映射已保存";}catch(Exception e){message=e.Message;}finally{busy=false;}}
+}

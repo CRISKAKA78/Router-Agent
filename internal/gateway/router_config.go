@@ -15,6 +15,9 @@ func supportsRouterConfig(active *session) bool {
 }
 
 func (s *Server) CreateRouterConfig(ctx context.Context, deviceID string, p routerconfig.Params, timeout uint32) (string, error) {
+	if e := s.requireManaged(deviceID); e != nil {
+		return "", e
+	}
 	if err := ctx.Err(); err != nil {
 		return "", err
 	}

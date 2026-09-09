@@ -5,12 +5,21 @@
 #include <cstddef>
 #include <string>
 #include <map>
+#include <vector>
 
 namespace rmp {
 
 struct ClientConfig {
-    std::string template_id, template_name;
-    std::string template_reference, attributes, collection_errors;
+ std::uint64_t config_revision=0;
+ std::uint64_t template_generation=0;
+ std::string switch_json;
+ std::vector<std::string> default_network_interfaces;
+ std::vector<std::string> network_interfaces;
+ bool explicit_network_interfaces=false;
+ std::map<std::string,std::string> builtin_errors;
+ std::map<std::string,unsigned> monitoring = {{"cpu",5},{"memory",5},{"disk",60},{"network",5},{"egress",600}};
+ std::map<std::string,unsigned> monitoring_overrides;
+ std::string collection_json;
     std::map<std::string,std::string> properties;
     bool explicit_hostname = false;
     std::size_t tunnel_connections = 8;

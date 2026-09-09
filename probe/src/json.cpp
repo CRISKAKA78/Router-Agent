@@ -523,9 +523,9 @@ bool ParseRegisterAck(const std::string& input, RegisterAck* ack, std::string* e
         }
         ack->server_time = value->unsigned_value;
         if (!Required(object, "max_control_payload", JsonType::kUnsignedInteger, &value, error) ||
-            value->unsigned_value < 1024 || value->unsigned_value > 1024U * 1024U) {
+            value->unsigned_value < 65536 || value->unsigned_value > 1024U * 1024U) {
             if (error != NULL && value != NULL && value->type == JsonType::kUnsignedInteger) {
-                *error = "max_control_payload must be 1024-1048576";
+                *error = "max_control_payload must be 65536-1048576";
             }
             return false;
         }
@@ -538,6 +538,12 @@ bool ParseRegisterAck(const std::string& input, RegisterAck* ack, std::string* e
             return false;
         }
         ack->file_chunk_size = static_cast<std::uint32_t>(value->unsigned_value);
+        for (const auto& capability : {"telemetry_v2", "managed_config_v1"}) {
+            if (!Required(object,capability,JsonType::kBoolean,&value,error) || !value->bool_value) {
+                if(error)*error="current server capabilities are required";
+                return false;
+            }
+        }
         return true;
     }
 

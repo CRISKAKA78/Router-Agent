@@ -1,5 +1,9 @@
 # 路由器远程运维平台
 
+当前改造（ADR-044）：属性展示开关、整行分组、连续像素滚动与文字行高；删除接口映射及旧版兼容。仅工程8/草稿3及当前配套Server/Probe，使用与验证见 [改造交付](docs/UI_REFINEMENT_VERIFICATION.md)。
+
+当前服务端纳管、动态采集、模板分组与交换机物理口功能的使用入口及升级规则见 [服务端纳管与动态探针配置](docs/MANAGED_PROBES_DESIGN.md)，验证范围见 [本轮验证](docs/MANAGED_PROBES_VERIFICATION.md)。
+
 独立探针模板生成器：[template-generator.cmd](template-generator.cmd) 构建并启动 .NET 10 / Blazor 浏览器工作区（默认 `http://127.0.0.1:5188`），支持虚拟/展示属性、全部采集来源、公式与条件规则、工程导入导出、自动保存和服务器发布。生成器源码在 [src/ProbeTemplateGenerator](src/ProbeTemplateGenerator)，独立构建无需 Node；主 RouterWorkbench 现按 ADR-035 使用原生 C# / WPF。使用与迁移见 [模板生成器说明](docs/TEMPLATE_GENERATOR.md)。
 
 Windows UI 当前入口：[ui-windows.cmd](ui-windows.cmd)，构建 .NET 10 / WPF 原生 C# 工程工作区（ADR-035），输出 `build/windows-desktop/win-x64/RouterWorkbench.exe`。ADR-036 收敛为设备/维护/文件/配置/设置，启动自动连接，维护只打开外部客户端，主 UI 自包含且不需要 WebView2/TerminalAssets；功能和验证见 [原生桌面说明](docs/WINDOWS_DESKTOP_MIGRATION.md)。ADR-037 已移除其余旧 UI 源码及构建入口；当前仅维护这两套 C# UI。
@@ -11,6 +15,8 @@ Phase 0～5 已验收。当前提供原生 C# / WPF Windows 工作台和 C# / Bl
 当前方向是继续完善 Router-Agent 产品功能，暂缓 Phase 7 MCP、Phase 8 AI Agent、微信小程序、正式公网 Web 部署、新 Tunnel 数据面和其他大规模架构扩展。用户只需描述想增加的功能、要改变的行为、待解决的问题或最终体验；Agent 依据 [AGENTS](AGENTS.md) 和[开发指南](docs/DEVELOPMENT.md) 自主完成范围内实现、测试和必要文档同步，涉及已确认设计变更时再提出具体方案供确认。
 
 ## 系统关系
+
+Probe 一键交叉编译：双击 [probe-build.cmd](probe-build.cmd)，输入 SSH 密码后自动上传当前源码到 10.1.1.128 并使用已有 GCC 5.2 编译。成品留在远端专用目录，见 [部署说明 §5.3](docs/DEPLOYMENT.md#53-mipsel--arm--arm64-交叉编译)。
 
 Windows Server 一键重建并运行：双击 [server-windows.cmd](server-windows.cmd)。专用构建目录每次清空，运行数据独立保留；监听及 IPv6 域名配置见 [部署说明](docs/DEPLOYMENT.md)。
 

@@ -1,3 +1,4 @@
+#include "template_fixture.h"
 #include "rmp/task_manager.h"
 #include "rmp/collection.h"
 #include "rmp/json.h"
@@ -65,7 +66,7 @@ int main(){try {
  setenv("PATH",(dir+":/bin:/usr/bin").c_str(),1);
  rmp::CollectionTemplate collection;
  Check(rmp::ParseCollectionTemplate("{\"template_id\":\"t\",\"name\":\"t\",\"version\":1,\"properties\":{\"serial\":{\"name\":\"SN\",\"source\":\"nvram\",\"key\":\"SN\",\"timeout_seconds\":5}}}",&collection,&error),"source parsing");
- rmp::ClientConfig config;rmp::CollectProperties(collection,&config);Check(config.properties["serial"]=="SN","config source collection");
+ rmp::ClientConfig config;auto collected=CollectCurrent(collection,config);Check(collected["serial"].value=="SN","config source collection");
  setenv("PATH",savedPath.c_str(),1);
  for(const char* name:{"nvram","value","order","started","gate"})unlink((dir+"/"+name).c_str());rmdir(dir.c_str());
  std::cout<<"router configuration tests passed\n";return 0;

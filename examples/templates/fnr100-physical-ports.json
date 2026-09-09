@@ -1,0 +1,77 @@
+{
+  "name": "FNR100 2026-01-07 物理网口",
+  "properties": {},
+  "monitoring": {
+    "cpu_seconds": 5,
+    "memory_seconds": 5,
+    "disk_seconds": 60,
+    "network_seconds": 1,
+    "egress_seconds": 600
+  },
+  "switch_probe": {
+    "backend": "swconfig",
+    "ports": [
+      {
+        "id": "lan1",
+        "switch_id": "switch0",
+        "port": 1,
+        "display_name": "LAN1",
+        "role": "external",
+        "system_name": "",
+        "uplink": "eth1"
+      },
+      {
+        "id": "lan2",
+        "switch_id": "switch0",
+        "port": 2,
+        "display_name": "LAN2",
+        "role": "external",
+        "system_name": "",
+        "uplink": "eth1"
+      },
+      {
+        "id": "lan3",
+        "switch_id": "switch0",
+        "port": 3,
+        "display_name": "LAN3",
+        "role": "external",
+        "system_name": "",
+        "uplink": "eth1"
+      },
+      {
+        "id": "lan4",
+        "switch_id": "switch0",
+        "port": 4,
+        "display_name": "LAN4",
+        "role": "external",
+        "system_name": "",
+        "uplink": "eth1"
+      },
+      {
+        "id": "wan",
+        "switch_id": "switch0",
+        "port": 5,
+        "display_name": "WAN",
+        "role": "external",
+        "system_name": "",
+        "uplink": "eth0"
+      },
+      {
+        "id": "cpu",
+        "switch_id": "switch0",
+        "port": 0,
+        "display_name": "CPU内部口",
+        "role": "cpu",
+        "system_name": "",
+        "uplink": ""
+      }
+    ],
+    "counters": {
+      "backend": "swconfig_mib",
+      "rx_field": "RxGoodByte",
+      "tx_field": "TxByte",
+      "bits": 64,
+      "basis": "RX好帧字节 / TX字节；FCS等帧开销未确认"
+    }
+  }
+}

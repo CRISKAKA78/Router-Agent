@@ -56,6 +56,10 @@
 
 清理路径固定且拒绝符号链接/junction。重新运行前先在旧 Server 窗口按 Ctrl+C 停止，不按进程名强杀其他 Server。持久文件、工具和模板目录固定为项目根目录 `data/server/repository/`，位于清理目录之外，不随重建删除；这也不会恢复或自动迁移此前丢失的 `cmd/server/data/`。
 
+**模板更新与启动恢复（ADR-046）**：Server不要求预先存在模板。空库可直接启动；已有模板文件缺失会告警并建立空库。旧目录中的`interface_aliases`和退役注册结果字段在验证后自动清理，先在同目录保存`catalog.json.pre-upgrade-*.bak`原字节备份。设备绑定快照也会处理，因此无需删除设备目录。其他损坏、未知结构或读写错误仍显示具体路径，不能清空整个repository作为升级步骤。
+
+操作顺序：重新运行`server-windows.cmd` → 打开`template-generator.cmd` → 使用最新版工程发布到当前Server → 在WPF中显式选择并应用模板。如果模板目录确已丢失，新发布产生新ID，需要重新选择，型号默认模板也需按需更新；仅发布不会自动改动已有设备。旧生成器工程导入仍按ADR-044拒绝，本次只处理Server已存数据。验证范围见[服务端启动修复](SERVER_STARTUP_VERIFICATION.md)。
+
 一键脚本采用以下参数，端口保持现有默认值：
 
 | 参数 | 值 |
@@ -243,6 +247,8 @@ ls -l /lib/ld* /lib/libc* /usr/lib/libstdc++* /lib/libpthread*
 
 **目前仓库已验证 Linux x86_64；没有可直接宣称适配所有 mipsel/ARM/ARM64 路由器的现成工具链配置或通用二进制包。** 更改 `--arch` 仅修改上报标签，不会把 x86 程序变成 ARM 程序。
 
+ADR-038：新版 Probe 默认上报架构与内核版本，无需为它们创建模板；已配置的 kernel 模板继续优先。开机时长在注册后立即首报并随心跳更新，服务端和 WPF 也需更新才能查看。WPF 在“设备 → 全部属性”显示 CPU 架构、内核版本、开机时长和时长上报时间；时长不足一分钟只显示秒，从最高有效单位显示到秒，按年=365日/月=30日换算。离线保留最后实测值，未收到心跳/采集失败分别显示等待上报/未获取。
+
 ### 5.2 Linux 同架构构建
 
 在与目标运行环境兼容的 Linux 构建机执行；不是在 Windows PowerShell 直接执行。构建机需要 CMake 3.10+、支持 C++11 的 C++ 编译器、线程库和构建工具。Debian/Ubuntu 可用 `sudo apt-get install build-essential cmake` 安装构建工具。
@@ -259,6 +265,21 @@ ldd build/probe/router-probe
 输出文件：`build/probe/router-probe`。动态链接版本需要目标机具备兼容的加载器、libc、C++ 和线程运行支持。在新 Linux 上编译成功不代表能运行于老固件。
 
 ### 5.3 mipsel / ARM / ARM64 交叉编译
+
+**已配置的 GCC 5.2 一键入口：** 在 Windows 双击仓库根目录 [probe-build.cmd](../probe-build.cmd)，按提示输入 SSH 密码；已配置 SSH 密钥时直接使用密钥。首次连接按 OpenSSH 提示核对主机身份，脚本不保存密码。Windows 需要系统 `ssh.exe`、`tar.exe` 和 Windows PowerShell；远端使用已有 CMake、make、Python 3、binutils 及 `/root/gcc-5.2`。
+
+脚本通过一次 SSH 登录将当前工作区 `probe` 源码（包含尚未提交的更新）上传到 `root@10.1.1.128`，先将上传的 Bash 脚本从 CRLF 规范化为 LF，再自动应用该 SDK 所需的整数转字符串、strtoull 和声明头兼容处理，执行 Release 交叉编译及 ELF 检查。兼容处理仅作用于远端副本，仓库产品代码不改动。Windows 不生成源码压缩包或构建产物。
+
+- 固定成品：`/root/codex-probe-20260908-2123/output/router-probe`。
+- 每次输入源码、兼容副本、补丁、临时文件、构建和日志：专用目录下 `runs/<时间-随机标识>/`；`build.log` 是构建日志，`verification.log` 是 ELF/依赖记录。
+- `latest-build.txt` 指向最近成功构建目录。上传、配置或编译失败返回非零状态，保留上一份成功成品；窗口会保留结果。各次记录不自动清理。
+- 输出为 ARMv7 小端 / EABI5 / uClibc 动态链接程序。目标需要兼容的 `/lib/ld-uClibc.so.0`、libpthread/libstdc++/libm/libgcc_s/libc，以及线程库依赖的 libdl；编译通过不代表目标固件运行验收。
+
+高级调用为 `powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\probe-build.ps1`；可传 `-SshTarget root@10.1.1.128 -RemoteRoot /root/codex-probe-20260908-2123 -Toolchain /root/gcc-5.2` 调整构建主机或目录，仍要求对应 GCC 5.2 ARM/uClibc SDK。此入口不是通用的其他架构构建器。
+
+2026-09-08 验证：Windows PowerShell 5.1 → SSH 真实主机全流程成功，CMake 3.28.3 / GCC 5.2.0 生成 280908 字节成品；记录在 `runs/20260908-213026-e3687d14`。传入不存在的工具链时，远端与 Windows 入口均返回 1，记录在 `runs/20260908-213159-94e0a6cc`；`cmp` 确认固定成品仍与成功版本一致，latest-build 指向保持。PowerShell 语法解析、远端 `bash -n` 和 `git diff --check` 通过。GCC 5.2 仍报告原 `collection.cpp` 的 `seconds` 可能未初始化警告；本次未改业务代码，未执行厂商固件测试。
+
+2026-09-09 换行修复验证：原失败运行 `runs/20260909-010848-6f1a539c` 的脚本含 CRLF，远端 Bash 5.2.21 将 `pipefail` 后的 CR 当作选项内容。已将本地脚本保存为 LF，并在上传解包后、Bash 执行前使用 `sed` 去除行末 CR，覆盖 Windows 编辑器重新写入 CRLF 的情况。原失败脚本的独立副本经过同一处理后通过 `bash -n`；PowerShell AST 通过。执行 `powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\probe-build.ps1 -NetworkInterfaces eth0,eth1,br0`，真实 Windows → SSH → GCC 5.2.0 Release 构建成功，记录为 `runs/20260909-011116-bc8fcaa1`，成品 373112 字节，ELF ARMv7 小端/EABI5/uClibc，编译参数确认默认接口 `eth0,eth1,br0`；`cmp` 确认固定成品一致，latest-build 指向本次运行。成品与两份日志另外取回本地 `build/arm-gcc52-20260909/`。原 `seconds` 警告仍存在，未修改 Probe 业务逻辑，未在厂商路由器运行。
 
 优先取得**设备对应固件的 SDK/交叉工具链**。例如 OpenWrt 应匹配固件版本、target/subtarget 和 libc；厂商固件应使用厂商 SDK。仅凭 CPU 名字随意选编译器容易出现“文件存在却找不到”“缺少 GLIBC 版本”等错误。
 
@@ -320,7 +341,7 @@ chmod +x /tmp/router-probe
 
 ### 服务端属性模板
 
-ADR-031 已增加专用 nvram / uci 来源。先更新 Server 与 Probe，再在每项属性的“采集来源”选择 nvram 并填 `SN`，或选择 uci 并填 `system.@system[0].hostname`。无需自己写 get 指令；两种来源都只读。旧命令模板继续可用，不同厂商的键由实际固件决定，不自动猜测。
+ADR-031 已增加专用 nvram / uci 来源。先更新 Server 与 Probe，再在每项属性的“采集来源”选择 nvram 并填 `SN`，或选择 uci 并填 `system.@system[0].hostname`。无需自己写 get 指令；两种来源都只读。命令来源继续可用，不同厂商的键由实际固件决定，不自动猜测。
 
 设备 → 配置，可选择读取、写入、删除、提交；结果在同页“配置操作结果”查看。写入值允许空字符串，不能省略；写入/删除不会自动 commit 或重启服务。UCI commit 填配置包（如 `system`），nvram commit 提交整份 NVRAM；可能提交其他程序的暂存修改。先等当前任务结果，再发起依赖它的操作；响应不确定时查原任务，不创建替代写任务。
 
@@ -330,18 +351,9 @@ Probe 运行账号须有固件命令所需权限，PATH 须能找到 nvram/uci�
 
 模板保存在 Server 的 `repository-dir/probe-templates/catalog.json`（可通过 `-probe-template-file` 指定），无需复制模板文件到设备。停服备份时包括此文件及 lock，保留原文件/工具仓库；不要在服务运行时手改目录。客户端管理操作通过 `/api/v1/probe-templates`。
 
-```sh
-# 名称包含空格或中文时使用引号。省略 device-id，默认通过 nvram get SN 获取。
-/tmp/router-probe --server 192.168.1.10:9000 --template-name '工业路由器'
-# 或复制管理界面给出的稳定模板 ID；两个选择参数不能同时使用。
-/tmp/router-probe --server 192.168.1.10:9000 --device-id my-router-001 --template-id 实际模板ID
-```
+在WPF“待纳管”选择设备，指定已发布模板并确认纳管；已纳管设备通过“设备资料与模板”显式应用版本。Probe启动只填Server和稳定设备ID，模板经CONFIG_APPLY在线下发，离线修改在下次连接后生效；不再使用--template-id或--template-name。模板发布本身不会替换设备绑定快照，采样和错误在effective_metrics/属性页展示。
 
-探针先从同一 9000 控制端口读取模板，再采集并注册；旧 Server 不支持或模板不存在时明确启动失败。单项指令失败不填该属性，在“设备设置/完整设备资料”的模板采集结果中显示原因；扩展属性按显示名称和值呈现，已有型号/固件等字段沿用原设备资料。显式 `--hostname` 优先；选模板时未选中的可选属性不上报。必需身份和能力不受模板覆盖。
-
-模板更新在下一次 Probe 启动生效，普通断线重连复用原采集快照、不重新执行指令；重启前先停旧 Probe，避免同 ID 两个进程互相替换。模板可删除，但不会改写历史 Session 资料；被删模板在下次启动时无法再选择。
-
-Exec 和文件访问使用 Probe 进程自身的系统权限；普通账号无权读取的路径，平台也不会自动提权。需要管理权限时通过你已有的设备管理方式启动。
+当前只支持工程8/草稿3及新版Server/Probe，删除旧模板准备连接、REGISTER结果快照和遥测降级。同步更新配套程序；已有旧数据需由用户保留备份后重新生成/建立，程序不会迁移或清空。设备平台的BusyBox/uClibc/旧内核适配继续保留。详见 [ADR-044验证](UI_REFINEMENT_VERIFICATION.md)。
 
 ### 6.3 确认成功后改为后台运行
 
@@ -474,3 +486,28 @@ Web 通道是原始 TCP 转发，不改写 HTML、重定向或 Cookie。厂商�
 ## 11. 本指南核对记录
 
 本次只补充部署说明和文档导航，没有修改业务代码或执行用户设备部署。核对了 `cmd/server/main.go`、`probe/src/main.cpp`、CMake、API/ADR 和 Windows 发布说明；本机 Windows Server 构建与 `-h` 参数检查通过。路由器固件、CPU/运行库适配和厂商登录仍须由具体真机验证，本指南不将它们标为已通过。
+
+## 独立周期监控（ADR-039）
+
+配套更新Server、Probe及WPF。Probe默认内置CPU/内存/网口5秒，存储60秒；例如：
+
+```sh
+router-probe --server HOST:9000 --device-id DEVICE --cpu-interval 2 --memory-interval 5 --disk-interval 60 --network-interval 1
+```
+
+周期接受0（关闭）或1～86400秒。生成器“模板配置→内置监控”配置周期；每个展示属性“高级设置”中另设属性周期，0表示应用配置时采集一次。发布后在设备资料中显式应用，无需重启；当前工程8/草稿3不导入旧格式。模板同标识优先且失败不回退；数值单位及网口/挂载点标识见 [TELEMETRY_DESIGN](TELEMETRY_DESIGN.md)。
+
+WPF设备页有全部属性、存储空间、网口速率及连接历史。公网来源IP归属地由Windows访问ipwho.is HTTPS，只发送该IP；内网/保留地址不查询。查询受网络和供应商可用性影响，失败保留来源IP。Server处在代理后时展示代理地址，无法据此还原真实设备地址。
+
+
+## 接口过滤与双栈出口（ADR-040）
+
+新增能力需使用本次Server及Probe 0.2.0；旧ARM成品不包含本次修改。WPF产物与验证见 [MONITORING_V2_VERIFICATION](MONITORING_V2_VERIFICATION.md)。
+
+1. 双击 `probe-build.cmd`，输入精确接口名，例如 `eth0,br0,ppp0`，回车采集默认全部接口；也可在有SSH认证的终端运行 `probe-build.cmd -NetworkInterfaces eth0,br0`。只读过滤保存在本次二进制的构建默认值中，构建机和输出位置沿用§5.3；不修改设备网络配置。
+2. 生成器“内置监控”可设置出口IP周期（默认600秒）和“自定义采集接口”。勾选后填写逗号分隔接口名；空字符串选择默认全部，取消勾选沿用构建值。模板发布后需重启Probe生效。
+3. Probe命令行可覆盖：`--network-interfaces eth0,br0 --network-interval 5 --egress-interval 600`。周期0关闭对应采集。接口最多32个、名称精确匹配，不存在时显示横杠并解释原因，不回退采集全部。
+4. 出口探测需要设备已有curl或wget及相应HTTPS/IPv6能力、DNS和可信证书；使用IPv4/IPv6专用固定ipify服务，每协议请求有超时。归属地查询从Windows向ipwho.is发送上报的公网IP。一个协议或查询失败不会阻塞设备控制，界面悬停横杠查看原因。
+5. Windows网口页双击接口查看收发曲线；累计流量从Probe首次采样开始，普通控制重连不清零，设备/Probe重启或接口重建/计数回退重新统计。曲线只保存窗口打开后最近10分钟，不跨应用重启保留。
+
+本轮GCC5.2 SSH认证尚不可用；请在认证可用的终端构建后部署到目标固件。Linux x86_64测试Probe不可用于ARM/MIPS路由器。

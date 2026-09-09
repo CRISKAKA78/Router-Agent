@@ -1,10 +1,71 @@
 # 路由器探针 TCP 长连接控制协议
 
+## 配置应用代次与原生出口（ADR-045，2026-09-09）
+
+当前CONFIG_APPLY载荷为`{revision:uint64>0,template_generation:uint64,template:完整运行模板}`，64KiB上限、消息0x07/0x08、ACK关联、修订隔离保持。新版Probe要求template_generation非null无符号整数；存量目录缺失时Server按0发送。新增字段要求配套Server/Probe更新，不新增消息类型或数据面。
+
+template_generation为设备持久的模板应用代次。首次应用、切换模板及显式重新应用（包括同版本）增加代次和revision；接口设置仅增加必要的revision；元数据修改不改变采集计划。相同幂等请求/配置重发/控制重连复用代次。同revision不同载荷仍拒绝，不重复执行。
+
+Probe在相同代次且非接口计划一致时，仅停止/重启逻辑和物理接口worker，保留CPU/内存/磁盘/出口/模板worker；将保留样本以新revision和原实际年龄重新上报，不能伪造新采样时间。显式模板应用重建采集器，静态模板缓存按模板ID/版本/应用代次区分；单纯重连复用进程内静态缓存。CPU硬件两次采集限制不变。
+
+出口采集仍上报egress_ipv4/egress_ipv6，无控制消息扩展。Probe以原生socket和静态Mbed TLS 3.6.6客户端分别请求固定HTTPS api.ipify.org/api6.ipify.org；强制匹配地址族，不执行Shell/curl/wget。TLS1.2、证书链/主机名/有效期校验，随程序携带DigiCert Global Root G2与GTS根。设备时间错误或信任根不匹配按失败处理，不跳过验证。
+
+每族总请求期限6秒、单连接尝试最多3秒，至多8个解析地址；HTTP响应最多8192字节、IP正文最多128字节，拒绝重定向/无效或冲突HTTP分帧及跨族地址。解析每族最多一个未完成libc任务，取消不等待阻塞DNS。失败reason包括dns_busy/dns_failed/connect_failed/tls_setup_failed/tls_certificate_failed/tls_handshake_failed/timeout/egress_request_failed/invalid_http_response/invalid_ip；取消不上报过期样本，禁用仍报collection_disabled。后续更换服务CA时需更新根证书并重建。
+
+本节取代下方旧CONFIG_APPLY形状和curl/wget实现说明；其他现行能力及业务约束保持。构建器需要C99和C++11，目标不依赖TLS动态库。
+
+## 唯一运行基线（ADR-044，2026-09-09）
+
+- REGISTER必须声明managed_config_v1和telemetry_v2；缺失返回INVALID_REGISTER，不创建设备/Session。Gateway控制载荷上限配置至少65536字节；成功REGISTER_ACK必须返回两项true，Probe缺任一项即拒绝，不降级。port_counters_v1保持独立功能检查。
+- 删除TEMPLATE_GET/REPLY消息及0x05/0x06处理，不重用编号；旧准备请求返回UNSUPPORTED_TYPE。Probe删除--template-id/--template-name及启动同步CollectProperties；模板只经CONFIG_APPLY执行。
+- REGISTER只保留启动身份/平台事实，删除template/attributes/collection_errors/report_intervals。模板、结果和错误分别从已确认配置与带config_revision的EVENT取得。配置到达前不启动遥测collector；静态硬件缓存仍按当前两次采样规则准备，确认后才发送。
+- 删除telemetry_v1协商、旧格式转换和旧会话指标回填；EVENT只接受当前已确认配置修订。HEARTBEAT必须包含uptime_valid布尔值，false时uptime必须为0；不再根据正uptime猜测有效性。
+- 仅移除产品旧版本路径，保留BusyBox/uClibc/旧Linux内核的硬件适配、未知状态、错误、可选物理端口能力及文件/任务/维护生命周期。
+
+本节明确取代下方相应历史协议分支；当前模板展示元数据见 [API](API.md)，验证见 [UI_REFINEMENT_VERIFICATION](UI_REFINEMENT_VERIFICATION.md)。
+
+## 物理端口计数（ADR-043，2026-09-09）
+
+新Probe声明port_counters_v1，Server派发含switch_probe.counters的CONFIG_APPLY前检查此能力；缺失时保留原计划并记录unsupported_port_counters，不假装配置成功。switch完整遥测组可增加rx_raw_bytes/tx_raw_bytes、rx_bytes/tx_bytes、rx_bytes_per_sec/tx_bytes_per_sec、elapsed_seconds和counter_source/counter_basis/order；字节值为uint64十进制字符串，其他原指标保持。消息类型、Session/配置修订隔离和1024指标/64KiB限制不变；字段、限制、失败/重置/重连语义见[PHYSICAL_PORT_MONITORING](PHYSICAL_PORT_MONITORING.md#模板与遥测契约)，取代下文“switch仅10项text”的限制。
+
+## ADR-042 端口编号省略（2026-09-09）
+
+CONFIG_APPLY中switch_probe.ports[].port允许省略。switch_id非空时仍要求0～255整数port；系统物理接口匹配可省略编号并保留实际探测值，未探测到则unknown，不能补0。厂商command无chip/port条件时按端口id匹配，不因system_name重定向sysfs。现有消息类型/能力/修订号和ACK机制不变；旧Probe无法接受省略编号配置时返回失败，需要配套升级。原数字模板仍兼容。本文下方ADR-041的端口字段要求以本节为准。
+
+
+## 服务端纳管与动态配置（ADR-041，2026-09-09）
+
+本节取代下文 ADR-029 的客户端选模板/启动准备连接，以及 ADR-038～040 中“模板写入 REGISTER、CLI 永久优先、修改配置必须重启、CPU 静态详情周期重采”的规则；其他控制、任务、文件和维护协议不变。完整展示/交换机结构见 [MANAGED_PROBES_DESIGN](MANAGED_PROBES_DESIGN.md)。
+
+- 新 Probe 声明 `managed_config_v1`，REGISTER_ACK 仅在能力存在且控制上限至少 65536 bytes 时返回同名 true。与 telemetry_v1/v2 独立协商；新版 Probe 同时声明三者。低上限/旧 Probe 仍能发现和人工纳管，API 配置状态为 unsupported，不能声称热配置成功。
+- Management Server 首次注册持久登记为 pending，随后才发布在线 Session；pending/ignored 不派发 Exec、配置任务、上传/下载、工具投放或维护。新版 Probe 在配置到达前只发送发现、心跳和静态信息/关闭状态，不运行模板命令。管理端 TEMPLATE_GET 回复 `SERVER_MANAGED_TEMPLATE`；旧启动选择参数在新 Probe 中被忽略并提示，不发起准备连接。
+- `CONFIG_APPLY=0x07`，Server→Probe，flags=0，载荷 `{revision:uint64>0,template:完整运行模板}`，总计最多64KiB。修订号按设备持久递增，模板版本与配置修订号独立。内置配置使用 template_id=builtin、version=1、properties={}；不要求空配置添加占位命令。
+- `CONFIG_ACK=0x08`，Probe→Server，flags=RESPONSE，载荷 `{reply_to:uint64,revision:uint64,success:boolean,error:string}`。error 最多128 bytes，成功为空串。ACK 表示旧采集计划已停止、新计划已启动，不保证命令或采样成功。失败保留旧计划；invalid_configuration / old_revision / revision_conflict 区分解析、旧版本和同版内容冲突。
+- Probe 将切换放在独立工作线程，控制读取/心跳继续运行；在发送成功 ACK 后才发送对应新遥测。同 revision/相同配置字节重复 ACK，不重复重建或执行；同版不同内容/更旧版本拒绝。Server 约1秒检查期望配置，10秒未确认重发相同载荷但使用新 message_id；只接受当前 Session、最新发送关联的 ACK。重连重新下发并确认，旧 Session ACK 无效。
+- 新遥测 EVENT 增加 `config_revision:uint64`，Server 只接受当前 Session 已确认修订号；0为尚未配置。旧修订样本不能覆盖新修订。切换会清空旧计划实时指标并建立无采样时间的 waiting 占位，保证 ACK 前已完成的首采不会被误丢。REGISTER 仍是原始启动事实，生效模板、presentation 和实时结果独立保存。
+- 设备覆盖 > 已绑定模板快照 > 内置值；初始 CLI 周期仅用于尚未采用服务端配置时。网口过滤省略沿用编译默认；显式空串采集全部。模板 interval_seconds=0 每次配置应用采一次，普通控制重连重报缓存而不重跑；变更配置内容后重新采集。
+- CPU 静态 hardware 在进程启动与下一 CPU 周期各尝试一次，CPU周期0时第二次在5秒后。次数不因连不上服务器、重连或配置应用重置。静态缓存重报保留真实 age_ms；age_ms上限315360000000（10年），interval=0不按周期过期。CPU usage/current frequency继续周期采样。默认型号在 nvram softver 不可用/无法提取时依次读取板卡 sysinfo/device-tree，不把网卡名或CPU型号当路由器型号。
+- `switch` 是完整遥测组，最多1024项（最多64端口，每端口10项）；键 `switch_<稳定端口id>_<state|admin|system|uplink|label|chip|port|speed|duplex|role>`，unit=text。state/admin 为 up/down/未知，role 为 external/cpu/未知。未知值用空value、status=unknown，失败使用 switch_collection_status，不虚构物理口或链路状态。
+
+## ADR-040 兼容扩展（2026-09-09）
+
+新Probe同时声明telemetry_v1/v2；REGISTER_ACK的可选telemetry_v2仅在声明v2且控制载荷至少8KiB时返回true。未确认v2时不发送新增出口组、内置model/firmware状态、网口累计字节或统计秒数，仍保留v1监控。EVENT新组egress为按键增量，只有egress_ipv4/egress_ipv6；network仍为完整组。Metric可选reason为最多128字节字符串，新增seconds单位为非负整数秒。完整键、优先级、配置与失效语义见 [TELEMETRY_DESIGN](TELEMETRY_DESIGN.md#adr-040-双栈出口与流量统计)。
+
+启动默认通过固件只读命令 `nvram get softver` 获取model/firmware，复用REGISTER标准字段限制128 UTF-8 bytes，不截断。模板未选择时保留默认值，显式选择时以模板成功或失败为准。内置采集失败原因通过v2 hardware的对应指标报告，普通注册重连复用启动快照。
+
 协议版本：Protocol v1  
 基线来源：v0.2 Word 设计输入  
 日期：2026-09-07
 
 状态：已确认的互操作设计；Phase 1～5 已验收，ADR-029 新增启动属性模板准备连接与注册快照扩展。
+
+## 内置系统信息与开机时长（ADR-038，2026-09-08）
+
+Probe 启动默认采集架构和内核版本。REGISTER 复用 arch/kernel：arch 优先保留已知编译目标及实际端序，内核 machine 仅在未知目标且位宽可确认时补充；显式 `--arch` 继续优先。kernel 使用 `uname().release` 完整值，失败省略。未选模板或模板未选择 kernel 时保留内置值；模板明确选择 kernel 时以模板成功/失败为准，不用默认值掩盖失败。注册快照在普通重连时复用。
+
+HEARTBEAT 可选新增 `uptime_valid:boolean`，不得为 null。新版 Probe 每次心跳用 sysinfo 读取系统开机秒数，失败时回退 `/proc/uptime` 第一项向下取整；两者失败发送 `uptime:0,uptime_valid:false`，有效的真实零秒发送 `uptime:0,uptime_valid:true`。不使用 Probe 进程时长、Session 时长或墙上时钟推算。false 与非零 uptime 的组合非法。省略标记的旧 Probe 仍接受，正数作为旧版上报值，0 作为未知；旧 Server 按未知字段规则忽略标记。
+
+REGISTER_ACK 成功后立即发送首个 HEARTBEAT，之后沿用协商间隔，默认 30 秒；reply_to、消息序号和失联阈值不变。Server 通过 Device Service 保存对应当前 Session 的最新值/未知及接收时间，不保存心跳时序，不影响其他控制消息的活跃时间更新。
 
 ## 配置任务扩展（ADR-031，2026-09-08）
 
@@ -234,7 +295,7 @@ Phase 4 新增下表后的 0x40/0x41/0x42，完整规范见文末“Phase 4 Main
 
 属性是按 key 的 object，按 key 字典序采集。支持 serial/model/firmware/hostname/kernel/libc 六项现有可选属性及最多 32 项扩展字符串属性，总计最多 38 项。key 为 `[a-z][a-z0-9_]{0,63}`，device_id/arch/boot_id/probe_version/capabilities/template/attributes/collection_errors 保留；属性显示名称最多 128 bytes，指令最多 4096 bytes。服务端完整模板输入序列化最多 48 KiB。timeout_seconds 默认 5（管理输入省略或 0 归一化为 5），下发值为 1～30。
 
-Probe 用 `/bin/sh -c` 执行，逐项复用有界执行器；整次采集 60 秒预算（超时后另有最多约 200ms 的 TERM/KILL 清理）。去除输出首尾空格、Tab、CR/LF；已有字段保持下表限制，扩展值 1～4096 bytes UTF-8、不能含 NUL；libc 继续 ASCII。非零退出、空值、截断/非法输出、超时、预算耗尽均不填值，记录固定原因。显式 `--hostname` 优先并跳过对应命令；选模板后未选中的可选属性省略，必需字段由原探针逻辑维护。命令只在启动采集一次，普通重连复用快照；模板修改/删除在下一次 Probe 启动生效。
+Probe 用 `/bin/sh -c` 执行，逐项复用有界执行器；整次采集 60 秒预算（超时后另有最多约 200ms 的 TERM/KILL 清理）。去除输出首尾空格、Tab、CR/LF；已有字段保持下表限制，扩展值 1～4096 bytes UTF-8、不能含 NUL；libc 继续 ASCII。非零退出、空值、截断/非法输出、超时、预算耗尽均不填值，记录固定原因。显式 `--hostname` 优先并跳过对应命令；选模板后未选中的可选属性省略，但 kernel 按 ADR-038 保留内置采集值，必需字段由原探针逻辑维护。属性缺省只在启动采集一次，普通重连复用注册快照；ADR-039可通过interval_seconds启用独立周期采集，以EVENT更新实时属性，注册快照不改写。模板修改/删除及周期配置在下一次Probe启动生效。
 
 REGISTER 可选增加以下字段，旧 Probe 可省略；附加结果必须同时包含 template：
 
@@ -347,6 +408,12 @@ Protocol v1 注册失败码：
 
 Server 发送失败 REGISTER_ACK 后应主动关闭当前 TCP 连接。Probe 收到失败响应后不得进入 ONLINE 状态。
 
+## 周期监控与属性（ADR-039）
+
+完整字段、指标标识、单位、优先级与兼容行为见 [TELEMETRY_DESIGN](TELEMETRY_DESIGN.md#契约)，该文档是本节规范的组成部分。REGISTER可选report_intervals；Probe能力telemetry_v1与REGISTER_ACK.telemetry_v1协商后发送0x20 EVENT（flags=0）。控制上限小于8 KiB或旧Server不确认时不发监控，记录unsupported_by_server；旧Probe保留原注册/心跳路径。
+
+模板顶层可选monitoring（cpu_seconds/memory_seconds/disk_seconds/network_seconds，缺省5/5/60/5），每项属性可选interval_seconds（缺省0仅启动，1～86400秒周期）；内置周期0关闭，1～86400秒；这些字段与命令超时、heartbeat_interval独立。
+
 ## 心跳与在线状态
 
 ### HEARTBEAT
@@ -362,7 +429,8 @@ Server 发送失败 REGISTER_ACK 后应主动关闭当前 TCP 连接。Probe 收
 
 | 字段 | 必选 | 类型 | Protocol v1 约束 |
 | --- | --- | --- | --- |
-| uptime | 是 | integer | >= 0，单位秒，优先表示系统 uptime |
+| uptime | 是 | integer | 0～9223372036854775807，单位秒；新版表示系统开机时长，失败配合 uptime_valid=false 发送 0 |
+| uptime_valid | 否 | boolean | ADR-038；新版始终携带，true 允许有效零秒，false 必须搭配 uptime=0；旧版省略时正数为上报值、0 为未知 |
 | running_tasks | 是 | integer | 0-65535，当前正在执行的任务数 |
 | load1 | 否 | number | >= 0；无法获取时省略 |
 | free_memory | 否 | integer | >= 0，单位 byte；无法获取时省略 |

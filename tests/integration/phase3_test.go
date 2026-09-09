@@ -175,8 +175,24 @@ func TestRepositoryRealProbeCompatibilityAndBinaryAsset(t *testing.T) {
 	if e != nil {
 		t.Fatal(e)
 	}
-	if d.Registration.Libc != "" || d.Registration.Model != "" || d.Registration.Kernel != "" {
-		t.Fatal("update test for changed real Probe fields")
+	if d.Registration.Libc != "" || d.Registration.Model != "" || d.Registration.Kernel == "" {
+		t.Fatal("real Probe must report kernel; libc/model still require a template")
+	}
+	for _, tc := range []struct {
+		version, kernel string
+		want            repository.Compatibility
+	}{
+		{"exact-kernel", d.Registration.Kernel, repository.Compatible},
+		{"other-kernel", d.Registration.Kernel + "-different", repository.Incompatible},
+	} {
+		kernelSpec := repository.ArtifactSpec{AssetID: a.ID, Platform: "linux", Mode: "0755", Rules: repository.Rules{Arch: []string{d.Registration.Arch}, Libc: []string{"any"}, Kernels: []string{tc.kernel}}}
+		if _, e := s.Tools().Publish(tool.ID, tc.version, []repository.ArtifactSpec{kernelSpec}); e != nil {
+			t.Fatal(e)
+		}
+		matches, e := s.Compatibility(id, tool.ID, tc.version)
+		if e != nil || len(matches) != 1 || matches[0].Match.Status != tc.want {
+			t.Fatalf("kernel match %s: %#v %v", tc.version, matches, e)
+		}
 	}
 	spec := repository.ArtifactSpec{AssetID: a.ID, Platform: "linux", Mode: "0755", Rules: repository.Rules{Arch: []string{d.Registration.Arch}, Libc: []string{"uclibc"}}}
 	if _, e = s.Tools().Publish(tool.ID, "requires-libc", []repository.ArtifactSpec{spec}); e != nil {
@@ -293,7 +309,7 @@ func TestRepositoryDeviceDeclarationTCP(t *testing.T) {
 			t.Fatal(e)
 		}
 		defer conn.Close()
-		fields := map[string]interface{}{"device_id": "declaration", "probe_version": "test", "arch": "mipsel", "boot_id": "boot", "model": "F3", "kernel": "3.10.14", "capabilities": []string{"file", "exec"}}
+		fields := map[string]interface{}{"device_id": "declaration", "probe_version": "test", "arch": "mipsel", "boot_id": "boot", "model": "F3", "kernel": "3.10.14", "capabilities": []string{"file", "exec", "managed_config_v1", "telemetry_v2"}}
 		if test.libc != "" {
 			fields["libc"] = test.libc
 		}

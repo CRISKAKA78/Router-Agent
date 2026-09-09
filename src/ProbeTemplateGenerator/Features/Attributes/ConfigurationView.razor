@@ -1,0 +1,17 @@
+<div class="editor-page configuration-page">
+    <header class="editor-heading"><div><div class="eyebrow">模板配置</div><h2>采集与展示设置</h2><p>配置整份模板的监控、分组和接口；单个属性在“属性与公式”编辑。</p></div></header>
+    <label class="config-name">模板名称<input aria-label="配置模板名称" disabled="@State.Locked" @bind="State.Project.Name" @bind:after="State.Touch" /></label>
+    <nav class="config-tabs" aria-label="配置分类" role="tablist">
+        @for(var i=0;i<tabs.Length;i++){var index=i;<button role="tab" aria-selected="@(State.ConfigurationTab==i)" aria-controls="configuration-panel" id="config-tab-@i" class="@(State.ConfigurationTab==i?"active":"")" @onclick="()=>State.Configure(index)">@tabs[i]</button>}
+    </nav>
+    <div id="configuration-panel" role="tabpanel" aria-labelledby="config-tab-@State.ConfigurationTab">
+        @if(State.ConfigurationTab==0){<MonitoringEditor State="State" />}
+        else if(State.ConfigurationTab==1){<PresentationEditor State="State" />}
+        else{<SwitchEditor State="State" />}
+    </div>
+    @foreach(var issue in State.Issues.Where(i=>i.AttributeId is null)){<p class="error-text" role="alert">@issue.Message</p>}
+</div>
+@code {
+    [Parameter,EditorRequired]public EditorWorkspace State{get;set;}=default!;
+    private static readonly string[] tabs=["内置监控","分组与排序","物理端口采集"];
+}

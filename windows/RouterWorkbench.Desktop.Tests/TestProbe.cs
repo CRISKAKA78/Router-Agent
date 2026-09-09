@@ -14,6 +14,7 @@ internal sealed class TestProbe : IAsyncDisposable
     private readonly CancellationTokenSource stop = new();
     private Task? reader;
     private Task? heartbeat;
+    private object heartbeatPayload = new { uptime = 10, uptime_valid = true, running_tasks = 0 };
     private readonly SemaphoreSlim writer = new(1, 1);
     private ulong next = 1;
     private readonly Dictionary<string, byte[]> files = [];
@@ -21,18 +22,23 @@ internal sealed class TestProbe : IAsyncDisposable
     private JsonElement fileTask;
     private MemoryStream? uploading;
     public string SessionId { get; private set; } = "";
+    public ulong ConfigurationRevision{get;private set;}
     public int Executions { get; private set; }
+    public Task ReportAsync(string group, object values) => SendAsync(0x20, new { config_revision=ConfigurationRevision,@event="telemetry",group,values });
     public async Task StartAsync(int port, string id, object? registration = null)
     {
         await tcp.ConnectAsync("127.0.0.1", port);
-        await SendAsync(1, registration ?? new { device_id = id, probe_version = "phase6-fixture", arch = "x86_64", hostname = "售后测试路由器", boot_id = "fixture", capabilities = new[] { "exec", "file", "tunnel" } });
+        var registrationNode=System.Text.Json.Nodes.JsonNode.Parse(JsonSerializer.Serialize(registration ?? new { device_id = id, probe_version = "phase6-fixture", arch = "x86_64", hostname = "售后测试路由器", boot_id = "fixture", capabilities = new[] { "exec", "file", "tunnel" } }))!.AsObject();
+        var capabilities=registrationNode["capabilities"]!.AsArray();
+        foreach(var capability in new[]{"managed_config_v1","telemetry_v2"})if(!capabilities.Any(v=>v?.GetValue<string>()==capability))capabilities.Add(capability);
+        await SendAsync(1,registrationNode);
         var (_, _, _, ack) = await ReadAsync();
         SessionId = JsonDocument.Parse(ack).RootElement.GetProperty("session_id").GetString()!;
         reader = RunAsync();
         heartbeat = HeartbeatAsync();
     }
     private async Task HeartbeatAsync() {
-        try { while (!stop.IsCancellationRequested) { await Task.Delay(10000, stop.Token); await SendAsync(3, new { uptime = 10, running_tasks = 0 }); } }
+        try { while (!stop.IsCancellationRequested) { await Task.Delay(10000, stop.Token); await SendAsync(3, heartbeatPayload); } }
         catch (Exception e) when (e is IOException or OperationCanceledException or ObjectDisposedException) { }
     }
     private async Task RunAsync()
@@ -47,7 +53,8 @@ internal sealed class TestProbe : IAsyncDisposable
                     uploading!.Write(payload, 28, payload.Length - 28); continue;
                 }
                 using var doc = JsonDocument.Parse(payload); var value = doc.RootElement;
-                if (type == 0x10)
+                if(type==0x07){ConfigurationRevision=value.GetProperty("revision").GetUInt64();await SendAsync(0x08,new{reply_to=message,revision=ConfigurationRevision,success=true,error=""},1);}
+                else if (type == 0x10)
                 {
                     var id = value.GetProperty("task_id").GetString()!;
                     await SendAsync(0x11, new { reply_to = message, task_id = id, accepted = true, state = results.ContainsKey(id) ? "success" : "queued" }, 1);
@@ -96,6 +103,10 @@ internal sealed class TestProbe : IAsyncDisposable
             }
         }
         catch (Exception e) when (e is IOException or OperationCanceledException or ObjectDisposedException) { }
+    }
+    public Task ReportUptimeAsync(long? seconds) {
+        heartbeatPayload = new { uptime = seconds ?? 0, uptime_valid = seconds.HasValue, running_tasks = 0 };
+        return SendAsync(3, heartbeatPayload);
     }
     private async Task ResultAsync(JsonElement task, string stdout, string stderr, object details)
     {

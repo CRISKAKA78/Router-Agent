@@ -139,7 +139,7 @@ void TestResponseJson() {
 
     const std::string success_json =
         "{\"reply_to\":1,\"success\":true,\"session_id\":\"sess_test\","
-        "\"heartbeat_interval\":30,\"server_time\":1,"
+        "\"heartbeat_interval\":30,\"server_time\":1,\"telemetry_v2\":true,\"managed_config_v1\":true,"
         "\"max_control_payload\":1048576,\"file_chunk_size\":65536,"
         "\"future\":{\"ignored\":true}}";
     error.clear();
@@ -148,6 +148,11 @@ void TestResponseJson() {
     Check(register_ack.success && register_ack.session_id == "sess_test" &&
               register_ack.heartbeat_interval == 30,
           "REGISTER_ACK success fields");
+
+    for(const auto& field:{std::string("telemetry_v2"),std::string("managed_config_v1")}) {
+        std::string missing=success_json;auto at=missing.find("\""+field+"\":true,");missing.erase(at,field.size()+8);
+        Check(!rmp::ParseRegisterAck(missing,&register_ack,&error),"current capability required: "+field);
+    }
 
     rmp::HeartbeatAck heartbeat_ack;
     error.clear();

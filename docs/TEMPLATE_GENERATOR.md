@@ -1,5 +1,7 @@
 # 独立探针模板生成器
 
+> 当前只维护工程8/草稿3与三项模板配置页签；接口显示名已删除。旧工程/草稿不导入，属性显示在“分组与排序”选择。最新操作与验证见 [ADR-044交付](UI_REFINEMENT_VERIFICATION.md)；下方早期版本入口已被取代。
+
 > 2026-09-08 清理更新（ADR-037）：仅保留新版 WPF 主 UI 与 Blazor 生成器；旧 UI 源码、宿主与专属脚本已移除。下文各次迁移的旧路径和测试结果保留为历史证据。当前构建/测试入口见 [DEVELOPMENT](DEVELOPMENT.md)，本次清理验证见 [UI_CLEANUP](UI_CLEANUP.md)。
 
 2026-09-08，生成器按 ADR-034 迁为 .NET 10 / ASP.NET Core / Blazor Web App / Microsoft Fluent UI Blazor 的浏览器配置工作区，核心模型、编辑状态、公式、校验、文件格式和发布均使用 C#。保留 ADR-032/033 的全部生成器语义，服务器模板持久化、API、Probe 协议及启动快照保持 ADR-029/031。功能对照与证据见 [迁移记录](TEMPLATE_GENERATOR_MIGRATION.md)。

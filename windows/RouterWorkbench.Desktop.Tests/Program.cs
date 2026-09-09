@@ -17,7 +17,7 @@ using RouterWorkbench.Desktop;
 
 namespace RouterWorkbench.Desktop.Tests;
 
-internal static class Program
+internal static partial class Program
 {
     private static int checks;
     private static string output = "";
@@ -36,7 +36,7 @@ internal static class Program
         Theme.Apply("Light"); var exit = 1;
         app.Dispatcher.BeginInvoke(async () => {
             try {
-                await ClientChecks(); await IntegrationChecks(args[0]);
+                await TelemetryChecks(); await ClientChecks(); await FileExchangeRetryChecks(); await IntegrationChecks(args[0]);
                 Console.WriteLine($"PASS {checks} checks; screenshots: {output}"); exit = 0;
             } catch (Exception e) { Console.Error.WriteLine(e); }
             finally { app.Shutdown(); }
@@ -45,6 +45,14 @@ internal static class Program
     }
     private static async Task ClientChecks()
     {
+        foreach (var (seconds, expected) in new (long?, string)[] {
+            (null, "—"), (-1, "—"), (0, "0秒"), (59, "59秒"), (60, "1分钟0秒"),
+            (3599, "59分钟59秒"), (3600, "1小时0分钟0秒"), (86400, "1天0小时0分钟0秒"),
+            (30L*86400-1, "29天23小时59分钟59秒"), (30L*86400, "1月0天0小时0分钟0秒"),
+            (365L*86400, "1年0月0天0小时0分钟0秒"),
+            ((365L+30+2)*86400+3*3600+4*60+5, "1年1月2天3小时4分钟5秒") })
+            Check(DeviceProperties.FormatUptime(seconds) == expected, $"uptime format {seconds}: {expected}");
+        Check(DeviceProperties.FormatUptime(long.MaxValue).EndsWith("秒"), "uptime formatting handles API int64 without TimeSpan overflow");
         Check(RemoteDirectory.Command("/tmp/a'b\n目录").Contains("'\\''"), "directory shell quoting retains quotes and newlines");
         var parsed = RemoteDirectory.Parse("f\0" + "12\0" + "1700000000\0" + "a\nb\0");
         Check(parsed.Entries[0].Name == "a\nb" && parsed.Entries[0].Size == 12, "NUL directory records preserve embedded newline");
@@ -90,6 +98,31 @@ internal static class Program
         var template = JsonSerializer.Deserialize<TemplateReference>("{\"template_id\":\"a\",\"name\":\"b\",\"version\":18446744073709551615}", ApiJson.Options);
         Check(template!.Version == ulong.MaxValue, "template version accepts protocol uint64");
     }
+    private static async Task VerifyRuntime(MainWindow window, WorkspaceConnection connection, TestProbe peer, ApiClient api)
+    {
+        const string id = "desktop-router-02";
+        var grid = Field<DataGrid>(window, "properties");
+        var row = grid.Items.Cast<PropertyRow>().Single(p => p.Name == "开机时长");
+        grid.SelectedItem = row;
+        await peer.ReportUptimeAsync(3661);
+        await Eventually(() => Task.FromResult(row.Value == "1小时1分钟1秒"), "periodic HTTP refresh displays measured uptime", 9000);
+        Check(ReferenceEquals(grid.SelectedItem, row) && grid.Items.Cast<PropertyRow>().Any(p => ReferenceEquals(p, row)), "uptime updates preserve selected property row");
+        var device = await api.GetAsync<Device>("devices/" + id);
+        Check(device.Runtime?.UptimeSeconds == 3661 && device.CurrentSession?.Runtime == device.Runtime && device.LatestSession?.Runtime == device.Runtime, "HTTP device and session runtime DTOs agree");
+        Check(grid.Items.Cast<PropertyRow>().Any(p => p.Name == "工具兼容架构" && p.Value == "x86_64") && grid.Items.Cast<PropertyRow>().Any(p => p.Name == "内核版本" && p.Value == "6.6-test"), "CPU architecture and kernel visible in native properties");
+        var offline = DeviceProperties.Rows(device with { Status = "offline" }).Single(p => p.Name == "开机时长").Value;
+        Check(offline == "1小时1分钟1秒" && DeviceProperties.Uptime(device with { Status = "offline" }).ValueTip.Contains("离线"), "offline displays final measured uptime without extrapolation");
+        Check(DeviceProperties.Rows(device with { Runtime = null }).Single(p => p.Name == "开机时长").Value == "—", "old API or first heartbeat pending state");
+        await peer.ReportUptimeAsync(null);
+        connection.Invalidate();
+        await Eventually(() => Task.FromResult(row.Value == "—" && row.ValueTip.Contains("无法读取")), "failed collection replaces previous uptime with unknown");
+        await peer.ReportUptimeAsync(0);
+        connection.Invalidate();
+        await Eventually(() => Task.FromResult(row.Value == "0秒"), "valid zero seconds distinguished from failure");
+        await peer.ReportUptimeAsync(59);
+        connection.Invalidate();
+        await Eventually(() => Task.FromResult(row.Value == "59秒"), "under one minute hides all larger units");
+    }
     private static int FreePort() { using var listener = new TcpListener(IPAddress.Loopback, 0); listener.Start(); return ((IPEndPoint)listener.LocalEndpoint).Port; }
     private static async Task IntegrationChecks(string serverPath)
     {
@@ -103,10 +136,19 @@ internal static class Program
             await Eventually(async () => { try { await api.ListAsync<Device>("devices"); return true; } catch { return false; } }, "isolated current Go server ready");
             for (var i=0; i<8; i++) {
                 var peer = new TestProbe(); peers.Add(peer); var id = $"desktop-router-{i+1:00}";
-                await peer.StartAsync(controlPort, id, new { device_id = id, hostname = new[] { "杭州 · 核心网关", "上海 · 边缘路由器", "北京 · 实验室网关", "广州 · 接入网关", "南京 · 分支路由器", "成都 · 备份网关", "武汉 · 办公路由器", "深圳 · 配置测试设备" }[i], serial = $"RMP-TEST-{i+1:000}", model = "OpenWrt 测试对端", firmware = "隔离测试固件", arch = "x86_64", libc = "musl", kernel = "6.6-test", boot_id = "desktop-fixture", probe_version = "desktop-fixture", template = new { template_id = "template-fixture", name = "工程设备模板", version = 4 },
-                    attributes = Enumerable.Range(0, i == 1 ? 30 : 1).ToDictionary(n => "property_" + n, n => new { name = n == 0 ? "模板固件描述" : "扩展属性 " + n, value = n == 0 ? "中文长文本\n" + new string('X', 800) : "值 " + n }),
-                    collection_errors = new Dictionary<string,object> { ["signal"] = new { name = "信号强度", reason = "timeout" }, ["wan_ip"] = new { name = "WAN 地址", reason = "empty" } },
-                    capabilities = i == 7 ? new[] { "exec", "file", "tunnel", "router_config" } : new[] { "exec", "file", "tunnel" } });
+                await peer.StartAsync(controlPort, id, new { device_id = id, hostname = new[] { "杭州 · 核心网关", "上海 · 边缘路由器", "北京 · 实验室网关", "广州 · 接入网关", "南京 · 分支路由器", "成都 · 备份网关", "武汉 · 办公路由器", "深圳 · 配置测试设备" }[i], serial = $"RMP-TEST-{i+1:000}", model = "OpenWrt 测试对端", firmware = "隔离测试固件", arch = "x86_64", libc = "musl", kernel = "6.6-test", boot_id = "desktop-fixture", probe_version = "desktop-fixture",
+                    capabilities = i == 7 ? new[] { "exec", "file", "tunnel", "router_config", "telemetry_v2" } : new[] { "exec", "file", "tunnel", "telemetry_v2" } });
+                await Eventually(async()=>{try{return (await api.GetAsync<Device>("devices/"+id)).Profile!=null;}catch{return false;}},"fixture discovered before explicit admission");
+                var discovered=await api.GetAsync<Device>("devices/"+id);
+                var fieldValues=Enumerable.Range(0,i==1?30:1).ToDictionary(n=>"property_"+n,n=>new {name=n==0?"模板固件描述":"扩展属性 "+n,value=n==0?"中文长文本\n"+new string('X',800):"值 "+n});
+                var definitions=fieldValues.ToDictionary(p=>p.Key,p=>(object)new{name=p.Value.name,command="true"});definitions["signal"]=new{name="信号强度",command="true"};definitions["wan_ip"]=new{name="WAN地址",command="true"};
+                var template=(await api.ExecuteAsync(new("测试模板","probe-templates",new{name="模板 "+id,properties=definitions}))).Deserialize<ProbeTemplate>(ApiJson.Options)!;
+                await api.ExecuteAsync(new("纳管测试设备","devices/"+id+"/profile",new {version=discovered.Profile!.Version,admission="managed",name=discovered.DisplayName,model_id="",template_id=template.TemplateId,apply_template=true},"PUT"));
+                await Eventually(()=>Task.FromResult(peer.ConfigurationRevision==1),"current template configuration acknowledged");
+                var observations=fieldValues.ToDictionary(p=>p.Key,p=>(object)new{name=p.Value.name,value=p.Value.value,unit="text",status="ok"});
+                observations["signal"]=new{name="信号强度",value="",unit="text",status="error",reason="timeout"};observations["wan_ip"]=new{name="WAN地址",value="",unit="text",status="error",reason="empty"};
+                await peer.ReportAsync("template",observations);
+
             }
             window = new MainWindow(profileFile); window.Show();
             await Eventually(() => Task.FromResult(Field<WorkspaceConnection?>(window, "connection") != null), "saved server auto connects on window startup");
@@ -114,17 +156,18 @@ internal static class Program
             await Eventually(() => Task.FromResult(connection.Synchronized && connection.Snapshot.Devices.Length == 8), "native window HTTP/WS snapshot with eight test peers");
             await Task.Delay(150);
             var pages = ((TabControl)window.FindName("WorkspaceTabs")).Items.Cast<TabItem>().Select(t => (string)t.Tag).ToArray();
-            Check(pages.SequenceEqual(new[] { "overview", "maintenance", "files", "config", "settings" }), "customer navigation excludes tasks and tool management");
+            Check(pages.SequenceEqual(new[] { "overview", "maintenance", "files", "config", "tools" }), "customer navigation exposes file exchange and read-only repository tools");
             Check(window.GetType().Assembly.GetReferencedAssemblies().All(a => !a.Name!.Contains("WebView2")), "native customer executable has no WebView2 dependency");
             Check(connection.Snapshot.Tools.Length == 0, "customer snapshot no longer loads tool management");
             Check(((DataGrid)window.FindName("DevicesGrid")).Items.Count == 8, "native device table bound to server inventory");
             await VerifyConnectionDisplay(window, connection);
             var devices = (DataGrid)window.FindName("DevicesGrid"); devices.SelectedIndex = 1; await Task.Delay(100);
             Check(Field<string>(window, "selectedDevice") == "desktop-router-02", "device selection updates current scope");
-            var props = Field<DataGrid>(window, "properties").Items.Cast<PropertyRow>().ToArray();
-            Check(props.Count(p => p.Group == "模板属性") == 30 && props.Count(p => p.Group == "采集失败") == 2 && props.Any(p => p.Value.Contains(new string('X', 800))), "all template attributes, failures and full multiline values reach native table");
+            var props = Field<PropertyRow[]>(window, "propertyRows").ToArray();
+            Check(props.Count(p => p.Key.StartsWith("property_") && p.Group == "其他信息" && p.Value != "—") == 30 && props.Count(p => p.Key is "signal" or "wan_ip" && p.Value == "—" && p.ValueTip.Contains("采集")) == 2 && props.Any(p => p.Value.Contains(new string('X', 800))), "all template attributes, failures and full multiline values reach native table");
+            await VerifyRuntime(window, connection, peers[1], api);
             devices.SelectedItem = devices.Items.Cast<Device>().Single(d => d.DeviceId == "desktop-router-03");
-            Check(Field<DataGrid>(window, "properties").Items.Cast<PropertyRow>().Count(p => p.Group == "模板属性") == 1, "switching templates removes previous device attributes");
+            Check(Field<PropertyRow[]>(window, "propertyRows").Count(p => p.Key.StartsWith("property_") && p.Group == "其他信息" && p.Value != "—") == 1, "switching templates removes previous device attributes");
             devices.SelectedItem = devices.Items.Cast<Device>().Single(d => d.DeviceId == "desktop-router-02");
             ((TextBox)window.FindName("DeviceSearch")).Text = "03"; Check(devices.Items.Count == 1, "native device text filter"); ((TextBox)window.FindName("DeviceSearch")).Clear();
             devices.Items.SortDescriptions.Add(new("DisplayName", System.ComponentModel.ListSortDirection.Descending));
@@ -144,9 +187,9 @@ internal static class Program
             var download = await api.ExecuteAsync(new("download", "downloads", new { device_id = "desktop-router-02", remote_path = "/tmp/desktop.bin", name = "returned.bin", timeout_seconds = 10 }));
             var downloadId = download.GetProperty("task_id").GetString()!;
             await Eventually(async () => { var transfer = await api.GetAsync<Transfer>("tasks/"+downloadId+"/transfer"); return transfer.Committed && transfer.Released; }, "download committed and released independently");
-            Invoke(window,"ShowCreatedTask",download); connection.Invalidate(); await Task.Delay(350); await InvokeAsync(window,"RefreshDetails");
+            Invoke(window,"Navigate","files"); Invoke(window,"ShowCreatedTask",download); connection.Invalidate(); await Task.Delay(350); await InvokeAsync(window,"RefreshDetails");
             Check(Field<Transfer>(window,"transfer").Committed && Field<Transfer>(window,"transfer").Released && Field<DataGrid>(window,"tasksGrid").Items.Cast<TaskSummary>().All(t => t.Type is "upload" or "download"), "file page retains scoped transfer facts without general task entrance");
-            await InvokeAsync(window,"CompleteDownload");
+
             var complete = await api.ExecuteAsync(new("complete", $"downloads/{downloadId}/complete")); var returned = complete.GetProperty("asset").Deserialize<Asset>(ApiJson.Options)!;
             var completedAgain = await api.ExecuteAsync(new("complete again", $"downloads/{downloadId}/complete")); Check(completedAgain.GetProperty("asset").GetProperty("asset_id").GetString() == returned.AssetId, "download explicit complete retains asset identity");
             var target = Path.Combine(output,"download.bin"); await api.SaveContentAsync(returned, target); var savedBytes = await File.ReadAllBytesAsync(target); var originalBytes = await File.ReadAllBytesAsync(file); Check(savedBytes.SequenceEqual(originalBytes), "asset stream saves identical verified content");
@@ -180,13 +223,16 @@ internal static class Program
             Check(Field<TextBox>(window,"configOutput").Text.Contains("成功") && ((TabItem)((TabControl)window.FindName("WorkspaceTabs")).SelectedItem).Tag.ToString() == "config", "configuration result stays on configuration page");
             devices.SelectedItem = devices.Items.Cast<Device>().Single(d => d.DeviceId == "desktop-router-02");
             Invoke(window,"Navigate","maintenance");
-            Invoke(window,"Navigate","files"); Field<DataGrid>(window,"assetsGrid").SelectedIndex=0;
-            Check(Field<DataGrid>(window,"assetProperties").Items.Count==6,"native file selection displays asset facts");
+            Invoke(window,"Navigate","files");
+            await ExchangeWorkspaceChecks(window,api,connection,tool);
+            await NativeTelemetryChecks(window,peers[1]);
+            await ManagedDeviceChecks(window,api,connection,peers,controlPort);
             foreach (var theme in new[] { "Light", "Dark" }) {
                 Theme.Apply(theme);
-                foreach (var page in new[] { "overview", "maintenance", "files", "config", "settings" }) {
+                foreach (var page in new[] { "overview", "maintenance", "files", "config", "tools" }) {
                     Invoke(window, "Navigate", page); await Task.Delay(150); await InvokeAsync(window,"RefreshDetails");
                     Render(window, theme.ToLowerInvariant()+"-"+page+"-1480.png");
+                    if(page=="overview") {foreach(var pair in new[]{("storageMetrics","storage"),("networkMetrics","network")}) {var table=Field<DataGrid>(window,pair.Item1);var tabs=Field<TabControl>(window,"overviewTabs");var tab=tabs.Items.Cast<TabItem>().Single(t=>t.Header?.ToString()==(pair.Item2=="storage"?"存储空间":"系统端口"));tabs.SelectedItem=tab;await Task.Delay(80);Render(window,theme.ToLowerInvariant()+"-"+pair.Item2+"-1480.png");tabs.SelectedIndex=0;}}
                 }
             }
             window.Width = 1000; window.Height = 700; Invoke(window,"Navigate","maintenance"); await Task.Delay(100); Render(window,"dark-maintenance-1000.png");
@@ -196,8 +242,10 @@ internal static class Program
             try { await (Task<(Maintenance, Endpoint)>)Invoke(window,"ResolveEndpoint","ssh")!; throw new Exception("closed endpoint accepted"); }
             catch (InvalidOperationException) { Check(true, "closed maintenance link cannot launch external client"); }
             await VerifyMaintenanceReopen(window, api, connection);
+            var beforeReplacement=(await api.ListAsync<ConnectionPeriod>("devices/desktop-router-02/connections")).First();
             var replacement = new TestProbe(); peers.Add(replacement); await replacement.StartAsync(controlPort,"desktop-router-02");
             await Eventually(() => Task.FromResult(connection.Snapshot.Devices.First(d=>d.DeviceId=="desktop-router-02").CurrentSession?.SessionId==replacement.SessionId),"WebSocket Session replacement refreshes HTTP snapshot");
+            var afterReplacement=(await api.ListAsync<ConnectionPeriod>("devices/desktop-router-02/connections")).First();Check(beforeReplacement.Id==afterReplacement.Id&&beforeReplacement.OnlineAt==afterReplacement.OnlineAt,"session replacement retains continuous online history via API");
             await api.ExecuteAsync(new("archive version", $"tools/{tool.ToolId}/versions/1.0/archive")); await api.ExecuteAsync(new("archive asset", $"assets/{asset.AssetId}/archive"));
             Check((await api.GetAsync<Asset>($"assets/{asset.AssetId}")).Archived, "archive preserves original identity");
             await InvokeAsync(window, "Disconnect"); Check(!connection.Synchronized || connection.Token.IsCancellationRequested, "native disconnect cancels old connection");
@@ -247,15 +295,15 @@ internal static class Program
         Check(ReferenceEquals(source, quick.ItemsSource) && ReferenceEquals(row, quick.Items[0]) && changes == 0 && log.Count == count, "periodic refresh keeps selected-device rows without reset or log spam");
         quick.UpdateLayout();
         Check(ReferenceEquals(container, quick.ItemContainerGenerator.ContainerFromIndex(0)) && unloaded == 0, "periodic refresh does not unload or recreate selected-device visual row");
-        var heartbeat = quick.Items[4]; var notified = new List<string?>();
+        var heartbeat = quick.Items[8]; var notified = new List<string?>();
         ((System.ComponentModel.INotifyPropertyChanged)heartbeat).PropertyChanged += (_,e) => notified.Add(e.PropertyName);
         var original = Field<Snapshot>(window, "snapshot"); var selected = Field<string>(window, "selectedDevice");
         var device = original.Devices.Single(d => d.DeviceId == selected); var seen = (device.LastSeenAt ?? DateTimeOffset.UtcNow).AddMinutes(1);
-        window.GetType().GetField("snapshot", BindingFlags.Instance | BindingFlags.NonPublic)!.SetValue(window, original with { Devices = original.Devices.Select(d => d.DeviceId == selected ? d with { LastSeenAt = seen, Registration = d.Registration with { Model = "" } } : d).ToArray() });
+        window.GetType().GetField("snapshot", BindingFlags.Instance | BindingFlags.NonPublic)!.SetValue(window, original with { Devices = original.Devices.Select(d => d.DeviceId == selected ? d with { Runtime = new DeviceRuntime(d.Runtime?.UptimeSeconds, seen), LastSeenAt = seen, Registration = d.Registration with { Model = "" } } : d).ToArray() });
         Invoke(window, "ApplySnapshot");
-        Check(ReferenceEquals(heartbeat, quick.Items[4]) && heartbeat.GetType().GetProperty("Value")!.GetValue(heartbeat)?.ToString() == Labels.Time(seen) && notified.SequenceEqual(new[] { "Value" }) && changes == 0, "heartbeat updates only existing value binding without resetting rows");
-        Check(quick.Items[1].GetType().GetProperty("Value")!.GetValue(quick.Items[1])?.ToString() == "未提供", "missing selected-device field clears old value explicitly");
-        Invoke(window, "ApplySnapshot"); Check(notified.Count == 1, "unchanged heartbeat value emits no redundant notification");
+        Check(ReferenceEquals(heartbeat, quick.Items[8]) && heartbeat.GetType().GetProperty("Value")!.GetValue(heartbeat)?.ToString() == Labels.Time(seen) && notified.SequenceEqual(device.Runtime == null ? new[] { "ValueTip", "Value" } : new[] { "Value" }) && changes == 0, "heartbeat updates only existing value binding without resetting rows");
+        Check(quick.Items[1].GetType().GetProperty("Value")!.GetValue(quick.Items[1])?.ToString() == "—", "missing selected-device field clears old value explicitly");
+        Invoke(window, "ApplySnapshot"); Check(notified.Count == (device.Runtime == null ? 2 : 1), "unchanged heartbeat value emits no redundant notification");
         window.GetType().GetField("snapshot", BindingFlags.Instance | BindingFlags.NonPublic)!.SetValue(window, original); Invoke(window, "ApplySnapshot");
         Field<System.Net.WebSockets.ClientWebSocket>(connection, "socket").Abort();
         await Eventually(() => Task.FromResult(log.Any(r => r.Level == "连接" && r.Message.Contains("正在重连"))), "connection loss is recorded in activity output");
@@ -299,12 +347,9 @@ internal static class Program
     {
         window.UpdateLayout(); var visual = (FrameworkElement)window.Content;
         var size = new Size(visual.ActualWidth, visual.ActualHeight);
-        window.Content = null;
-        visual.Measure(size); visual.Arrange(new Rect(size)); visual.UpdateLayout();
         using (var xps = new System.Windows.Xps.Packaging.XpsDocument(Path.Combine(output, Path.ChangeExtension(name,"xps")), FileAccess.Write))
             System.Windows.Xps.Packaging.XpsDocument.CreateXpsDocumentWriter(xps).Write(visual);
         var bitmap = new RenderTargetBitmap((int)Math.Ceiling(size.Width), (int)Math.Ceiling(size.Height),96,96,PixelFormats.Pbgra32); bitmap.Render(visual);
-        window.Content = visual;
         var pixels = new byte[bitmap.PixelWidth * bitmap.PixelHeight * 4]; bitmap.CopyPixels(pixels, bitmap.PixelWidth * 4, 0);
         if (!pixels.Any(p => p != 0)) { Console.WriteLine("RENDER XPS " + name + " (desktop raster capture unavailable)"); return; }
         var encoder = new PngBitmapEncoder(); encoder.Frames.Add(BitmapFrame.Create(bitmap)); using var file = File.Create(Path.Combine(output,name)); encoder.Save(file);

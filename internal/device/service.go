@@ -4,6 +4,7 @@ package device
 
 import (
 	"errors"
+	"routerprobe/internal/probetemplate"
 	"sort"
 	"sync"
 	"sync/atomic"
@@ -17,27 +18,12 @@ var ErrNotFound = errors.New("device not found")
 // Registration is the latest validated REGISTER declaration. Empty optional
 // strings mean unknown. Capabilities are declarations, not authorization.
 type Registration struct {
+	ManagedConfig                                   bool
+	SourceIP                                        string
 	DeviceID, Serial, Model, Firmware, ProbeVersion string
 	Hostname, Arch, Kernel, Libc, BootID            string
 	Capabilities                                    []string
-	Template                                        *TemplateReference
-	Attributes                                      map[string]Attribute
-	CollectionErrors                                map[string]CollectionError
 }
-type TemplateReference struct {
-	ID      string `json:"template_id"`
-	Name    string `json:"name"`
-	Version uint64 `json:"version"`
-}
-type Attribute struct {
-	Name  string `json:"name"`
-	Value string `json:"value"`
-}
-type CollectionError struct {
-	Name   string `json:"name"`
-	Reason string `json:"reason"`
-}
-
 type Status string
 
 const (
@@ -58,10 +44,22 @@ const (
 )
 
 type Session struct {
+	ConfigRevision                 uint64
+	ConfigTemplate                 *probetemplate.Template
+	ConfigError                    string
+	Telemetry                      *Telemetry
 	ID                             string
 	Registration                   Registration
 	StartedAt, LastSeenAt, EndedAt time.Time
 	EndReason                      EndReason // empty while current
+	Runtime                        *Runtime
+}
+
+// Runtime is the latest heartbeat observation, not a time series or a clock.
+// Nil UptimeSeconds means the heartbeat could not provide a valid system uptime.
+type Runtime struct {
+	UptimeSeconds *uint64
+	ReportedAt    time.Time
 }
 
 // Snapshot contains no history array; Sessions provides the retained history.
@@ -89,13 +87,17 @@ type Query interface {
 	List() []Snapshot // sorted by device_id
 	Get(deviceID string) (Snapshot, error)
 	Sessions(deviceID string) (SessionHistory, error)
+	Connections(deviceID string) (ConnectionHistory, error)
 }
 
 type record struct {
-	current                *Session
-	history                []Session
-	firstSeen, lastOffline time.Time
-	total, evicted         uint64
+	connection                         *ConnectionPeriod
+	connections                        []ConnectionPeriod
+	connectionTotal, connectionEvicted uint64
+	current                            *Session
+	history                            []Session
+	firstSeen, lastOffline             time.Time
+	total, evicted                     uint64
 }
 
 type Service struct {
@@ -134,8 +136,10 @@ func (s *Service) Publish(info Registration, sessionID string, at time.Time) {
 			return
 		}
 		s.finish(r, Replaced, at)
+	} else {
+		s.beginConnection(r, at)
 	}
-	r.current = &Session{ID: sessionID, Registration: cloneRegistration(info), StartedAt: at, LastSeenAt: at}
+	r.current = &Session{ID: sessionID, Registration: cloneRegistration(info), Telemetry: emptyTelemetry(), StartedAt: at, LastSeenAt: at}
 	r.total++
 }
 
@@ -154,6 +158,25 @@ func (s *Service) Seen(deviceID, sessionID string, at time.Time) bool {
 	return true
 }
 
+// Heartbeat updates activity and its sample atomically, only for the current
+// session. Other valid traffic must not advance the sample's ReportedAt.
+func (s *Service) Heartbeat(deviceID, sessionID string, seconds *uint64, at time.Time) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	r := s.devices[deviceID]
+	if r == nil || r.current == nil || r.current.ID != sessionID {
+		return false
+	}
+	if r.current.Runtime != nil && at.Before(r.current.Runtime.ReportedAt) {
+		return false
+	}
+	if at.After(r.current.LastSeenAt) {
+		r.current.LastSeenAt = at
+	}
+	r.current.Runtime = cloneRuntime(&Runtime{UptimeSeconds: seconds, ReportedAt: at})
+	return true
+}
+
 // End is idempotent and only transitions the current device online -> offline.
 // Session replacement uses Publish and deliberately does not update lastOffline.
 func (s *Service) End(deviceID, sessionID string, reason EndReason, at time.Time) bool {
@@ -166,6 +189,12 @@ func (s *Service) End(deviceID, sessionID string, reason EndReason, at time.Time
 	}
 	s.finish(r, reason, at)
 	r.lastOffline = at
+	if r.connection != nil {
+		if at.Before(r.connection.OnlineAt) {
+			at = r.connection.OnlineAt
+		}
+		r.connection.OfflineAt, r.connection.EndReason = at, reason
+	}
 	return true
 }
 
@@ -239,32 +268,27 @@ func snapshot(r *record) Snapshot {
 
 func cloneRegistration(v Registration) Registration {
 	v.Capabilities = append([]string{}, v.Capabilities...)
-	if v.Template != nil {
-		t := *v.Template
-		v.Template = &t
-	}
-	attrs := map[string]Attribute{}
-	if v.Attributes == nil {
-		attrs = nil
-	}
-	for k, a := range v.Attributes {
-		attrs[k] = a
-	}
-	v.Attributes = attrs
-	errs := map[string]CollectionError{}
-	if v.CollectionErrors == nil {
-		errs = nil
-	}
-	for k, e := range v.CollectionErrors {
-		errs[k] = e
-	}
-	v.CollectionErrors = errs
 	return v
 }
 
 func cloneSession(v Session) Session {
+	v.ConfigTemplate = copyTemplate(v.ConfigTemplate)
 	v.Registration = cloneRegistration(v.Registration)
+	v.Runtime = cloneRuntime(v.Runtime)
+	v.Telemetry = cloneTelemetry(v.Telemetry)
 	return v
+}
+
+func cloneRuntime(v *Runtime) *Runtime {
+	if v == nil {
+		return nil
+	}
+	r := *v
+	if v.UptimeSeconds != nil {
+		seconds := *v.UptimeSeconds
+		r.UptimeSeconds = &seconds
+	}
+	return &r
 }
 
 func (s *Service) Revision() uint64 { return s.revision.Load() }

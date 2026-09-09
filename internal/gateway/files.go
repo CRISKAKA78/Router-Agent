@@ -83,9 +83,15 @@ func (s *Server) fileTransport(a *session) filetransfer.Transport {
 var ErrSessionChanged = errors.New("device session changed")
 
 func (s *Server) CreateUpload(ctx context.Context, device string, q filetransfer.UploadRequest) (string, error) {
+	if e := s.requireManaged(device); e != nil {
+		return "", e
+	}
 	return s.createFile(ctx, device, q.ExpectedSessionID, func(a *session) (task.Spec, error) { return s.files.Upload(ctx, device, q, s.fileTransport(a)) })
 }
 func (s *Server) CreateDownload(ctx context.Context, device string, q filetransfer.DownloadRequest) (string, error) {
+	if e := s.requireManaged(device); e != nil {
+		return "", e
+	}
 	return s.createFile(ctx, device, q.ExpectedSessionID, func(a *session) (task.Spec, error) { return s.files.Download(ctx, device, q, s.fileTransport(a)) })
 }
 func (s *Server) createFile(ctx context.Context, device, expectedSession string, prepare func(*session) (task.Spec, error)) (string, error) {

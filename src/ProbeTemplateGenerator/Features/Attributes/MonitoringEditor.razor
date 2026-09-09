@@ -1,0 +1,28 @@
+<section class="editor-section config-section">
+    <h3>内置监控</h3>
+    <fieldset disabled="@State.Locked">
+        <label><input type="checkbox" checked="@(State.Project.Monitoring is not null)" @onchange="Toggle" /> 在模板中配置内置监控周期</label>
+        <p>未配置时 CPU、内存、网口为5秒，存储为60秒。0关闭，1～86400秒；设备单独设置优先；发布后在设备端选择应用即可动态生效。</p>
+        @if (State.Project.Monitoring is { } m)
+        {
+            <div class="field-grid">
+                <label>CPU（秒）<input aria-label="CPU上报周期" type="number" min="0" max="86400" @bind="m.CpuSeconds" @bind:after="State.Touch" /></label>
+                <label>内存（秒）<input aria-label="内存上报周期" type="number" min="0" max="86400" @bind="m.MemorySeconds" @bind:after="State.Touch" /></label>
+                <label>存储（秒）<input aria-label="存储上报周期" type="number" min="0" max="86400" @bind="m.DiskSeconds" @bind:after="State.Touch" /></label>
+                <label>网口（秒）<input aria-label="网口上报周期" type="number" min="0" max="86400" @bind="m.NetworkSeconds" @bind:after="State.Touch" /></label>
+                <label>出口 IP（秒）<input aria-label="出口IP探测周期" type="number" min="0" max="86400" @bind="m.EgressSeconds" @bind:after="State.Touch" /></label>
+            </div>
+            <label><input aria-label="自定义采集接口" type="checkbox" checked="@(m.NetworkInterfaces is not null)" @onchange="ToggleInterfaces" /> 自定义采集接口</label>
+            @if(m.NetworkInterfaces is not null){
+                <label>接口名<input aria-label="采集接口名" placeholder="eth0,br0,ppp0" @bind="m.NetworkInterfaces" @bind:after="State.Touch" /></label>
+                <p>精确名称，逗号分隔；留空采集全部接口，取消勾选沿用构建默认值。发布后显式应用，设备设置可覆盖模板。</p>
+            }
+        }
+        <p>CPU型号等静态详情每次探针进程只采两次；CPU使用率和当前频率按上述周期更新。交换机物理口沿用网口周期，0关闭。</p>
+    </fieldset>
+</section>
+@code {
+    [Parameter, EditorRequired] public EditorWorkspace State { get; set; } = default!;
+    private void ToggleInterfaces(ChangeEventArgs e) { if(State.Project.Monitoring is {} m){m.NetworkInterfaces=e.Value is true?"":null;State.Touch();} }
+    private void Toggle(ChangeEventArgs e) { State.Project.Monitoring = e.Value is true ? new MonitoringSettings() : null; State.Touch(); }
+}

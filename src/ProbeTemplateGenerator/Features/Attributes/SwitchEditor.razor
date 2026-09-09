@@ -1,0 +1,80 @@
+<section class="editor-section config-section">
+ <h3>网口状态与物理流量采集</h3>
+ <fieldset disabled="@State.Locked">
+ <button @onclick="UseFnr100">载入 FNR100 五口配置（替换本页网口配置）</button>
+ <p>此预设仅依据 FNR100 v1.1 / 2026-01-07 固件及现场确认：LAN1～4→switch0:1～4，WAN→5，CPU→0。其他板卡须核对映射与MIB字段，不按IPQ4019名称自动套用。</p>
+ <label class="inline-check"><input type="checkbox" checked="@(State.Project.SwitchProbe is not null)" @onchange="Toggle" /> 启用物理端口探测</label>
+ <p>采集真实插孔的链路状态，并按模板补充机壳名称。周期沿用“内置监控”的网口周期，0关闭。</p>
+ @if(State.Project.SwitchProbe is {} s){
+ <h4>链路状态来源</h4>
+ <label class="config-name">采集方式<select aria-label="交换机采集方式" @bind="s.Backend" @bind:after="BackendChanged"><option value="auto">自动识别</option><option value="dsa">DSA / 系统物理接口</option><option value="swconfig">swconfig</option><option value="command">厂商只读命令</option></select></label>
+ <p class="backend-help">@Help(s.Backend)</p>
+ @if(s.Backend=="command"){
+ <label>采集命令<textarea aria-label="交换机采集命令" rows="4" @bind="s.Command" @bind:after="State.Touch"></textarea></label>
+ <details><summary>命令输出格式与示例</summary><p>每行9列，以Tab分隔：记录标识、交换机实例、芯片端口号、系统接口、上联接口、链路、管理状态、速率、双工。</p><pre>port_1  switch0  3  -  eth0  up  unknown  1000  full</pre><p>上例为列含义示意，实际必须用Tab分隔。未知字段填 -，状态用 up/down/unknown，双工用 full/half/unknown。速率单位Mbps。只读命令单次最多5秒、32KiB；不会在生成器预览中执行。</p><p>按记录标识匹配时，将下方“高级设置”的内部标识设为输出第一列；也可按交换机实例和芯片端口号匹配。</p></details>
+ }
+ <h4>独立物理口流量来源</h4>
+ <label class="inline-check"><input type="checkbox" aria-label="启用物理口流量" checked="@(s.Counters is not null)" @onchange="ToggleCounters" /> 采集逐口硬件字节计数</label>
+ @if(s.Counters is {} c){
+ <p>链路与流量来源分别配置，均绑定下方同一个真实端口。累计非清零字节由Probe算速率；不能使用聚合eth接口或包数估算。最多16口，排列按下方顺序。</p>
+ <div class="field-grid">
+ <label>流量后端<select aria-label="物理口流量后端" @bind="c.Backend" @bind:after="CounterBackendChanged"><option value="swconfig_mib">swconfig 逐口 MIB</option><option value="command">厂商原始计数命令</option></select></label>
+ <label>计数位宽<select aria-label="计数位宽" @bind="c.Bits" @bind:after="State.Touch"><option value="64">64位累计计数</option><option value="32">32位（回绕不确定时重新建立基线）</option></select></label>
+ @if(c.Backend=="swconfig_mib"){
+ <label>RX字节字段<input aria-label="RX字节字段" @bind="c.RxField" @bind:after="State.Touch" /></label>
+ <label>TX字节字段<input aria-label="TX字节字段" @bind="c.TxField" @bind:after="State.Touch" /></label>
+ }
+ </div>
+ @if(c.Backend=="command"){<label>流量采集命令<textarea aria-label="流量采集命令" rows="4" @bind="c.Command" @bind:after="State.Touch"></textarea></label><p>每行三列，以Tab分隔：端口ID、累计RX字节、累计TX字节。只输出原始十进制整数，不输出计算后的速率；单次5秒/32KiB，不能使用读取后清零的命令。</p>}
+ <label>统计口径<input aria-label="物理口统计口径" @bind="c.Basis" @bind:after="State.Touch" /></label>
+ <details><summary>原始输出解析预览</summary><p>粘贴一个端口的完整MIB输出，或厂商三列TSV。预览不会连接设备或执行命令。</p><textarea aria-label="端口计数样本" rows="6" @bind="counterSample"></textarea><button @onclick="PreviewCounters">解析计数样本</button>
+ @if(previewError.Length>0){<p role="alert" class="error-text">@previewError</p>}
+ @foreach(var row in counterPreview){<p>@row.Port · RX @row.Receive B · TX @row.Transmit B</p>}
+ </details>
+ }
+ <div class="section-actions"><h4>外壳端口映射</h4><button @onclick="AddPort">添加物理端口映射</button></div>
+ @if(s.Ports.Count==0){<p class="muted">未配置映射时，展示采集结果中的原始名称。自动识别不能确定机壳上WAN/LAN的丝印顺序。</p>}
+ @foreach(var port in s.Ports){<section class="port-card" @key="port">
+ <header><strong>@(port.DisplayName.Length>0?port.DisplayName:"未命名端口")</strong><button @onclick="()=>RemovePort(port)">删除端口</button></header>
+ <div class="field-grid">
+ <label>端口显示名<input aria-label="端口显示名" placeholder="例如 LAN1" @bind="port.DisplayName" @bind:after="State.Touch" /><small>给管理员看的名称，不改变设备配置。</small></label>
+ @if(s.Backend is "swconfig" or "auto"){
+ <label>交换机实例<input aria-label="交换机实例" placeholder="例如 switch0" @bind="port.SwitchId" @bind:after="State.Touch" /><small>填写探测结果中的标识，不是芯片型号。@(s.Backend=="swconfig"?"必填。":"与芯片端口号成对填写，或使用系统物理接口匹配。")</small></label>
+ <label>芯片端口号<input aria-label="芯片端口号" type="number" min="0" max="255" @bind="port.Port" @bind:after="State.Touch" /><small>真实内部编号；LAN1不一定对应1，0也是有效端口。</small></label>
+ }
+ @if(s.Backend is "dsa" or "auto"){
+ <label>系统物理接口<input aria-label="系统物理接口" placeholder="例如 lan1" @bind="port.SystemName" @bind:after="State.Touch" /><small>填写设备中对应的独立物理接口；不能复制eth0来表示多个插孔。</small></label>
+ }
+ <label>端口用途<select aria-label="端口用途" @bind="port.Role" @bind:after="State.Touch"><option value="">未知</option><option value="external">外部网口</option><option value="cpu">CPU 内部上联</option></select><small>区分插孔与芯片内部CPU连接；不是切换WAN/LAN工作模式。</small></label>
+ </div>
+ <details class="advanced-section"><summary>高级设置与关联信息</summary><div class="field-grid">
+ <label>内部标识<input aria-label="物理端口标识" @bind="port.Id" @bind:after="State.Touch" /><small>已自动生成；用于持续识别此记录，改显示名时保持不变。厂商记录匹配时须与输出第一列一致。</small></label>
+ @if(s.Backend is "dsa" or "command"){
+ <label>交换机实例（可选）<input aria-label="交换机实例" @bind="port.SwitchId" @bind:after="State.Touch" /><small>与芯片端口号成对填写时，优先按两者匹配。</small></label>
+ <label>芯片端口号（可选）<input aria-label="芯片端口号" type="number" min="0" max="255" @bind="port.Port" @bind:after="State.Touch" /><small>不知道时留空，保留设备报告的编号。</small></label>
+ }
+ @if(s.Backend is "swconfig" or "command"){
+ <label>系统接口（可选）<input aria-label="系统接口" @bind="port.SystemName" @bind:after="State.Touch" /><small>关联的Linux接口；内部交换机端口可能没有独立接口，可留空。</small></label>
+ }
+ <label>上联接口（可选）<input aria-label="上联接口" placeholder="例如 eth0" @bind="port.Uplink" @bind:after="State.Touch" /><small>通往本机CPU侧的接口，多个LAN可共用；不据此推断各插孔状态。</small></label>
+ </div></details>
+ <p class="port-match">匹配依据：@Match(port,s.Backend)。采集结果未匹配时显示未知，不视为DOWN。</p>
+ </section>}
+ }
+ </fieldset>
+</section>
+@code {
+ [Parameter,EditorRequired]public EditorWorkspace State{get;set;}=default!;
+ private string counterSample="",previewError="";
+ private CounterPreview[] counterPreview=[];
+ private void UseFnr100(){State.Project.SwitchProbe=PhysicalPortProfiles.Fnr100();counterPreview=[];previewError="";State.Touch();}
+ private void ToggleCounters(ChangeEventArgs e){State.Project.SwitchProbe!.Counters=e.Value is true?new():null;State.Touch();}
+ private void CounterBackendChanged(){var c=State.Project.SwitchProbe!.Counters!;c.Command=null;c.RxField=c.Backend=="swconfig_mib"?"RxGoodByte":null;c.TxField=c.Backend=="swconfig_mib"?"TxByte":null;counterPreview=[];State.Touch();}
+ private void PreviewCounters(){try{counterPreview=PhysicalPortProfiles.Preview(counterSample,State.Project.SwitchProbe!);previewError="";}catch(InvalidOperationException e){counterPreview=[];previewError=e.Message;}}
+ private void Toggle(ChangeEventArgs e){State.Project.SwitchProbe=e.Value is true?new():null;State.Touch();}
+ private void BackendChanged(){if(State.Project.SwitchProbe is {} s&&s.Backend!="command")s.Command=null;State.Touch();}
+ private void AddPort(){var ports=State.Project.SwitchProbe!.Ports;if(ports.Count>=64)return;var n=1;while(ports.Any(p=>p.Id=="port_"+n))n++;ports.Add(new(){Id="port_"+n,Role=""});State.Touch();}
+ private void RemovePort(SwitchPort p){State.Project.SwitchProbe!.Ports.Remove(p);State.Touch();}
+ private static string Match(SwitchPort p,string backend)=>p.SwitchId.Length>0&&p.Port is not null?$"{p.SwitchId} 的端口 {p.Port}":backend=="command"?$"厂商记录 {p.Id}":p.SystemName.Length>0?$"系统物理接口 {p.SystemName}":"尚未填写";
+ private static string Help(string backend)=>backend switch{"swconfig"=>"使用固件的swconfig工具读取交换机。添加映射时，交换机实例与芯片端口号必填；上联和机壳名称需按板卡确认。","dsa"=>"从系统物理接口读取状态。通常只需系统物理接口与显示名；无法读取的字段保留未知。","command"=>"适用于固件私有工具。由管理员编写只读查询命令并整理为统一格式；按记录标识或交换机/端口号关联。",_=>"先尝试swconfig，无法识别时回退系统物理接口。可以不填映射；需要命名插孔时再按实际采集结果补充。"};
+}

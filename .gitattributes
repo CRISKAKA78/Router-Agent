@@ -1,1 +1,2 @@
 /tests/verify-phase5.sh text eol=lf
+/scripts/build-probe-gcc52.sh text eol=lf

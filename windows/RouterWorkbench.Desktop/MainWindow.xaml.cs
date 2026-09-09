@@ -36,18 +36,20 @@ public partial class MainWindow : Window
         try { profile = File.Exists(profilePath) ? ServerProfile.Load(profilePath) : new() { SshUser = "admin" }; } catch (Exception e) { Log("错误", "读取配置失败：" + e.Message); }
         Theme.Apply(profile.Theme); ActivityGrid.ItemsSource = activity; QuickProperties.ItemsSource = quickProperties;
         SourceInitialized += (_, _) => Theme.ApplyCaption(this);
-        BuildViews(); ApplySnapshot();
+        BuildViews();
+        foreach(var column in DevicesGrid.Columns.OfType<DataGridTextColumn>().Where(c=>c.Header?.ToString()!="状态"))column.ElementStyle=Ui.CellTextStyle();
+        foreach(var column in QuickProperties.Columns.OfType<DataGridTextColumn>())column.ElementStyle=Ui.CellTextStyle("ValueTip");
+        ApplySnapshot();
         Loaded += AutoConnect;
         PreviewKeyDown += HandleKeys; Closing += OnClosing;
         SizeChanged += (_, _) => { if (!outputUserSet) { var height = ActualHeight < 760 ? 0 : 170; OutputRow.Height = new(height); OutputSplitterRow.Height = new(height == 0 ? 0 : 4); } };
-        clock.Tick += (_, _) => { UpdateMaintenanceClock(); }; clock.Start();
+        clock.Tick += (_, _) => { UpdateMaintenanceClock(); UpdateConnectionHistoryClock(); }; clock.Start();
         SystemEvents.UserPreferenceChanged += SystemThemeChanged;
-        Log("就绪", "连接管理服务器后，选择设备开始工作。F5 刷新 · Ctrl+F 搜索设备 · Ctrl+J 输出。");
     }
     private void BuildViews()
     {
-        AddPage("overview", "设备", BuildOverview()); AddPage("maintenance", "维护", BuildMaintenance());
-        AddPage("files", "文件", BuildFiles()); AddPage("config", "配置", BuildConfig()); AddPage("settings", "设置", BuildSettings());
+        AddPage("overview", "设备", BuildOverview()); DiscoveryTab.Content=BuildDiscoveries(); ConfigureDeviceMenu(); AddPage("maintenance", "维护", BuildMaintenance());
+        AddPage("files", "文件", BuildFiles()); AddPage("config", "配置", BuildConfig()); settingsContent = BuildSettings(); AddPage("tools", "仓库工具", BuildTools());
     }
     private void AddPage(string key, string title, UIElement view) { var tab = new TabItem { Header = title, Tag = key, Content = view }; tabs[key] = tab; WorkspaceTabs.Items.Add(tab); }
     private string Page => (WorkspaceTabs.SelectedItem as TabItem)?.Tag?.ToString() ?? "overview";
@@ -70,10 +72,19 @@ public partial class MainWindow : Window
     {
         var device = Device;
         if (device == null) { if (quickProperties.Count != 0) quickProperties.Clear(); return; }
-        if (quickProperties.Count == 0)
-            foreach (var name in new[] { "设备 ID", "型号", "系统", "探针", "最近心跳" }) quickProperties.Add(new(name));
-        var values = new[] { device.DeviceId, device.Registration.Model, device.Registration.Firmware, device.Registration.ProbeVersion, Labels.Time(device.LastSeenAt) };
-        for (var i = 0; i < values.Length; i++) quickProperties[i].Value = string.IsNullOrEmpty(values[i]) ? "未提供" : values[i];
+        var rows = new[] {
+            new PropertyRow("", "设备名称", device.DeviceName, device.DeviceName == "—" ? "设备未上报名称" : ""),
+            device.Profile?.ModelName is {Length:>0} managedModel?new PropertyRow("设备","设备型号",managedModel):DeviceProperties.Field(device,"model","设备型号",device.Registration.Model),
+            new PropertyRow("","设备ID",device.DeviceId),
+            DeviceProperties.Field(device,"firmware","固件版本",device.Registration.Firmware),
+            DeviceProperties.Uptime(device),
+            new PropertyRow("","出口IP及归属地", EgressSummary(device), EgressTip(device)),
+            new PropertyRow("","探针版本",DeviceProperties.Text(device.Registration.ProbeVersion)),
+            new PropertyRow("","模板版本",AppliedTemplateVersion(device),ConfigState(device.Profile?.ConfigurationState)+"\n"+(device.Profile?.ConfigurationError??"")),
+            new PropertyRow("","最近心跳",Labels.Time(device.Runtime?.ReportedAt),device.Runtime==null?"尚未收到心跳":"") };
+        if(quickProperties.Count==0) foreach(var row in rows)quickProperties.Add(new(row.Name));
+        for(var i=0;i<rows.Length;i++){quickProperties[i].ValueTip=rows[i].ValueTip;quickProperties[i].Value=rows[i].Value;quickProperties[i].UpdateTemplateAction(rows[i].Name=="模板版本"&&HasTemplateUpdate(device),Writable&&device.Managed);}
+
     }
     private async Task Run(string label, Func<Task> action)
     {
@@ -125,8 +136,9 @@ public partial class MainWindow : Window
     }
     private async Task Disconnect()
     {
-        var old = connection; connection = null; CancelDetails();
-        taskId = ""; task = null; transfer = null; operation = null; assetId = ""; maintenanceId = ""; maintenanceResult = null; ResetConfig();
+        ResetFileWorkspace();
+        var old = connection; connection = null; CancelDetails(); await CancelLocation();
+        taskId = ""; task = null; transfer = null; operation = null; maintenanceId = ""; maintenanceResult = null; ResetConfig();
         if (old != null) await old.DisposeAsync();
         snapshot = Snapshot.Empty; selectedDevice = ""; ApplySnapshot();
     }
@@ -135,31 +147,32 @@ public partial class MainWindow : Window
         if (!IsInitialized || tabs.Count == 0) return;
         refreshing = true;
         try {
-            if (!snapshot.Devices.Any(d => d.DeviceId == selectedDevice)) selectedDevice = snapshot.Devices.FirstOrDefault()?.DeviceId ?? "";
+            if (!snapshot.Devices.Any(d => d.DeviceId == selectedDevice)) selectedDevice = snapshot.Devices.FirstOrDefault(d=>ExplorerTabs.SelectedIndex==0?d.Managed:d.Profile?.Admission=="pending")?.DeviceId ?? "";
             ApplyDeviceFilter();
             DeviceTitle.Text = Device?.DisplayName ?? "工作区";
-            DeviceSubtitle.Text = Device == null ? "选择设备以查看属性与操作" : $"{Device.StatusText}   ·   {Device.Registration.Arch} / {Device.Registration.Libc}";
+            DeviceSubtitle.Text = Device == null ? "选择设备以查看属性与操作" : $"{Device.StatusText}   ·   {TelemetryPresentation.Architecture(Device)} / {Device.Registration.Libc}";
             UpdateQuickProperties(); UpdateConnectionStatus();
             CountText.Text = $"设备 {snapshot.Devices.Length}   在线 {snapshot.Devices.Count(d => d.Online)}";
             SyncText.Text = snapshot.FetchedAt is { } fetched ? "同步 " + fetched.ToLocalTime().ToString("HH:mm:ss") : "";
             PendingBanner.Visibility = connection?.Pending != null && !connection.Busy ? Visibility.Visible : Visibility.Collapsed;
             PendingText.Text = $"{connection?.Pending?.Label} 响应不确定。原请求已保留，新写入已暂停。";
-            UpdateOverview(); UpdateMaintenance(); UpdateTasks(); UpdateFiles(); UpdateConfig(); UpdateEnabled();
+            UpdateDiscoveries(); UpdateOverview(); UpdateMaintenance(); UpdateTasks(); UpdateFiles(); UpdateTools(); UpdateConfig(); UpdateEnabled();
         } finally { refreshing = false; }
         _ = RefreshDetails();
+        EnsureFileScope();
     }
     private void ApplyDeviceFilter()
     {
         var query = DeviceSearch.Text.Trim();
-        var devices = snapshot.Devices.Where(d => (OnlineOnly.IsChecked != true || d.Online) && $"{d.DeviceId} {d.DisplayName} {d.Registration.Model}".Contains(query, StringComparison.OrdinalIgnoreCase)).ToArray();
+        var devices = snapshot.Devices.Where(d => d.Managed && (OnlineOnly.IsChecked != true || d.Online) && $"{d.DeviceId} {d.DisplayName} {d.Profile?.ModelName} {d.Registration.Model}".Contains(query, StringComparison.OrdinalIgnoreCase)).ToArray();
         Ui.SetRows(DevicesGrid, devices); DevicesGrid.SelectedItem = devices.FirstOrDefault(d => d.DeviceId == selectedDevice);
         DevicesEmpty.Text = connection == null ? "连接服务器后显示设备" : connection.Synchronized ? "没有匹配的设备" : connection.Status;
         DevicesEmpty.Visibility = devices.Length == 0 ? Visibility.Visible : Visibility.Collapsed; DeviceCountText.Text = devices.Length.ToString();
     }
-    private void SearchChanged(object sender, RoutedEventArgs e) { if (tabs.Count == 0) return; refreshing = true; try { ApplyDeviceFilter(); } finally { refreshing = false; } }
+    private void SearchChanged(object sender, RoutedEventArgs e) { if (tabs.Count == 0) return; refreshing = true; try { ApplyDeviceFilter(); UpdateDiscoveries(); } finally { refreshing = false; } }
     private void DeviceSelectionChanged(object sender, SelectionChangedEventArgs e)
     {
-        if (refreshing || DevicesGrid.SelectedItem is not Device device || selectedDevice == device.DeviceId) return;
+        if (refreshing || sender is not DataGrid grid || grid.SelectedItem is not Device device || selectedDevice == device.DeviceId) return;
         selectedDevice = device.DeviceId; CancelDetails(); taskId = ""; task = null; transfer = null; operation = null;
         ResetConfig(); ApplySnapshot();
     }
@@ -167,15 +180,17 @@ public partial class MainWindow : Window
     {
         if (e.Source != WorkspaceTabs || tabs.Count < 5) return;
         CancelDetails();
+        EnsureFileScope();
         _ = RefreshDetails();
+        if(Page=="tools") _ = RefreshToolVersions();
     }
     private void UpdateEnabled()
     {
-        ConnectButton.IsEnabled = !working; var online = Device?.Online == true && Writable;
+        if(ConnectButton!=null) ConnectButton.IsEnabled = !working; var online = Device is { Online: true, Managed: true } && Writable;
         foreach (var button in deviceActions) button.IsEnabled = online;
         foreach (var button in writes) button.IsEnabled = Writable;
         configSubmit.IsEnabled = online && Device?.Registration.Capabilities.Contains("router_config") == true;
-        UpdateMaintenanceClock();
+        UpdateMaintenanceClock(); UpdateQuickProperties(); UpdateConnectionHistoryClock();
     }
     private void SystemThemeChanged(object sender, UserPreferenceChangedEventArgs e) { if (profile.Theme == "Default") Dispatcher.BeginInvoke(() => { Theme.Apply("Default"); }); }
     private async Task SetTheme(string theme) { profile = profile with { Theme = theme }; Theme.Apply(theme); await profile.SaveAsync(profilePath); }
@@ -185,7 +200,7 @@ public partial class MainWindow : Window
             switch (e.Key) {
                 case Key.F: DeviceSearch.Focus(); DeviceSearch.SelectAll(); break;
                 case Key.J: ToggleOutput(); break;
-                case Key.O: Navigate("settings"); break;
+                case Key.O: OpenSettings(); break;
                 default: return;
             } e.Handled = true;
         } else if (e.Key == Key.F5) { connection?.Invalidate(); e.Handled = true; }
@@ -196,7 +211,7 @@ public partial class MainWindow : Window
         if (closed) return; e.Cancel = true; if (closing) return;
         if (connection?.Pending != null && !connection.Busy && !Confirm("退出", "存在响应不确定的请求。退出将丢弃本地待定记录，服务器可能已经执行。仍要退出？")) return;
         closing = true; clock.Stop(); SystemEvents.UserPreferenceChanged -= SystemThemeChanged;
-        try { await Disconnect(); } finally { closed = true; _ = Dispatcher.BeginInvoke(Close); }
+        try { await Disconnect(); } finally { locations.Dispose(); closed = true; _ = Dispatcher.BeginInvoke(Close); }
     }
     private void ConnectClick(object sender, RoutedEventArgs e) => _ = Run("连接", Connect);
     private void DisconnectClick(object sender, RoutedEventArgs e) => _ = Run("断开连接", async () => {
@@ -210,8 +225,8 @@ public partial class MainWindow : Window
     private void FilesClick(object sender, RoutedEventArgs e) => Navigate("files");
     private void MaintenanceClick(object sender, RoutedEventArgs e) => Navigate("maintenance");
     private void ConfigClick(object sender, RoutedEventArgs e) => Navigate("config");
-    private void SettingsClick(object sender, RoutedEventArgs e) => Navigate("settings");
-    private void ImportClick(object sender, RoutedEventArgs e) => _ = Run("导入文件", ImportAsset);
+    private void SettingsClick(object sender, RoutedEventArgs e) => OpenSettings();
+    private void DeviceInspectClick(object sender, RoutedEventArgs e) { if(Device != null) Inspect("设备公开快照", Device); }
     private void DeviceDisconnectClick(object sender, RoutedEventArgs e) => _ = Run("断开设备", DisconnectDevice);
     private void ToggleOutputClick(object sender, RoutedEventArgs e) => ToggleOutput();
     private void ClearActivityClick(object sender, RoutedEventArgs e) { activity.Clear(); OutputCaption.Text = "  /  工作区活动"; }
@@ -220,7 +235,8 @@ public partial class MainWindow : Window
     private void RetryClick(object sender, RoutedEventArgs e) => _ = Run("重试原请求", async () => {
         var c = Connected(); var pending = c.Pending; if (pending == null) return;
         if (!Confirm("重试原请求", "请先确认服务器进程没有重启，且已核对原任务/资产状态。重试将使用完全相同的请求键和字节。确认继续？")) return;
-        var result = await c.ExecuteAsync(pending, true); Log("完成", "原请求已返回。" + (result.TryGetProperty("task_id", out var id) ? "任务 " + id.GetString() : ""));
+        if(exchange?.Owner==c&&exchange.PendingStage==pending){await RunExchange(exchange);return;}
+        var result = await c.ExecuteAsync(pending, true); if(c==connection&&pending.Path=="deployments")ShowCreatedTask(result); Log("完成", "原请求已返回。" + (result.TryGetProperty("task_id", out var id) ? "任务 " + id.GetString() : ""));
     });
     private void AbandonClick(object sender, RoutedEventArgs e) { if (Confirm("放弃待定记录", "此操作只清除客户端记录，不会撤销服务器可能已完成的操作。确认已核对服务器状态后继续？")) connection?.Abandon(); }
     private static uint Positive(string value) => uint.TryParse(value, out var n) && n > 0 ? n : throw new ArgumentException("超时须为正整数秒。");

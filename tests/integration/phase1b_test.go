@@ -254,7 +254,7 @@ func TestProbeRejectsUnsupportedTask(t *testing.T) {
 
 	registerAck, err := encodedJSONFrame(protocol.TypeRegisterAck, protocol.FlagResponse, 1, map[string]interface{}{
 		"reply_to": 1, "success": true, "session_id": "sess_phase1b_fake", "heartbeat_interval": 10,
-		"server_time": time.Now().Unix(), "max_control_payload": protocol.MaxControlPayload, "file_chunk_size": 65536,
+		"server_time": time.Now().Unix(), "max_control_payload": protocol.MaxControlPayload, "telemetry_v2":true,"managed_config_v1":true, "file_chunk_size": 65536,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -270,7 +270,26 @@ func TestProbeRejectsUnsupportedTask(t *testing.T) {
 	if _, err := conn.Write(combined); err != nil {
 		t.Fatal(err)
 	}
-	rejected, err := readProtocolFrame(conn)
+	// Validate every outbound message ID, including an interleaved startup
+	// heartbeat. This short test leaves heartbeat ACK pending.
+	nextProbeMessage := uint64(2)
+	readTaskFrame := func() (protocol.Frame, error) {
+		for {
+			frame, err := readProtocolFrame(conn)
+			if err != nil {
+				return frame, err
+			}
+			if frame.Header.MessageID != nextProbeMessage {
+				t.Fatalf("probe sequence got %d want %d", frame.Header.MessageID, nextProbeMessage)
+			}
+			nextProbeMessage++
+			if frame.Header.Type != protocol.TypeHeartbeat {
+				return frame, nil
+			}
+			assertSystemHeartbeat(t, frame)
+		}
+	}
+	rejected, err := readTaskFrame()
 	if err != nil {
 		t.Fatalf("read rejected TASK_ACK: %v\nprobe log:\n%s", err, probeLog.String())
 	}
@@ -285,7 +304,7 @@ func TestProbeRejectsUnsupportedTask(t *testing.T) {
 		t.Fatal(err)
 	}
 	if rejected.Header.Type != protocol.TypeTaskAck || rejected.Header.Flags != protocol.FlagResponse ||
-		rejected.Header.MessageID != 2 || rejectedPayload.ReplyTo != 2 || rejectedPayload.TaskID != "unsupported-1" ||
+		rejectedPayload.ReplyTo != 2 || rejectedPayload.TaskID != "unsupported-1" ||
 		rejectedPayload.Accepted || rejectedPayload.State != "rejected" ||
 		!strings.Contains(rejectedPayload.Message, "unsupported task type") {
 		t.Fatalf("rejected TASK_ACK header=%#v payload=%#v", rejected.Header, rejectedPayload)
@@ -301,7 +320,7 @@ func TestProbeRejectsUnsupportedTask(t *testing.T) {
 	if _, err := conn.Write(supportedTask); err != nil {
 		t.Fatal(err)
 	}
-	accepted, err := readProtocolFrame(conn)
+	accepted, err := readTaskFrame()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -315,11 +334,11 @@ func TestProbeRejectsUnsupportedTask(t *testing.T) {
 		t.Fatal(err)
 	}
 	if accepted.Header.Type != protocol.TypeTaskAck || accepted.Header.Flags != protocol.FlagResponse ||
-		accepted.Header.MessageID != 3 || acceptedPayload.ReplyTo != 3 ||
+		acceptedPayload.ReplyTo != 3 ||
 		acceptedPayload.TaskID != "supported-after-reject" || !acceptedPayload.Accepted || acceptedPayload.State != "queued" {
 		t.Fatalf("accepted TASK_ACK header=%#v payload=%#v", accepted.Header, acceptedPayload)
 	}
-	resultFrame, err := readProtocolFrame(conn)
+	resultFrame, err := readTaskFrame()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -328,7 +347,7 @@ func TestProbeRejectsUnsupportedTask(t *testing.T) {
 		t.Fatal(err)
 	}
 	if resultFrame.Header.Type != protocol.TypeTaskResult || resultFrame.Header.Flags != 0 ||
-		resultFrame.Header.MessageID != 4 || resultPayload.TaskID != "supported-after-reject" ||
+		resultPayload.TaskID != "supported-after-reject" ||
 		resultPayload.Status != "success" || resultPayload.Stdout != "ok" {
 		t.Fatalf("TASK_RESULT header=%#v payload=%#v", resultFrame.Header, resultPayload)
 	}

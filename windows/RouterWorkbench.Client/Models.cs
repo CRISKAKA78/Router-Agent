@@ -10,21 +10,22 @@ public static class ApiJson
     public static string Pretty(object value) => JsonSerializer.Serialize(value, new JsonSerializerOptions(Options) { WriteIndented = true });
 }
 public sealed record TemplateReference(string TemplateId, string Name, ulong Version);
-public sealed record CollectedValue(string Name, string Value);
-public sealed record CollectionError(string Name, string Reason);
+public sealed record Metric(string Name, string Value, string Unit, string Status, string Entity, uint IntervalSeconds, string Source, string Group, DateTimeOffset SampledAt, bool Stale, string? Reason = null);
+public sealed record DeviceRuntime(long? UptimeSeconds, DateTimeOffset ReportedAt);
 public sealed record Registration(string DeviceId, string Hostname, string Serial, string Model, string Firmware,
-    string ProbeVersion, string Arch, string Kernel, string Libc, string BootId, string[] Capabilities,
-    TemplateReference? Template, Dictionary<string, CollectedValue>? Attributes, Dictionary<string, CollectionError>? CollectionErrors);
+    string ProbeVersion, string Arch, string Kernel, string Libc, string BootId, string[] Capabilities);
 public sealed record DeviceSession(string SessionId, Registration Registration, DateTimeOffset StartedAt,
-    DateTimeOffset LastSeenAt, DateTimeOffset? EndedAt, string EndReason)
+    DateTimeOffset LastSeenAt, DateTimeOffset? EndedAt, string EndReason, DeviceRuntime? Runtime = null, string? SourceIp = null, Dictionary<string, Metric>? EffectiveMetrics = null)
 {
     [JsonIgnore] public string StartedText => Labels.Time(StartedAt);
 }
 public sealed record Device(string DeviceId, Registration Registration, string Status, DeviceSession? CurrentSession,
     DeviceSession? LatestSession, DateTimeOffset? FirstSeenAt, DateTimeOffset? LastSeenAt,
-    DateTimeOffset? LastOnlineAt, DateTimeOffset? LastOfflineAt, long TotalSessions, long EvictedSessions)
+    DateTimeOffset? LastOnlineAt, DateTimeOffset? LastOfflineAt, long TotalSessions, long EvictedSessions, DeviceRuntime? Runtime = null, string? SourceIp = null, Dictionary<string, Metric>? EffectiveMetrics = null, DeviceProfile? Profile=null, Presentation? Presentation=null, TemplateReference? ActiveTemplate=null, ulong AppliedRevision=0)
 {
-    [JsonIgnore] public string DisplayName => string.IsNullOrEmpty(Registration.Hostname) ? DeviceId : Registration.Hostname;
+    [JsonIgnore] public string DeviceName => Profile?.Name ?? (string.IsNullOrEmpty(Registration.Hostname) ? "—" : Registration.Hostname);
+    [JsonIgnore] public string DisplayName => Profile?.Name ?? (string.IsNullOrEmpty(Registration.Hostname) ? DeviceId : Registration.Hostname);
+ [JsonIgnore] public bool Managed => Profile?.Admission=="managed";
     [JsonIgnore] public string StatusText => Labels.State(Status);
     [JsonIgnore] public bool Online => Status == "online";
 }
@@ -54,6 +55,8 @@ public sealed record Rules(string[] Arch, string[] Libc, string[]? Models, strin
 public sealed record Artifact(string ArtifactId, string AssetId, string Platform, string Mode, Rules Rules);
 public sealed record ToolVersion(string ToolId, string Version, Artifact[] Artifacts, bool Archived, DateTimeOffset CreatedAt)
 {
+    public override string ToString() => Version;
+    [JsonIgnore] public string CreatedText => Labels.Time(CreatedAt);
     [JsonIgnore] public string StateText => Archived ? "已归档" : "可用";
     [JsonIgnore] public int Count => Artifacts.Length;
 }
@@ -75,7 +78,22 @@ public sealed record Snapshot(Device[] Devices, TaskSummary[] Tasks, Asset[] Ass
 {
     public static Snapshot Empty { get; } = new([], [], [], [], [], "", null);
 }
-public sealed record PropertyRow(string Group, string Name, string Value);
+public sealed class PropertyRow(string group, string name, string value, string tip = "") : System.ComponentModel.INotifyPropertyChanged
+{
+    private string currentValue = value;
+    private string currentTip = tip;
+    public string ValueTip { get => currentTip; set { if(value==currentTip)return;currentTip=value;PropertyChanged?.Invoke(this,new(nameof(ValueTip))); } }
+    public string Group { get; set; } = group;
+    public string GroupId { get; set; } = "other";
+    public string MetricGroup { get; set; } = "";
+ public string Key { get; set; } = "";
+    public string Name { get; } = name;
+    public string Value {
+        get => currentValue;
+        set { if (value == currentValue) return; currentValue = value; PropertyChanged?.Invoke(this, new(nameof(Value))); }
+    }
+    public event System.ComponentModel.PropertyChangedEventHandler? PropertyChanged;
+}
 public sealed record ActivityRow(string Time, string Level, string Message);
 public static class Labels
 {

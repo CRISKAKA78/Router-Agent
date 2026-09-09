@@ -23,6 +23,7 @@ func (s *Server) Tasks(deviceID, state string, offset, limit int) ([]task.Summar
 }
 func (s *Server) Revisions() [3]uint64 {
 	v := s.gateway.Revisions()
+	v[0] += s.enrollment.Revision()
 	v[2] += s.Files().Revision()
 	return v
 }

@@ -5,93 +5,70 @@ using Microsoft.Win32;
 using RouterWorkbench.Client;
 
 namespace RouterWorkbench.Desktop;
-
 public partial class MainWindow
 {
-    private DataGrid assetsGrid = null!, assetProperties = null!;
-    private TextBox assetSearch = null!;
-    private CheckBox assetArchived = null!;
-    private TextBlock assetEmpty = null!;
-    private string assetId = "";
-    private TabControl fileTabs = null!;
+    private DeviceDirectoryView fileBrowser=null!;
+    private TextBlock exchangeStatus=null!;
+    private CancellationTokenSource fileCancel=new();
+    private FileExchange? exchange;
+    private string fileScope="";
+    private bool fileInitialized;
     private UIElement BuildFiles()
     {
-        assetSearch = Ui.Input("", 210); assetSearch.Tag = "搜索文件 / 资产 ID"; assetSearch.ToolTip = "搜索文件名称或资产 ID";
-        assetArchived = new CheckBox { Content = "包含归档" };
-        assetSearch.TextChanged += (_, _) => UpdateFiles(); assetArchived.Checked += (_, _) => UpdateFiles(); assetArchived.Unchecked += (_, _) => UpdateFiles();
-        assetsGrid = Ui.Table("文件资产列表", ("名称", "Name", -1), ("大小", "SizeText", 95), ("状态", "StateText", 75), ("资产 ID", "AssetId", 275));
-        assetsGrid.SelectionChanged += (_, _) => { if (refreshing) return; assetId = (assetsGrid.SelectedItem as Asset)?.AssetId ?? ""; UpdateAssetDetail(); };
-        assetProperties = Ui.Table("资产属性", ("属性", "Name", 115), ("值", "Value", -1));
-        assetEmpty = Ui.Text("仓库中没有匹配的文件。使用“导入文件”添加资产。", true); assetEmpty.Margin = new(12,52,12,0); assetEmpty.VerticalAlignment = VerticalAlignment.Top; assetEmpty.HorizontalAlignment = HorizontalAlignment.Center; assetEmpty.IsHitTestVisible = false;
-        var list = new Grid(); list.Children.Add(assetsGrid); list.Children.Add(assetEmpty);
-        var assets = Ui.Page(Ui.Bar(WriteButton("导入文件…", () => _ = Run("导入文件", ImportAsset)),
-            Ui.Button("保存到本机…", () => _ = Run("保存文件", SaveAsset)), DeviceButton("上传到设备…", UploadSelectedAsset),
-            DeviceButton("从设备下载…", () => DownloadForm()), Ui.Button("归档…", () => _ = Run("归档资产", ArchiveAsset))),
-            Ui.Page(Ui.Bar(assetSearch, assetArchived), Ui.Split(list, Ui.Page(Ui.Heading("资产属性"), assetProperties), true, 2.2)),
-            Ui.Note("导入和保存校验长度与 SHA-256。下载任务完整提交并释放后，在文件传输中显式入库；归档保留资产身份与内容。"));
-        fileTabs = new TabControl();
-        fileTabs.Items.Add(new TabItem { Header = "文件资产", Content = assets });
-        fileTabs.Items.Add(new TabItem { Header = "文件传输", Content = BuildTransfers() });
-        return fileTabs;
+        fileBrowser=new(()=>connection,()=>Device);exchangeStatus=Ui.Text("",true);exchangeStatus.TextWrapping=TextWrapping.Wrap;
+        return Ui.Page(Ui.Bar(DeviceButton("上传本地文件…",()=>_ = Run("上传文件",UploadLocalFile)),DeviceButton("下载所选文件…",()=>_ = Run("下载文件",DownloadSelectedFile)),
+            Ui.Button("继续原传输",()=>_ = Run("继续传输",ResumeExchange)),exchangeStatus),Ui.Split(fileBrowser,BuildTransfers(),true,1.7));
     }
-    private void UpdateFiles()
+    private void UpdateFiles(){if(exchangeStatus!=null)exchangeStatus.Text=exchange?.DeviceId==selectedDevice?exchange.Status:"";}
+    private void ResetFileWorkspace(){fileCancel.Cancel();fileCancel.Dispose();fileCancel=new();fileBrowser?.Reset();exchange?.Dispose();exchange=null;fileScope="";fileInitialized=false;}
+    private void EnsureFileScope()
     {
-        if (assetsGrid == null) return;
-        var rows = snapshot.Assets.Where(a => (assetArchived.IsChecked == true || !a.Archived) && $"{a.Name} {a.AssetId}".Contains(assetSearch.Text, StringComparison.OrdinalIgnoreCase)).ToArray();
-        var was = refreshing; refreshing = true; Ui.SetRows(assetsGrid, rows); assetsGrid.SelectedItem = rows.FirstOrDefault(a => a.AssetId == assetId); refreshing = was;
-        assetEmpty.Visibility = rows.Length == 0 ? Visibility.Visible : Visibility.Collapsed; UpdateAssetDetail();
+        if(fileBrowser==null)return;var scope=(connection?.Api.Origin.ToString()??"")+"|"+selectedDevice;
+        if(scope!=fileScope){fileCancel.Cancel();fileCancel.Dispose();fileCancel=new();fileBrowser.Reset();fileScope=scope;fileInitialized=false;}
+        if(Page=="files"&&!fileInitialized&&Device is {Online:true,Managed:true}&&connection is {Synchronized:true,Busy:false,Pending:null}){fileInitialized=true;_ = fileBrowser.LoadDirectory("/tmp");}
     }
-    private void UpdateAssetDetail()
+    private async Task RunExchange(FileExchange operation)
     {
-        var asset = snapshot.Assets.FirstOrDefault(a => a.AssetId == assetId);
-        assetProperties.ItemsSource = asset == null ? Array.Empty<PropertyRow>() : new[] { new PropertyRow("", "资产 ID", asset.AssetId), new("", "名称", asset.Name), new("", "状态", asset.StateText), new("", "长度", asset.Size + " 字节"), new("", "SHA-256", asset.Sha256), new("", "创建时间", Labels.Time(asset.CreatedAt)) };
+        if(operation.Owner!=connection||operation.DeviceId!=selectedDevice)throw new InvalidOperationException("请选择原设备和服务器后再继续。");
+        var token=fileCancel.Token;
+        try{await operation.RunAsync(token);if(!token.IsCancellationRequested){Log("文件",operation.Status);if(!operation.Download)await fileBrowser.LoadDirectory(fileBrowser.CurrentPath);}}
+        finally{if(!token.IsCancellationRequested&&operation.Owner==connection&&operation.DeviceId==selectedDevice){taskId=operation.TaskId;UpdateFiles();connection.Invalidate();_ = RefreshDetails();}}
     }
-    private Asset SelectedAsset() => snapshot.Assets.FirstOrDefault(a => a.AssetId == assetId) ?? throw new InvalidOperationException("请选择文件资产。");
-    private async Task ImportAsset()
+    private async Task StartExchange(string local,string remote,bool download,bool overwrite=false)
     {
-        var c = Connected(); var picker = new OpenFileDialog { Title = "导入文件资产", CheckFileExists = true };
-        if (picker.ShowDialog(this) != true) return;
-        var mutation = await Mutation.ImportAsync(picker.FileName, c.Token);
-        if (connection != c) { mutation.Dispose(); throw new OperationCanceledException(); }
-        var data = await Write(mutation); assetId = data.GetProperty("asset_id").GetString()!;
+        var device=RequireDevice();if(!device.Managed)throw new InvalidOperationException("请先纳管设备。");
+        remote=RemoteDirectory.Normalize(remote);RemoteDirectory.FileName(remote);
+        exchange?.Dispose();exchange=new(Connected(),device.DeviceId,local,remote,download,overwrite);var current=exchange;
+        current.Changed+=()=>{if(exchange==current&&current.DeviceId==selectedDevice)UpdateFiles();};
+        await RunExchange(current);
     }
-    private async Task SaveAsset()
+    private Task ResumeExchange()
     {
-        var asset = SelectedAsset(); if (asset.Archived) throw new InvalidOperationException("归档资产不能下载。"); var c = Connected();
-        var dialog = new SaveFileDialog { Title = "保存资产到本机", FileName = System.IO.Path.GetFileName(asset.Name), OverwritePrompt = true };
-        if (dialog.ShowDialog(this) != true) return;
-        await c.TrackAsync(async () => { await c.Api.SaveContentAsync(asset, dialog.FileName); return true; }); Log("文件", "文件已校验并保存。");
+        if(exchange==null)throw new InvalidOperationException("没有可继续的本地传输。");
+        if(exchange.PendingStage!=null&&connection?.Pending==exchange.PendingStage&&!Confirm("重试原请求","确认服务器未重启并已核对原操作；使用原请求继续传输？"))return Task.CompletedTask;
+        return RunExchange(exchange);
     }
-    private async Task ArchiveAsset()
+    private async Task UploadLocalFile()
     {
-        var asset = SelectedAsset(); if (!Confirm("归档资产", $"归档 {asset.Name}？归档后阻止新引用和投放，现有内容和身份保留。")) return;
-        await Write(new("归档资产", $"assets/{Id(asset.AssetId)}/archive"));
+        var device=RequireDevice();var owner=Connected();var picker=new OpenFileDialog {Title="选择上传到设备的文件",CheckFileExists=true};
+        if(picker.ShowDialog(this)!=true)return;
+        Dictionary<string,string>? chosen=null;
+        Form("上传文件",$"{System.IO.Path.GetFileName(picker.FileName)} → {device.DisplayName}",
+            [new("path","设备目标文件路径","/tmp/"+System.IO.Path.GetFileName(picker.FileName)),new("overwrite","覆盖已存在文件","否",Choices:["否","是"])],values=>{
+                RemoteDirectory.FileName(values["path"]);chosen=values;return Task.CompletedTask;});
+        if(chosen!=null){if(owner!=connection||device.DeviceId!=selectedDevice)throw new OperationCanceledException();await StartExchange(picker.FileName,chosen["path"],false,chosen["overwrite"]=="是");}
     }
-    private void UploadSelectedAsset()
+    private async Task DownloadSelectedFile()
     {
-        var asset = snapshot.Assets.FirstOrDefault(a => a.AssetId == assetId);
-        if (asset == null) { Log("提示", "请选择可用文件资产。"); return; } UploadForm(asset);
+        RequireDevice();if(!fileBrowser.Ready||fileBrowser.Entries.SelectedItem is not RemoteEntry {Kind:"f"} entry)throw new InvalidOperationException("请选择设备目录中的文件。");
+        var dialog=new SaveFileDialog {Title="保存设备文件到本机",FileName=entry.Name,OverwritePrompt=true};
+        if(dialog.ShowDialog(this)==true)await StartExchange(dialog.FileName,RemoteDirectory.Join(fileBrowser.CurrentPath,entry.Name),true);
     }
-    private void UploadForm(Asset asset, string? directory = null)
+    private string? SelectDeviceDirectory(Window parent,Device device,string initial)
     {
-        var device = Device; var c = connection;
-        if (device == null) { Log("提示", "请选择设备。"); return; }
-        Form("上传文件到设备", $"{asset.Name} → {device.DisplayName}",
-            [new("path", "设备目标路径", (directory ?? "/tmp").TrimEnd('/') + "/" + asset.Name), new("mode", "文件权限（八进制）", "0644"), new("timeout", "超时（秒）", "60"), new("overwrite", "覆盖已存在文件", "否", Choices: ["否", "是"])],
-            async v => {
-                if (connection != c || selectedDevice != device.DeviceId) throw new InvalidOperationException("连接或设备已切换。");
-                ShowCreatedTask(await Write(new("上传文件", "uploads", new { device_id = device.DeviceId, asset_id = asset.AssetId, remote_path = v["path"], mode = v["mode"], timeout_seconds = Positive(v["timeout"]), overwrite = v["overwrite"] == "是" })));
-            });
-    }
-    private void DownloadForm(string path = "/tmp/result.txt")
-    {
-        var device = Device; var c = connection;
-        if (device == null) { Log("提示", "请选择设备。"); return; }
-        Form("从设备下载", "文件先传到服务器，完整提交并释放后在文件传输中显式入库。",
-            [new("path", "设备文件路径", path), new("name", "资产名称", path.Split('/').Last()), new("timeout", "超时（秒）", "60")],
-            async v => {
-                if (connection != c || selectedDevice != device.DeviceId) throw new InvalidOperationException("连接或设备已切换。");
-                ShowCreatedTask(await Write(new("下载文件", "downloads", new { device_id = device.DeviceId, remote_path = v["path"], name = v["name"], timeout_seconds = Positive(v["timeout"]) })));
-            });
+        var owner=Connected();var browser=new DeviceDirectoryView(()=>owner==connection?owner:null,()=>owner==connection&&device.DeviceId==selectedDevice?Device:null);
+        string? chosen=null;
+        var dialog=new ActionWindow(parent,"选择设备目录",browser,"选择此目录",()=>{if(!browser.Ready)throw new InvalidOperationException("请等待目录读取成功。");chosen=browser.CurrentPath;return Task.CompletedTask;});
+        dialog.Loaded+=async(_,_)=>await browser.LoadDirectory(initial);dialog.Closed+=(_,_)=>browser.Stop();dialog.ShowDialog();return chosen;
     }
 }

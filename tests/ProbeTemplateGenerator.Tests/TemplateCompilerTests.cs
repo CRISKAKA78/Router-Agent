@@ -28,20 +28,20 @@ public class TemplateCompilerTests
     };
     internal static string ShellQuote(string value) => "'" + value.Replace("'", "'\"'\"'", StringComparison.Ordinal) + "'";
 
-    public static IEnumerable<object[]> LegacyCases()
+    public static IEnumerable<object[]> FormulaCases()
     {
-        var fixtures = JsonNode.Parse(File.ReadAllText(Path.Combine(AppContext.BaseDirectory, "Fixtures", "legacy-compatibility.json")))!.AsArray();
+        var fixtures = JsonNode.Parse(File.ReadAllText(Path.Combine(AppContext.BaseDirectory, "Fixtures", "formula-cases.json")))!.AsArray();
         return fixtures.Select(fixture => new object[] { fixture!["name"]!.GetValue<string>(), fixture.ToJsonString() });
     }
 
     [Theory]
-    [MemberData(nameof(LegacyCases))]
-    public void MatchesCapturedLegacyCompilerAndPreview(string name, string fixtureJson)
+    [MemberData(nameof(FormulaCases))]
+    public void FormulaCasesMatchExpectedRuntimeAndPreview(string name, string fixtureJson)
     {
         var fixture = JsonNode.Parse(fixtureJson)!;
         var project = files.ReadProject(fixture["project"]!.ToJsonString());
         var actual = JsonNode.Parse(files.SerializeTemplate(compiler.Compile(project)));
-        Assert.True(JsonNode.DeepEquals(fixture["template"], actual), $"Legacy runtime output differs: {name}");
+        Assert.True(JsonNode.DeepEquals(fixture["template"], actual), $"Runtime output differs: {name}");
         var preview = compiler.Preview(project);
         var expected = fixture["preview"]!.AsArray();
         Assert.Equal(expected.Count, preview.Count);
@@ -226,18 +226,18 @@ public class TemplateCompilerTests
     }
 
     [Fact]
-    public void ProjectFilesPreserveInvalidEditableDraftAndUpgradeVersionOne()
+    public void ProjectFilesPreserveCurrentInvalidEditableDraft()
     {
         var project = TemplateCompiler.ExampleProject();
         var restored = files.ReadProject(files.SerializeProject(project));
         Assert.NotEqual(project.Attributes[0].Id, restored.Attributes[0].Id);
         Assert.Equal(files.SerializeTemplate(compiler.Compile(project)), files.SerializeTemplate(compiler.Compile(restored)));
         var json = JsonNode.Parse(files.SerializeProject(project))!;
-        json["schema_version"] = 1;
+        json["schema_version"] = 8;
         json["attributes"]![0]!["timeout"] = 1.5;
         json["attributes"]![0]!["input"] = "";
         restored = files.ReadProject(json.ToJsonString());
-        Assert.Equal(2, restored.SchemaVersion);
+        Assert.Equal(8,restored.SchemaVersion);
         Assert.Equal(1.5, restored.Attributes[0].Timeout);
         Assert.Contains(compiler.Validate(restored), issue => issue.Field == "Timeout");
         Assert.ThrowsAny<InvalidOperationException>(() => files.ReadProject("{\"format\":\"router-agent-template-project\",\"schema_version\":2}"));

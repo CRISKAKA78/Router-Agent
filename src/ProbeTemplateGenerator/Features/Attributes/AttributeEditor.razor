@@ -11,10 +11,17 @@ else
                 <h3>基本信息</h3>
                 <div class="field-grid">
                     <label for="attribute-name">属性名称<input id="attribute-name" aria-label="属性名称" @bind="row.Name" @bind:event="oninput" @bind:after="State.Touch" aria-invalid="@(Error("name", row) is not null)" aria-describedby="attribute-name-error" /><FieldError Id="attribute-name-error" Message="@Error("name", row)" /></label>
-                    <label for="attribute-key">属性标识<input id="attribute-key" class="code-input" aria-label="属性标识" @bind="row.Key" @bind:event="oninput" @bind:after="State.Touch" placeholder="例如 wanip" spellcheck="false" aria-invalid="@(Error("key", row) is not null)" aria-describedby="attribute-key-error" /><FieldError Id="attribute-key-error" Message="@Error("key", row)" /><small>小写字母开头，可含数字和下划线；用于公式引用。</small></label>
-                    <label for="attribute-kind">属性类型<select id="attribute-kind" aria-label="属性类型" @bind="row.Visibility" @bind:after="State.Touch"><option value="@AttributeVisibility.Display">展示属性</option><option value="@AttributeVisibility.Virtual" disabled="@(row.Source == AttributeSource.Rules)">虚拟属性</option></select><small>@(row.Visibility == AttributeVisibility.Display ? "作为采集结果显示在设备页面。" : "仅参与计算，不单独上报。")</small></label>
+                    <label for="attribute-key">属性标识<input id="attribute-key" list="builtin-attribute-keys" class="code-input" aria-label="属性标识" @bind:get="row.Key" @bind:set="v=>State.ChangeAttributeKey(row,v??string.Empty)" @bind:event="oninput" placeholder="例如 wanip" spellcheck="false" aria-invalid="@(Error("key", row) is not null)" aria-describedby="attribute-key-error" /><FieldError Id="attribute-key-error" Message="@Error("key", row)" /><small>小写字母开头，可含数字和下划线；用于公式引用。</small></label>
+                    <label for="attribute-kind">属性类型<select id="attribute-kind" aria-label="属性类型" @bind:get="row.Visibility" @bind:set="v=>State.ChangeVisibility(row,v)"><option value="@AttributeVisibility.Display">展示属性</option><option value="@AttributeVisibility.Virtual" disabled="@(row.Source == AttributeSource.Rules)">虚拟属性</option></select><small>@(row.Visibility == AttributeVisibility.Display ? "作为采集结果显示在设备页面。" : "仅参与计算，不单独上报。")</small></label>
                     <label for="attribute-source">获取方式<select id="attribute-source" aria-label="获取方式" value="@row.Source" @onchange="@(e => State.ChangeSource(row, Enum.Parse<AttributeSource>(e.Value!.ToString()!)))"><option value="@AttributeSource.Command">自定义命令</option><option value="@AttributeSource.Nvram">NVRAM 读取</option><option value="@AttributeSource.Uci">UCI 读取</option><option value="@AttributeSource.Expression">公式计算</option>@if (row.Visibility == AttributeVisibility.Display) { <option value="@AttributeSource.Rules">条件结果</option> }</select><FieldError Message="@Error("source", row)" /></label>
+                    <datalist id="builtin-attribute-keys">@foreach(var builtin in DisplayLayout.Builtins.Where(b=>RouterWorkbench.Display.DevicePresentation.EditCategory(b.Key)==builtinCategory)){<option value="@builtin.Key">@builtin.Value</option>}</datalist>
+                    <label>内置属性分类<select aria-label="内置属性分类" @bind="builtinCategory">@foreach(var c in RouterWorkbench.Display.DevicePresentation.EditCategories.Where(c=>c.Key!="custom")){<option value="@c.Key">@c.Value</option>}</select></label>
                 </div>
+                @if(row.Visibility==AttributeVisibility.Display){<div class="field-grid attribute-placement">
+                    <label>所属分组<select aria-label="所属分组" value="@DisplayLayout.GroupId(State.Project,row.Key)" @onchange='e=>State.SetGroup(row.Key,e.Value?.ToString()??"")'>@foreach(var g in DisplayLayout.Groups(State.Project)){<option value="@g.Id">@g.Name</option>}</select></label>
+                    <label>组内顺序<input aria-label="组内顺序" type="number" min="0" max="1000000" value="@State.VisibleOrder(row.Key)" placeholder="末尾" @onchange="e=>ChangeOrder(row,e)" /><small>数字越小越靠上；未设置时排在组内末尾。</small></label>
+                    <button type="button" @onclick="()=>State.ConfigureField(row.Key)">管理分组与排序</button>
+                </div>}
             </section>
 
             @if (row.Source == AttributeSource.Rules)
@@ -52,7 +59,7 @@ else
                 <summary>高级设置</summary>
                 @if (row.Visibility == AttributeVisibility.Display)
                 {
-                    <div class="field-grid"><label for="attribute-timeout">总采集超时（秒）<input id="attribute-timeout" aria-label="采集超时" type="number" min="1" max="30" step="1" @bind="row.Timeout" @bind:event="oninput" @bind:after="State.Touch" aria-invalid="@(Error("timeout", row) is not null)" aria-describedby="attribute-timeout-error" /><FieldError Id="attribute-timeout-error" Message="@Error("timeout", row)" /><small>1–30 秒，包含此展示属性的全部依赖采集。</small></label></div>
+                    <div class="field-grid"><label>上报周期（秒）<input aria-label="属性上报周期" type="number" min="0" max="86400" @bind="row.IntervalSeconds" @bind:after="State.Touch" /><small>0：应用配置时采集一次；周期与内置监控独立。发布后在设备资料中应用，无需重启。</small></label><label for="attribute-timeout">总采集超时（秒）<input id="attribute-timeout" aria-label="采集超时" type="number" min="1" max="30" step="1" @bind="row.Timeout" @bind:event="oninput" @bind:after="State.Touch" aria-invalid="@(Error("timeout", row) is not null)" aria-describedby="attribute-timeout-error" /><FieldError Id="attribute-timeout-error" Message="@Error("timeout", row)" /><small>1–30 秒，包含此展示属性的全部依赖采集。</small></label></div>
                 }
                 else { <p class="field-hint">虚拟属性由引用它的展示属性触发读取，使用对应展示属性的超时。</p> }
                 <p class="field-hint">已有字段：<code>serial、model、firmware、hostname、kernel、libc</code>。必需身份字段不可覆盖。</p>
@@ -62,7 +69,9 @@ else
 }
 
 @code {
+    private string builtinCategory="system";
     [Parameter, EditorRequired] public EditorWorkspace State { get; set; } = default!;
+    private void ChangeOrder(TemplateAttribute row,ChangeEventArgs e){if(int.TryParse(e.Value?.ToString(),out var n))State.SetOrder(row.Key,n);}
     private static readonly string[] operators = [" + ", " - ", " * ", " / ", " && ", " || ", " !", "(", ")", " == ", " != ", " >= ", " <= "];
     private string? Error(string field, TemplateAttribute row) => State.FieldError(field, row.Id);
     private IEnumerable<TemplateAttribute> References(TemplateAttribute row) => State.Project.Attributes.Where(a => a.Id != row.Id && a.Key.Length > 0 && a.Source != AttributeSource.Rules);

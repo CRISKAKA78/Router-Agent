@@ -1,5 +1,36 @@
 # 项目路线图
 
+- [ ] 2026-09-09当前项目源码快照上传GitHub：用户已授权提交并推送`CRISKAKA78/Router-Agent`的main，包含累计改造、测试和文档，排除运行数据与构建产物；远端验证后标记完成。
+
+- [x] 2026-09-09 ADR-047：导航/端口清理、模板分类稳定编辑及独立磁盘展示、模板选择弹框、设备文件浏览与本地上传下载、仓库工具搜索及确认投放完成。WPF280、生成器172、浏览器13、31份布局和Windows/Linux相关Go验证通过；[产物与限制](CUSTOMER_WORKSPACE_VERIFICATION.md)。
+- [-] 管理员仓库工具上传通道后续单独实现，本轮仅移除Windows发布入口；真实固件操作、物理DPI及发布EXE启停仍待验收。
+
+- [x] 2026-09-09 服务端模板启动恢复（ADR-046）：存量退役字段先备份后清理，空/缺失模板库启动与后续发布、设备显式应用闭环；Windows相关测试/vet/build、Linux相关race/vet/build及当前数据副本真实EXE启动发布通过，见[验证记录](SERVER_STARTUP_VERIFICATION.md)。
+
+- [x] 2026-09-09 ADR-045实现与本机验证：并列分组/资源监控、接口专属设置、模板更新/重新应用、连续连接时长、待纳管迁移、内存实际容量及Probe原生HTTPS。WPF248、生成器170、浏览器12、C++14与Windows/Linux全量/race/vet通过；[证据与产物](DEVICE_WORKSPACE_VERIFICATION.md)。
+- [ ] ADR-045 GCC5.2/uClibc ARM构建/厂商部署、实际公网双栈成功探测与物理DPI验收；编译机认证失败，当前公网端点握手/IPv6连通失败，C++ sanitizer缺库。
+
+- [x] 2026-09-09 ADR-044：删除接口映射和旧兼容；属性显示选择、名称、模板顺序、整行折叠、单行/手动换行与像素滚动完成。WPF224、生成器169、浏览器12、C++13及Windows Go/真实Linux Release/race/vet通过；[验证与成品](UI_REFINEMENT_VERIFICATION.md)。
+- [ ] ADR-044厂商ARM配套部署与物理DPI/触控板验收；C++sanitizer因环境缺库未通过。未新建阶段、未替换用户进程、未提交/推送。
+
+以下为历史里程碑；旧版本兼容和接口别名已由ADR-044撤销。
+
+- [x] 2026-09-09 ADR-043实现与本机验证：统一网口页、逐物理口字节后端/精确计数与同页曲线、FNR100模板预设/样本预览、旧Probe能力保护；13组C++、完整Linux Release/race及Windows Go、WPF202项、生成器167项及11组浏览器通过，见[专项说明](PHYSICAL_PORT_MONITORING.md)。
+- [ ] ADR-043配套ARM编译/实机升级：等待10.1.1.128 SSH登录信息；Telnet MIB查询已确认，逐口受控流量/拔插及WAN真实业务尚未验收，C++sanitizer仍缺库。
+
+- [x] 2026-09-09 ADR-042：独立模板配置页、共享归组/排序与预览、物理口表单说明及可选编号兼容；164项生成器、10组浏览器、12组C++、完整Linux Go race和Windows Go验证完成，见 [TEMPLATE_CONFIGURATION_VERIFICATION](TEMPLATE_CONFIGURATION_VERIFICATION.md)。
+- [ ] ADR-042新版ARM/厂商物理口验收；C++sanitizer因缺库未运行通过。
+
+
+- [x] 2026-09-09 ADR-041：待纳管、持久管理员资料、服务端型号模板映射、动态采集、CPU两次、物理口适配、分组排序/折叠及接口别名；12项C++、完整Linux/Go race、WPF195项、生成器158项/9组浏览器通过，见 [MANAGED_PROBES_VERIFICATION](MANAGED_PROBES_VERIFICATION.md)。
+- [ ] ADR-041新版ARM/uClibc构建、厂商交换机/机壳端口逐口验收与真实DPI；本轮SSH认证未通过，C++sanitizer缺库。此前ADR-040 ARM产物不包含本轮功能。
+
+- [x] ARM构建CRLF修复：本地LF、上传后行末CR规范化、原失败脚本回归、真实GCC5.2构建及ARMv7/uClibc检查通过；默认接口eth0,eth1,br0，成品及证据见 [DEPLOYMENT](DEPLOYMENT.md#53-mipsel--arm--arm64-交叉编译)。
+- [x] ADR-040：双栈出口、接口过滤、默认型号固件、网口累计流量/时长与10分钟曲线、WPF设备展示；C++10项、完整Linux/race、WPF166项、生成器154项及发布通过，见 [验证](MONITORING_V2_VERIFICATION.md)。
+- [ ] ADR-040部署与实机验收：GCC5.2编译已完成，厂商设备运行、真实双栈出口、物理网口/DPI仍待完成；浏览器启动被自动审核拒绝，C++sanitizer仍缺库。
+
+- [x] 生成器重复启动文件占用修复：复用同仓库已有实例、隔离运行/检查构建输出、明确其他程序端口冲突；Windows 启动、复用、运行中构建及 HTTP 静态资源验证通过。
+
 状态标记：
 
 - [x] 已完成并可验证
@@ -7,6 +38,13 @@
 - [-] 暂缓或未决
 
 ## 当前工作方向：Router-Agent 产品持续完善
+
+- [x] ADR-039实现与自动验证：详细CPU、独立周期监控/模板优先、来源IP与公网归属地查询、WPF表格、生成器工程3；C++9项、WPF153项、生成器148项、真实Linux/race及发布通过，见 [TELEMETRY_VERIFICATION](TELEMETRY_VERIFICATION.md)。
+- [ ] ADR-039部署验收：GCC5.2编译机SSH认证后交叉编译、厂商固件；浏览器启动被自动审核拒绝、当前网络公网归属地超时、C++sanitizer缺库，尚未验收。
+
+- [x] Probe GCC 5.2 一键交叉编译：Windows 双击上传当前源码、远端副本兼容处理、独立构建记录与成功产物更新；10.1.1.128 真实编译及 ARMv7 ELF 检查通过，厂商运行验收仍待完成，见 [DEPLOYMENT](DEPLOYMENT.md#53-mipsel--arm--arm64-交叉编译)。
+
+- [x] 内置设备信息与开机时长（ADR-038）：默认架构/内核、心跳运行状态、公开 API 与年月日时分秒展示；8 项 C++、真实 Linux 专项、Phase 1～5/race、Windows Go/WPF 120 项和 Release 构建通过，C++ sanitizer 缺库及厂商实机仍待验证，见 [SYSTEM_INFO_VERIFICATION](SYSTEM_INFO_VERIFICATION.md)。
 
 - [x] 旧 UI 清理（ADR-037）：仅保留 WPF 主 UI 和 Blazor 生成器，迁出必要测试对端与浏览器依赖，移除 React/WinUI/Win32/WebView2 源码及专属入口；当前交付与验证见 [UI_CLEANUP](UI_CLEANUP.md)。
 

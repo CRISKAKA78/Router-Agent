@@ -211,13 +211,19 @@ public sealed class TemplatePublishingService(HttpClient http) : IAsyncDisposabl
         if (update && (Target is null || Target.Origin != Origin))
             throw new InvalidOperationException("当前工程未绑定此服务器模板，请另存为新模板或选择更新目标");
         var body = update
-            ? JsonSerializer.Serialize(new UpdateTemplate { Name = template.Name, Properties = template.Properties, Version = Target!.Version }, Json)
+            ? JsonSerializer.Serialize(new UpdateTemplate { Presentation=template.Presentation, SwitchProbe=template.SwitchProbe, Monitoring=template.Monitoring, Name = template.Name, Properties = template.Properties, Version = Target!.Version }, Json)
             : JsonSerializer.Serialize(template, Json);
         var request = NewMutation(update ? "更新模板" : "发布新模板", update ? "PUT" : "POST",
             update ? "probe-templates/" + Uri.EscapeDataString(Target!.Id) : "probe-templates", body);
         return (await ExecuteAsync(request, false))!;
     }
 
+    public async Task<DeviceModel[]> ListModelsAsync() {
+        var origin=Origin??throw new InvalidOperationException("请连接服务器");var token=lifetime?.Token??throw new InvalidOperationException("连接已关闭");
+        return await TrackAsync(async()=>{var all=new List<DeviceModel>();for(int offset=0;;){var page=await RequestAsync<ModelPage>(origin,"device-models?limit=200&offset="+offset,HttpMethod.Get,null,null,token);all.AddRange(page.Items);offset+=page.Items.Length;if(offset>=page.Total||page.Items.Length==0)return all.ToArray();}});
+    }
+    private sealed record ModelPage(DeviceModel[] Items,int Total);
+    public async Task SaveModelAsync(DeviceModel model) {EnsureWritable();await ExecuteAsync(NewMutation("保存型号映射","PUT","device-models/"+Uri.EscapeDataString(model.ModelId),JsonSerializer.Serialize(model,Json)),false);}
     public async Task DeleteAsync(PublishedTemplate template)
     {
         EnsureWritable();
@@ -272,7 +278,8 @@ public sealed class TemplatePublishingService(HttpClient http) : IAsyncDisposabl
                 try
                 {
                     PublishedTemplate? published = null;
-                    if (request.Method == "DELETE")
+                    if(request.Path.StartsWith("device-models/",StringComparison.Ordinal)){await RequestAsync<DeviceModel>(request.Origin,request.Path,HttpMethod.Put,request.Body,request.Key,token);}
+ else if (request.Method == "DELETE")
                     {
                         var deletion = await RequestAsync<DeletedTemplate>(request.Origin, request.Path,
                             HttpMethod.Delete, request.Body, request.Key, token);
@@ -457,9 +464,10 @@ public sealed class TemplatePublishingService(HttpClient http) : IAsyncDisposabl
         var itemPath = pending.Path is not null && pending.Path.StartsWith("probe-templates/", StringComparison.Ordinal) &&
             pending.Path.Length > "probe-templates/".Length && !pending.Path.Contains('?') &&
             !pending.Path.Contains('#') && !pending.Path["probe-templates/".Length..].Contains('/');
-        if (!((pending.Method == "POST" && pending.Path == "probe-templates") ||
+        var modelPath=pending.Path is not null&&pending.Path.StartsWith("device-models/",StringComparison.Ordinal)&&pending.Path.Length>"device-models/".Length&&!pending.Path.Contains('?')&&!pending.Path.Contains('#')&&!pending.Path["device-models/".Length..].Contains('/');
+        if (!((pending.Method=="PUT"&&modelPath)||(pending.Method == "POST" && pending.Path == "probe-templates") ||
             (pending.Method is "PUT" or "DELETE" && itemPath)))
-            throw new InvalidDataException("原请求不是受支持的模板 API 操作");
+            throw new InvalidDataException("原请求不是受支持的模板或型号 API 操作");
         using var body = JsonDocument.Parse(pending.Body);
         if (body.RootElement.ValueKind != JsonValueKind.Object) throw new InvalidDataException("原请求必须是 JSON 对象");
     }

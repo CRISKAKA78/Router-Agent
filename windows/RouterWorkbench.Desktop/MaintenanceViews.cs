@@ -35,11 +35,11 @@ public partial class MainWindow
         maintenanceGrid = Ui.Table("维护历史", ("状态", "StateText", 75), ("创建时间", "CreatedText", 155), ("到期时间", "ExpiresText", 155), ("连接数", "Connections", 65), ("原因", "Reason", -1));
         maintenanceGrid.SelectionChanged += (_, _) => { if (refreshing) return; maintenanceId = (maintenanceGrid.SelectedItem as Maintenance)?.MaintenanceId ?? ""; UpdateEndpoints(); UpdateMaintenanceClock(); };
         endpointGrid = Ui.Table("维护通道链接", ("服务", "Service", 80), ("状态", "State", 85));
-        var text = new FrameworkElementFactory(typeof(TextBlock)); text.SetValue(TextBlock.MarginProperty, new Thickness(7,4,7,4));
+        var text = new FrameworkElementFactory(typeof(TextBlock)); text.SetValue(TextBlock.VerticalAlignmentProperty, VerticalAlignment.Center); text.SetValue(TextBlock.TextAlignmentProperty, TextAlignment.Center); text.SetBinding(TextBlock.TextWrappingProperty,new Binding {RelativeSource=new(RelativeSourceMode.Self),Path=new PropertyPath(TableBehavior.WrapModeProperty)}); text.SetBinding(FrameworkElement.ToolTipProperty,new Binding("Link"));
         var link = new FrameworkElementFactory(typeof(Hyperlink)); link.SetResourceReference(Hyperlink.ForegroundProperty, "Accent");
         link.AddHandler(Hyperlink.ClickEvent, new RoutedEventHandler((sender, args) => { if (((Hyperlink)sender).DataContext is ChannelRow row) _ = Run("打开维护通道", () => OpenEndpoint(row.Service)); }));
         var label = new FrameworkElementFactory(typeof(System.Windows.Documents.Run)); label.SetBinding(System.Windows.Documents.Run.TextProperty, new Binding("Link")); link.AppendChild(label); text.AppendChild(link);
-        endpointGrid.Columns.Add(new DataGridTemplateColumn { Header = "连接链接（点击打开）", Width = new(1, DataGridLengthUnitType.Star), CellTemplate = new DataTemplate { VisualTree = text } });
+        endpointGrid.Columns.Add(new DataGridTemplateColumn { Header = "连接链接（点击打开）", Width = new(1, DataGridLengthUnitType.Star), CellTemplate = new DataTemplate { VisualTree = text }, ClipboardContentBinding=new Binding("Link"), MinWidth=300 });
         closeMaintenanceButton = Ui.Button("关闭维护…", () => _ = Run("关闭维护", CloseMaintenance));
         return Ui.Page(Ui.Bar(Ui.Text("租期（分钟）  ", true), leaseMinutes,
             DeviceButton("开启维护", () => _ = Run("开启维护", CreateMaintenance), true),
@@ -50,8 +50,7 @@ public partial class MainWindow
                 Ui.Button("复制链接", () => _ = Run("复制链接", CopyEndpoint)),
                 Ui.Button("复制 SSH 密码", () => _ = Run("复制密码", CopySshPassword)),
                 Ui.Button("修改账号 / 客户端…", () => Navigate("settings"))), endpointGrid),
-                Ui.Page(Ui.Heading("维护记录"), maintenanceGrid), true, 1.5),
-            Ui.Note("开启维护后显示 Web / SSH / Telnet 通道链接。SSH 账号密码默认 admin，可在设置修改；外部客户端提示密码时可复制粘贴。"));
+                Ui.Page(Ui.Heading("维护记录"), maintenanceGrid), true, 1.5));
     }
     private sealed record ChannelRow(string Service, string State, string Link);
     private string EndpointLink(Endpoint endpoint) => endpoint.Service == "web" ? endpoint.Url ?? "" :

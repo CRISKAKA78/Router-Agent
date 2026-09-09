@@ -1,16 +1,24 @@
 @using ProbeTemplateGenerator.Features.Validation
 <div class="editor-page preview-page">
-    <header class="editor-heading"><div><div class="eyebrow">预览与校验</div><h2>展示属性预览</h2><p>使用模拟采集值计算；虚拟属性仅参与运算。</p></div><FluentButton OnClick="@(() => State.SetStage(0))">返回编辑</FluentButton></header>
+    <header class="editor-heading"><div><div class="eyebrow">预览与校验</div><h2>展示属性预览</h2><p>使用模拟采集值计算；虚拟属性仅参与运算。</p></div><FluentButton OnClick="@(() => State.SetStage(1))">返回编辑</FluentButton></header>
     <ProbeTemplateGenerator.Features.Validation.ValidationSummary State="State" />
     @if (State.Compiled is not null)
     {
+        var groups = DisplayLayout.Groups(State.Project).ToArray();
+        var active = groups.FirstOrDefault(g=>g.Id==selectedGroup) ?? groups[0];
+        <nav class="stage-tabs preview-tabs" aria-label="属性分组">
+        @foreach(var group in groups){<button class="@(group.Id==active.Id?"active":"")" aria-pressed="@(group.Id==active.Id)" @onclick="()=>selectedGroup=group.Id">@group.Name</button>}
+        </nav>
+        var fields=DisplayLayout.InGroup(State.Project,active.Id).Where(f=>DisplayLayout.IsVisible(State.Project,f.Key)).ToArray();
+        <section class="preview-group" data-group="@active.Id" aria-label="@active.Name">
         <div class="data-table-wrap"><table class="data-table"><thead><tr><th>属性名称</th><th>属性标识</th><th>预览值</th><th>结果来源</th></tr></thead><tbody>
-            @foreach (var row in State.PreviewRows)
-            {
-                <tr><td>@row.Name</td><td><code>@row.Key</code></td><td class="preview-value @(row.Error is not null ? "error-text" : "")">@(row.Error ?? row.Value)</td><td class="muted">@(row.Error is not null ? "计算失败" : row.UsesRules ? row.MatchedRule is null ? "默认结果" : $"命中规则 {row.MatchedRule}" : "模拟采集 / 公式")</td></tr>
-            }
+        @foreach(var field in fields){var row=State.PreviewRows.FirstOrDefault(r=>r.Key==field.Key);
+        <tr><td>@field.Name</td><td><code>@field.Key</code></td><td class="preview-value @(row?.Error is not null ? "error-text" : "")">@(row?.Error ?? row?.Value ?? "待设备采集")</td><td class="muted">@(row is null?field.Kind:row.Error is not null?"计算失败":row.UsesRules?row.MatchedRule is null?"默认结果":$"命中规则 {row.MatchedRule}":"模拟采集 / 公式")</td></tr>
+        }
         </tbody></table></div>
+        @if(fields.Length==0){<p class="muted">此分组暂无显示属性。</p>}
+        </section>
     }
     <section class="editor-section preview-notes"><h3>预览说明</h3><div class="note-columns"><p>预览不会连接设备或执行命令。实际采集失败、无效数值和除零沿用探针失败提示，不生成替代值。数值公式保留 12 位有效数字；逻辑运算输出 1 / 0。</p><p>公式和条件需要设备支持 POSIX awk，BusyBox awk 可用。每个展示属性独立读取依赖，不共享采样；整次采集仍受 60 秒预算限制。示例中的网络类型映射需要按设备实际含义修改。</p></div></section>
 </div>
-@code { [Parameter, EditorRequired] public EditorWorkspace State { get; set; } = default!; }
+@code { private string selectedGroup="builtin_system"; [Parameter, EditorRequired] public EditorWorkspace State { get; set; } = default!; }

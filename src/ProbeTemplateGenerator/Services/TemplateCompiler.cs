@@ -46,15 +46,21 @@ public sealed partial class TemplateCompiler
     private static List<ValidationIssue> ValidateFields(TemplateProject project)
     {
         var issues = new List<ValidationIssue>();
+ ValidatePresentation(project,issues);
         void Check(Action action, TemplateAttribute? row, string field)
         {
             try { action(); }
             catch (InvalidOperationException error) { issues.Add(new(row?.Id, field, error.Message)); }
             catch (JsonException) { issues.Add(new(row?.Id, field, "公式包含无效的文本字符")); }
         }
+        if(project.Monitoring is {} m && new[]{m.CpuSeconds,m.MemorySeconds,m.DiskSeconds,m.NetworkSeconds,m.EgressSeconds}.Any(n=>n<0||n>86400)) issues.Add(new(null,"Monitoring","监控周期须为0～86400秒，0为关闭"));
+        if(project.Monitoring?.NetworkInterfaces is {Length:>0} interfaces){
+            var names=interfaces.Split(',');
+            if(names.Length>32||names.Distinct(StringComparer.Ordinal).Count()!=names.Length||names.Any(n=>n is "." or ".."||!System.Text.RegularExpressions.Regex.IsMatch(n,@"^[A-Za-z0-9_.-]{1,15}$")))issues.Add(new(null,"Monitoring","接口名须精确填写，逗号分隔，最多32项，每项1～15字符，不可重复"));
+        }
         Check(() => ValidateText(project.Name, 128, "模板名称"), null, "Name");
         if (project.Name != project.Name.Trim()) issues.Add(new(null, "Name", "模板名称首尾不能有空白"));
-        if (project.Attributes.Count is < 1 or > 128) issues.Add(new(null, "Attributes", "工程需要 1～128 个属性"));
+        if (project.Attributes.Count>128) issues.Add(new(null, "Attributes", "工程最多128个属性"));
         var keys = new HashSet<string>(StringComparer.Ordinal);
         foreach (var row in project.Attributes)
         {
@@ -64,6 +70,7 @@ public sealed partial class TemplateCompiler
             Check(() => ValidateText(row.Name, 128, $"{row.Key} 的名称"), row, "Name");
             if (!double.IsFinite(row.Timeout) || row.Timeout != Math.Truncate(row.Timeout) || row.Timeout is < 1 or > 30)
                 issues.Add(new(row.Id, "Timeout", $"{row.Key} 的超时须为 1～30 秒整数"));
+            if(row.IntervalSeconds<0||row.IntervalSeconds>86400) issues.Add(new(row.Id,"IntervalSeconds","周期须为0～86400秒，0为仅启动采集"));
             if (!Enum.IsDefined(row.Source)) issues.Add(new(row.Id, "Source", "获取方式无效"));
             if (!Enum.IsDefined(row.Visibility)) issues.Add(new(row.Id, "Visibility", "属性类型无效"));
             if (row.Source == AttributeSource.Rules)
@@ -100,8 +107,8 @@ public sealed partial class TemplateCompiler
                 issues.Add(new(row.Id, "Input", $"{row.Key} 的 UCI 路径须为 package.section.option"));
         }
         var display = project.Attributes.Where(row => row.Visibility == AttributeVisibility.Display).ToList();
-        if (display.Count is < 1 or > 38 || display.Count(row => !Standard.ContainsKey(row.Key)) > 32)
-            issues.Add(new(null, "Attributes", "至少需要 1 个展示属性；最多 32 个自定义展示属性及 6 个已有字段"));
+        if ((display.Count==0 && project.Monitoring is null && project.Presentation is null && project.SwitchProbe is null) || display.Count > 38 || display.Count(row => !Standard.ContainsKey(row.Key)) > 32)
+            issues.Add(new(null, "Attributes", "请添加展示属性或内置监控/展示配置；最多 32 个自定义展示属性及 6 个已有字段"));
         return issues;
     }
 
@@ -196,14 +203,14 @@ public sealed partial class TemplateCompiler
     public RuntimeTemplate Compile(TemplateProject project)
     {
         var analysis = Analyze(project);
-        var output = new RuntimeTemplate { Name = project.Name };
+        var output = new RuntimeTemplate { Presentation=project.Presentation?.Copy(),SwitchProbe=project.SwitchProbe?.Copy(),Name = project.Name, Monitoring = project.Monitoring?.Copy() };
         foreach (var row in analysis.Display)
         {
             if (row.Source is not (AttributeSource.Expression or AttributeSource.Rules))
             {
                 output.Properties.Add(row.Key, new RuntimeProperty
                 {
-                    Name = row.Name, TimeoutSeconds = (int)row.Timeout,
+                    Name = row.Name, IntervalSeconds = row.IntervalSeconds, TimeoutSeconds = (int)row.Timeout,
                     Command = row.Source == AttributeSource.Command ? row.Input : null,
                     Source = row.Source == AttributeSource.Command ? null : row.Source.ToString().ToLowerInvariant(),
                     Key = row.Source == AttributeSource.Command ? null : row.Input
@@ -247,7 +254,7 @@ public sealed partial class TemplateCompiler
             shell.Add($"awk {Quote(AwkFunctions.Replace("\r\n", "\n", StringComparison.Ordinal) + "\nBEGIN{" + string.Join(';', statements) + "}")} </dev/null");
             var compiledCommand = string.Join('\n', shell);
             if (Bytes(compiledCommand) > 4096) Fail($"{row.Key} 编译后的采集命令超过 4096 字节，请减少依赖或缩短采集指令", row, row.Source == AttributeSource.Rules ? "Rules" : "Input");
-            output.Properties.Add(row.Key, new RuntimeProperty { Name = row.Name, Command = compiledCommand, TimeoutSeconds = (int)row.Timeout });
+            output.Properties.Add(row.Key, new RuntimeProperty { Name = row.Name, Command = compiledCommand, IntervalSeconds = row.IntervalSeconds, TimeoutSeconds = (int)row.Timeout });
         }
         // Match the Go service's HTML escaping when applying its serialized 48 KiB limit.
         var encoded = JsonSerializer.Serialize(output, CompactJson)
@@ -334,7 +341,7 @@ public sealed partial class TemplateCompiler
         return new TemplateAttribute
         {
             Key = key, Name = name + nameSuffix, Visibility = original.Visibility, Source = original.Source,
-            Input = original.Input, Timeout = original.Timeout, Sample = original.Sample, Fallback = original.Fallback,
+            IntervalSeconds=original.IntervalSeconds, Input = original.Input, Timeout = original.Timeout, Sample = original.Sample, Fallback = original.Fallback,
             Rules = original.Rules?.Select(rule => new ResultRule { Condition = rule.Condition, Value = rule.Value }).ToList()
         };
     }

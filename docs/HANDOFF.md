@@ -1,6 +1,53 @@
 # 项目接管手册
 
-2026-09-08 当前基线：只保留新版 C# / WPF 主 UI 与 C# / Blazor / Fluent UI 探针模板生成器（ADR-037/036/035/034）。旧 React、WinUI、Win32/WebView2 UI 及专属脚本、Bridge/ConPTY 已移出源码；不要依照旧阶段文档恢复它们。用户已授权本次当前项目提交并推送 `origin/main`，实际 SHA 和远端状态查 Git。
+2026-09-09当前用户已明确授权将现有项目源码快照提交并推送至`origin/main`（`CRISKAKA78/Router-Agent`）。此次授权覆盖累积产品改造和本轮ADR-047，不受下方各轮“未提交/推送”的历史说明限制；不上传运行数据或构建包。后续接管以本次Git提交和远端状态核对同步结果，不推断实机已验收。
+
+2026-09-09最新产品基线为ADR-047，十项改造与本机验证已完成。先读[客户工作区验证](CUSTOMER_WORKSPACE_VERIFICATION.md)：Client FileExchange/RemoteDirectory编排公开API，WPF DeviceDirectoryView/ToolWorkspace负责交互，PresentationEditor/DisplayLayout负责稳定分类与storage_visible。WPF280、生成器172、浏览器13及Windows/Linux相关Go验证通过；客户端`build/windows-desktop-customer/win-x64/RouterWorkbench.exe`。用户运行实例未替换；正常重启Server/生成器加载源码，模板改动须发布后显式应用。管理员上传仍后续实施，真实固件/物理DPI/发布EXE启动限制见专项文档。无Git提交/推送。
+
+2026-09-09 最新启动修复为ADR-046：先读[启动修复与验证](SERVER_STARTUP_VERIFICATION.md)。probetemplate/enrollment加载存量目录时处理退役元数据并保留原字节备份；模板文件缺失可告警建空库。不要删除devices/catalog.json或放宽API旧字段校验。Windows/Linux相关测试与当前数据副本EXE启动发布通过；原数据和进程未动，未提交/推送。产品工作区基线仍为下方ADR-045。
+
+2026-09-09当前基线为ADR-045。改造已实现，入口/契约/验证/产物见[DEVICE_WORKSPACE_VERIFICATION](DEVICE_WORKSPACE_VERIFICATION.md)。WPF248、生成器170、浏览器12、C++14及Windows/Linux Go全量/race/vet通过；只改接口不重跑其他采集，主动应用代次控制同版重新应用。最新独立客户端为`build/windows-desktop-workspace/win-x64/RouterWorkbench.exe`。
+
+后续先读ADR-045与API/PROTOCOL最新节。ARM编译受10.1.1.128 SSH认证限制，公网出口在当前网络未取得成功值，C++ sanitizer缺库；保留现有用户进程/设备Probe与运行数据，未Git提交/推送。不得把Linux x86_64验证包当作ARM成品，或把本机TLS测试当作真实路由器公网验证。
+
+## 上一轮接管入口
+
+2026-09-09当前入口为ADR-044：DisplayLayout/PresentationEditor负责可见性；WPF TableBehavior/PropertyGroups负责单行/手动换行、像素滚动和整行折叠；Server保存presentation，Probe只走当前CONFIG_APPLY/EVENT。旧格式和接口映射已删除，REGISTER不再携带模板结果。
+
+完成状态、命令、程序和限制见 [UI_REFINEMENT_VERIFICATION](UI_REFINEMENT_VERIFICATION.md)：WPF224、生成器169、浏览器12、C++13及真实Linux Release/race、Windows Go/vet通过。未动用户进程或数据，未Git提交/推送。新版独立EXE为`build/windows-desktop-refined/win-x64/RouterWorkbench.exe`；ARM/物理DPI仍需实机验收，sanitizer缺库。该轮接管依据ADR-044，不恢复旧兼容入口。
+
+## 此前接管记录
+
+下文旧版本/旧产物保留历史意义；当前基线和授权以上文为准。
+
+2026-09-09 ADR-043：先读[PHYSICAL_PORT_MONITORING](PHYSICAL_PORT_MONITORING.md)。新增Probe `port_counters.cpp`，SystemSampler拥有进程级基线；模板counters→Gateway能力检查→switch数值指标→WPF网口页/PortRatePanel；生成器PhysicalPortProfiles提供FNR100预设，工程7。
+
+代码、本机验证和Windows产物已完成，实机升级待编译机认证。Telnet 192.168.5.222已授权，原Probe `/tmp/root/router-probe --server pcv6.criskaka.com:9000`，用户允许备份/停止/覆盖/重启。`build/physical-ports/template-candidate.json`保留原7属性，不能覆盖其他设备的通用模板；先取得10.1.1.128 GCC5.2构建认证，再配套升级并验证。当前运行进程尚未替换；状态/证据及剩余验收见专项文档，无Git提交/推送授权。
+
+2026-09-09 ADR-042接管入口：生成器ConfigurationView/PresentationEditor/SwitchEditor与EditorLayout共享展示数据；独立配置、属性归组和预览已完成。port可省略贯通生成器工程6、Go probetemplate和Probe switch_probe；使用该格式需配套新版Probe。先阅读 [TEMPLATE_GENERATOR_MIGRATION](TEMPLATE_GENERATOR_MIGRATION.md) 最新节和 [验证记录](TEMPLATE_CONFIGURATION_VERIFICATION.md)。
+
+164项生成器、10组浏览器、12组C++及完整Linux Go race/Windows Go通过；修正原API慢消费者测试只读两条缓冲通知的假设并验证。C++sanitizer缺库、ARM及厂商实机仍未验收。未提交/推送，保留用户已有改动、数据与进程。用户已授权本轮实现，无需再次询问；以下为历史入口。
+
+
+2026-09-09 ADR-041七项改造已完成代码与本机验证。新增 `internal/enrollment`（持久发现/纳管/型号/期望配置）→ Application → Gateway CONFIG_APPLY/ACK → Probe LiveTelemetry；WPF ManagedViews负责待纳管/配置/分组/物理口，Blazor PresentationEditor/ModelMappingEditor负责模板展示与型号目录。规范及实际用法见 [MANAGED_PROBES_DESIGN](MANAGED_PROBES_DESIGN.md)。
+
+接管须知：新发现包含旧安装无档案设备均先pending；CLI不再选择模板。先在生成器发布并设置型号默认模板，再由WPF纳管或显式应用版本，发布不自动更新设备。管理员资料和注册事实分离；CPU只采两次，业务能力在Server复核纳管。12项C++、完整Linux/race、WPF195项、生成器158项/9组浏览器通过，见 [MANAGED_PROBES_VERIFICATION](MANAGED_PROBES_VERIFICATION.md)。
+
+剩余为新版ARM/uClibc构建与厂商逐口验收、C++sanitizer缺库；本轮SSH免交互认证失败。下方旧产物/旧配置语义仅保留为历史，不能替代本轮验证。用户已有改动与运行数据保留，未Git提交/推送；无需重复索取七项实现授权。
+
+2026-09-09 ARM构建入口已修复CRLF导致的 `set: pipefail` 错误：`probe-build.ps1` 在上传解包后规范化脚本行末CR，`scripts/build-probe-gcc52.sh` 保持LF。真实GCC5.2构建成功，默认接口 `eth0,eth1,br0`；远端 latest-build 为 `runs/20260909-011116-bc8fcaa1`，本地成品/日志在 `build/arm-gcc52-20260909/`。这解决了此前SSH认证和ARM成品缺口，未代替厂商运行验收；见 [DEPLOYMENT §5.3](DEPLOYMENT.md#53-mipsel--arm--arm64-交叉编译)。
+
+2026-09-09 ADR-040入口：Probe collection/telemetry → Gateway telemetry_v2 → Device effective_metrics → WPF DeviceProperties/TelemetryViews/NetworkRateWindow；模板工程4兼容1/2/3，构建入口支持接口白名单。source_ip保持TCP对端，egress_ipv4/ipv6为设备探测；统计基线在Probe进程内跨控制重连保留。最终验证与产物、浏览器/SSH/出口实网/实机缺口见 [MONITORING_V2_VERIFICATION](MONITORING_V2_VERIFICATION.md)。
+
+生成器入口已修复 MSB3026：`template-generator.ps1` 先识别同仓库端口所属实例并复用，再按需构建到 `build/template-generator/port-<端口>`；BuildOnly 单独输出。加载源码更新需先在原启动窗口 Ctrl+C 停止，再启动；不自动结束用户进程。启动专项验证及用法见 [TEMPLATE_GENERATOR_MIGRATION](TEMPLATE_GENERATOR_MIGRATION.md#启动脚本文件锁修复)。
+
+2026-09-08 ADR-039入口：Probe telemetry.cpp → Gateway EVENT → Device.Telemetry/effective_metrics → API/WPF；生成器monitoring与逐属性interval_seconds、工程3兼容1/2。CPU/内存/网口默认5秒、存储60秒，CLI优先且配置重启生效；模板失败不回退，新Session周期属性重采。来源IP为Server TCP对端，WPF仅查询公网归属地。实现和自动检查已完成，ARM编译SSH认证、浏览器启动审核拒绝、外部归属地超时及厂商验收等缺口见 [TELEMETRY_VERIFICATION](TELEMETRY_VERIFICATION.md)。
+
+2026-09-08 新增 `probe-build.cmd` → `probe-build.ps1` → `scripts/build-probe-gcc52.sh`：上传当前 Probe 到 10.1.1.128，以 `/root/gcc-5.2` 编译；兼容处理只在远端副本，产物与记录全部位于 `/root/codex-probe-20260908-2123`。真实 Windows → SSH 编译及 ELF 检查通过；使用与证据见 [DEPLOYMENT §5.3](DEPLOYMENT.md#53-mipsel--arm--arm64-交叉编译)，不代表固件验收。
+
+2026-09-08 当前基线：只保留新版 C# / WPF 主 UI 与 C# / Blazor / Fluent UI 探针模板生成器（ADR-037/036/035/034）。旧 React、WinUI、Win32/WebView2 UI 及专属脚本、Bridge/ConPTY 已移出源码；不要依照旧阶段文档恢复它们。此前清理提交为 `bdf9f9b`；本次 ADR-038 没有 Git 提交/推送授权。
+
+此前系统信息（ADR-038）：Probe `system_info.cpp` / `collection.cpp`；Gateway parseHeartbeat → Device.Heartbeat → API runtime；WPF DeviceProperties / DeviceViews。默认内核，显式模板优先；时长注册后首报、每心跳重采，未知/离线/新会话隔离，年月日时分秒省略前导空单位（年365日/月30日）。发布包及本次验证见 [SYSTEM_INFO_VERIFICATION](SYSTEM_INFO_VERIFICATION.md)，历史 Phase 文档的“默认 kernel 缺失”不再是当前行为。
 
 依次阅读 AGENTS → 本文件 → [PROJECT_STATUS](PROJECT_STATUS.md) → ARCHITECTURE → ROADMAP → 相关 API/PROTOCOL/DECISIONS，再读 [DEVELOPMENT](DEVELOPMENT.md) 并核对当前代码、Git 和验证结果。普通需求自主完成范围内实现、验证和文档交付，沿用 ADR-028，不进入新阶段。
 
@@ -11,9 +58,9 @@
 | `server-windows.cmd` / `server-windows.ps1` | Go Server，持久数据 `data/server/repository`；[DEPLOYMENT](DEPLOYMENT.md) |
 | 当前验证 | Desktop.Tests 已自带 TestProbe，生成器 C# 测试位于 tests/ProbeTemplateGenerator.Tests，Playwright 仅在 tests/package.json；命令见 DEVELOPMENT |
 
-本次旧 UI 清理验证：98 项 WPF/当前 Go Server/协议对端检查、145 项 C# 生成器测试（含实际 WSL BusyBox）、发布目录 Edge/Go API 8 组流程、两套 Release 发布与 Windows Go test/vet 通过。清单和最新验证包位置见 [UI_CLEANUP](UI_CLEANUP.md)。旧源码归档在 Git 忽略的 `build/ui-cleanup`；旧发布包、用户进程、草稿与运行数据保留，不推送到 GitHub。
+此前旧 UI 清理验证：98 项 WPF/当前 Go Server/协议对端检查、145 项 C# 生成器测试（含实际 WSL BusyBox）、发布目录 Edge/Go API 8 组流程、两套 Release 发布与 Windows Go test/vet 通过，见 [UI_CLEANUP](UI_CLEANUP.md)。旧源码归档在 Git 忽略的 `build/ui-cleanup`；旧发布包、用户进程、草稿与运行数据保留，不推送到 GitHub。
 
-主 UI 导航仅设备/维护/文件/配置/设置；设置保存服务器，启动自动连接。维护使用公共 Web/SSH/Telnet 外部入口，SSH 默认 admin/admin 可修改并本机加密保存；无内置终端、通用任务或客户工具管理。设备属性是上报模板快照，五秒回查按值更新，不重建所选属性行。维护重开 409 与连接状态/闪烁修复已含在当前 98 项检查中。
+主 UI 导航为设备/待纳管/维护/文件/配置/设置；设置保存服务器，启动自动连接。维护使用公共 Web/SSH/Telnet 外部入口，SSH 默认 admin/admin 可修改并本机加密保存；无内置终端、通用任务或客户工具管理。registration保留启动快照，实时属性使用Server合并结果；监控WS提示加五秒回查，稳定行保留选择。维护重开 409 与连接状态/闪烁修复已含在当前 98 项检查中。
 
 保留公开 API/WS、原幂等键和字节、切换/退出取消并等待；文件 committed/released 与 Task RESULT 分开，维护默认 240 分钟与固定 Probe 127.0.0.1:80/22/23、独立数据 TCP、默认 24 小时端口隔离保持。Probe/Server 的模板及配置任务证据在 PROBE_TEMPLATES_VERIFICATION / ROUTER_CONFIG_VERIFICATION，不把测试对端当厂商实机。
 

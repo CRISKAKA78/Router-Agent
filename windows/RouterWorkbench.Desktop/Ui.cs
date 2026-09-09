@@ -35,9 +35,18 @@ internal static class Ui
         var border = new Border { Child = text, Padding = new(10,6,10,6), BorderThickness = new(0,0,0,1) };
         border.SetResourceReference(Border.BackgroundProperty, "Panel"); border.SetResourceReference(Border.BorderBrushProperty, "Line"); return border;
     }
+    public static Style CellTextStyle(string? tip = null) {
+        var style = new Style(typeof(TextBlock));
+        style.Setters.Add(new Setter(TextBlock.TextTrimmingProperty, TextTrimming.CharacterEllipsis));
+        style.Setters.Add(new Setter(TextBlock.TextAlignmentProperty, TextAlignment.Center));
+        style.Setters.Add(new Setter(TextBlock.VerticalAlignmentProperty, VerticalAlignment.Center));
+        style.Setters.Add(new Setter(TextBlock.TextWrappingProperty, new Binding { RelativeSource = new(RelativeSourceMode.Self), Path = new PropertyPath(TableBehavior.WrapModeProperty) }));
+        if(tip != null) style.Setters.Add(new Setter(FrameworkElement.ToolTipProperty, new Binding(tip)));
+        return style;
+    }
     public static DataGrid Table(string name, params (string Title, string Property, double Width)[] columns) {
         var grid = new DataGrid(); AutomationProperties.SetName(grid, name);
-        foreach (var col in columns) grid.Columns.Add(new DataGridTextColumn { Header = col.Title, Binding = new Binding(col.Property), Width = col.Width < 0 ? new DataGridLength(-col.Width, DataGridLengthUnitType.Star) : new DataGridLength(col.Width), MinWidth = 45 });
+        foreach (var col in columns) grid.Columns.Add(new DataGridTextColumn { Header = col.Title, Binding = new Binding(col.Property), ElementStyle = CellTextStyle(), Width = col.Width < 0 ? new DataGridLength(-col.Width, DataGridLengthUnitType.Star) : new DataGridLength(col.Width), MinWidth = 45 });
         return grid;
     }
     public static void SetRows(DataGrid grid, IEnumerable? rows) {

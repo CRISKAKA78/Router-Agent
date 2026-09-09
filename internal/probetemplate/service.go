@@ -7,10 +7,12 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"os"
 	"path/filepath"
 	"regexp"
+	"routerprobe/internal/catalogupgrade"
 	"routerprobe/internal/protocol"
 	"routerprobe/internal/routerconfig"
 	"sort"
@@ -29,11 +31,12 @@ var (
 )
 
 type Property struct {
-	Name    string `json:"name"`
-	Command string `json:"command,omitempty"`
-	Source  string `json:"source,omitempty"`
-	Key     string `json:"key,omitempty"`
-	Timeout uint32 `json:"timeout_seconds"`
+	Interval uint32 `json:"interval_seconds,omitempty"`
+	Name     string `json:"name"`
+	Command  string `json:"command,omitempty"`
+	Source   string `json:"source,omitempty"`
+	Key      string `json:"key,omitempty"`
+	Timeout  uint32 `json:"timeout_seconds"`
 }
 
 // Keep command and configuration key mutually exclusive even when a caller
@@ -50,6 +53,9 @@ func (p *Property) UnmarshalJSON(b []byte) error {
 	if err := json.Unmarshal(b, &fields); err != nil {
 		return err
 	}
+	if raw, ok := fields["interval_seconds"]; ok && bytes.Equal(bytes.TrimSpace(raw), []byte("null")) {
+		return ErrInvalid
+	}
 	_, command := fields["command"]
 	_, key := fields["key"]
 	if ((value.Source == "" || value.Source == "command") && key) ||
@@ -60,27 +66,64 @@ func (p *Property) UnmarshalJSON(b []byte) error {
 	return nil
 }
 
+type Monitoring struct {
+	Egress            uint32  `json:"egress_seconds"`
+	NetworkInterfaces *string `json:"network_interfaces,omitempty"`
+	CPU               uint32  `json:"cpu_seconds"`
+	Memory            uint32  `json:"memory_seconds"`
+	Disk              uint32  `json:"disk_seconds"`
+	Network           uint32  `json:"network_seconds"`
+}
+
+func (m *Monitoring) UnmarshalJSON(b []byte) error {
+	type plain Monitoring
+	value := plain{CPU: 5, Memory: 5, Disk: 60, Network: 5, Egress: 600}
+	d := json.NewDecoder(bytes.NewReader(b))
+	d.DisallowUnknownFields()
+	if e := d.Decode(&value); e != nil {
+		return e
+	}
+	var fields map[string]json.RawMessage
+	if json.Unmarshal(b, &fields) != nil || fields == nil {
+		return ErrInvalid
+	}
+	for _, v := range fields {
+		if bytes.Equal(bytes.TrimSpace(v), []byte("null")) {
+			return ErrInvalid
+		}
+	}
+	*m = Monitoring(value)
+	return nil
+}
+
 type Template struct {
-	ID         string              `json:"template_id"`
-	Name       string              `json:"name"`
-	Version    uint64              `json:"version"`
-	Properties map[string]Property `json:"properties"`
-	Deleted    bool                `json:"deleted,omitempty"`
+	Presentation *Presentation       `json:"presentation,omitempty"`
+	SwitchProbe  *SwitchProbe        `json:"switch_probe,omitempty"`
+	Monitoring   *Monitoring         `json:"monitoring,omitempty"`
+	ID           string              `json:"template_id"`
+	Name         string              `json:"name"`
+	Version      uint64              `json:"version"`
+	Properties   map[string]Property `json:"properties"`
+	Deleted      bool                `json:"deleted,omitempty"`
 }
 type Input struct {
-	Name       string              `json:"name"`
-	Properties map[string]Property `json:"properties"`
+	Presentation *Presentation       `json:"presentation,omitempty"`
+	SwitchProbe  *SwitchProbe        `json:"switch_probe,omitempty"`
+	Monitoring   *Monitoring         `json:"monitoring,omitempty"`
+	Name         string              `json:"name"`
+	Properties   map[string]Property `json:"properties"`
 }
 type catalog struct {
 	Schema    int        `json:"schema_version"`
 	Templates []Template `json:"templates"`
 }
 type Service struct {
-	mu     sync.RWMutex
-	path   string
-	lock   *os.File
-	items  map[string]Template
-	closed bool
+	mu              sync.RWMutex
+	path            string
+	lock            *os.File
+	items           map[string]Template
+	closed          bool
+	startupWarnings []string
 }
 
 func ValidText(s string, max int) bool {
@@ -108,12 +151,31 @@ func StandardLimit(key string) int {
 	return 0
 }
 func Validate(v Input) error {
-	if !ValidText(v.Name, 128) || strings.TrimSpace(v.Name) != v.Name || len(v.Properties) < 1 || len(v.Properties) > 38 {
+	if e := ValidatePresentation(v.Presentation, v.SwitchProbe); e != nil {
+		return e
+	}
+	if m := v.Monitoring; m != nil && m.NetworkInterfaces != nil && *m.NetworkInterfaces != "" {
+		names := strings.Split(*m.NetworkInterfaces, ",")
+		seen := map[string]bool{}
+		if len(names) > 32 {
+			return ErrInvalid
+		}
+		for _, name := range names {
+			if len(name) == 0 || len(name) > 15 || name == "." || name == ".." || seen[name] || !regexp.MustCompile(`^[A-Za-z0-9_.-]+$`).MatchString(name) {
+				return ErrInvalid
+			}
+			seen[name] = true
+		}
+	}
+	if m := v.Monitoring; m != nil && (m.CPU > 86400 || m.Memory > 86400 || m.Disk > 86400 || m.Network > 86400 || m.Egress > 86400) {
+		return ErrInvalid
+	}
+	if !ValidText(v.Name, 128) || strings.TrimSpace(v.Name) != v.Name || (len(v.Properties) == 0 && v.Monitoring == nil && v.Presentation == nil && v.SwitchProbe == nil) || len(v.Properties) > 38 {
 		return ErrInvalid
 	}
 	custom := 0
 	for k, p := range v.Properties {
-		if !ValidKey(k) || !ValidText(p.Name, 128) || p.Timeout < 1 || p.Timeout > 30 {
+		if !ValidKey(k) || !ValidText(p.Name, 128) || p.Timeout < 1 || p.Timeout > 30 || p.Interval > 86400 {
 			return ErrInvalid
 		}
 		switch p.Source {
@@ -139,7 +201,20 @@ func Validate(v Input) error {
 	return nil
 }
 func normalize(v Input) Input {
+	v.Presentation = CopyPresentation(v.Presentation)
+	v.SwitchProbe = CopySwitch(v.SwitchProbe)
+	if v.Monitoring != nil {
+		m := *v.Monitoring
+		if m.NetworkInterfaces != nil {
+			names := *m.NetworkInterfaces
+			m.NetworkInterfaces = &names
+		}
+		v.Monitoring = &m
+	}
 	v.Properties = clone(Template{Properties: v.Properties}).Properties
+	if v.Properties == nil {
+		v.Properties = map[string]Property{}
+	}
 	for k, p := range v.Properties {
 		if p.Timeout == 0 {
 			p.Timeout = 5
@@ -149,6 +224,16 @@ func normalize(v Input) Input {
 	return v
 }
 func clone(v Template) Template {
+	v.Presentation = CopyPresentation(v.Presentation)
+	v.SwitchProbe = CopySwitch(v.SwitchProbe)
+	if v.Monitoring != nil {
+		m := *v.Monitoring
+		if m.NetworkInterfaces != nil {
+			names := *m.NetworkInterfaces
+			m.NetworkInterfaces = &names
+		}
+		v.Monitoring = &m
+	}
 	m := make(map[string]Property, len(v.Properties))
 	for k, p := range v.Properties {
 		m[k] = p
@@ -169,7 +254,10 @@ func Open(path string) (*Service, error) {
 		return nil, e
 	}
 	s := &Service{path: path, lock: lock, items: map[string]Template{}}
-	fail := func(e error) (*Service, error) { lock.Close(); return nil, e }
+	fail := func(e error) (*Service, error) {
+		lock.Close()
+		return nil, fmt.Errorf("probe template catalog %s: %w", path, e)
+	}
 	f, e := os.Open(path)
 	if errors.Is(e, os.ErrNotExist) {
 		info, statErr := lock.Stat()
@@ -177,7 +265,7 @@ func Open(path string) (*Service, error) {
 			return fail(statErr)
 		}
 		if info.Size() != 0 {
-			return fail(errors.New("probe template catalog missing"))
+			s.startupWarnings = append(s.startupWarnings, fmt.Sprintf("template catalog missing: %s; initialized empty catalog; publish templates with the template generator (device bindings are retained)", path))
 		}
 		if e = s.save(s.items); e != nil {
 			return fail(e)
@@ -194,15 +282,20 @@ func Open(path string) (*Service, error) {
 		if len(b) > 8*1024*1024 || protocol.ValidObject(b) != nil {
 			return fail(ErrInvalid)
 		}
+		original := b
+		b, upgraded := catalogupgrade.Templates(b)
 		var c catalog
 		d := json.NewDecoder(bytes.NewReader(b))
 		d.DisallowUnknownFields()
-		if d.Decode(&c) != nil || c.Schema != 1 || len(c.Templates) > 1000 {
+		if err := d.Decode(&c); err != nil {
+			return fail(err)
+		}
+		if c.Schema != 1 || len(c.Templates) > 1000 {
 			return fail(ErrInvalid)
 		}
 		names := map[string]bool{}
 		for _, v := range c.Templates {
-			if !ValidText(v.ID, 128) || v.Version < 1 || Validate(Input{v.Name, v.Properties}) != nil {
+			if !ValidText(v.ID, 128) || v.Version < 1 || Validate(Input{Name: v.Name, Properties: v.Properties, Monitoring: v.Monitoring, Presentation: v.Presentation, SwitchProbe: v.SwitchProbe}) != nil {
 				return fail(ErrInvalid)
 			}
 			if _, ok := s.items[v.ID]; ok || (!v.Deleted && names[v.Name]) {
@@ -213,6 +306,16 @@ func Open(path string) (*Service, error) {
 			}
 			s.items[v.ID] = v
 		}
+		if upgraded {
+			backup, err := catalogupgrade.Backup(path, original)
+			if err != nil {
+				return fail(err)
+			}
+			if err = s.save(s.items); err != nil {
+				return fail(err)
+			}
+			s.startupWarnings = append(s.startupWarnings, "retired template metadata removed; original catalog backup: "+backup)
+		}
 	}
 	if _, e = lock.WriteAt([]byte("1"), 0); e != nil {
 		return fail(e)
@@ -222,6 +325,10 @@ func Open(path string) (*Service, error) {
 	}
 	return s, nil
 }
+
+// StartupWarnings describes recovery work completed before the service opened.
+func (s *Service) StartupWarnings() []string { return append([]string(nil), s.startupWarnings...) }
+
 func (s *Service) save(items map[string]Template) error {
 	c := catalog{Schema: 1, Templates: []Template{}}
 	for _, v := range items {
@@ -294,7 +401,7 @@ func (s *Service) Put(id string, expected uint64, in Input) (Template, error) {
 	if s.closed {
 		return Template{}, ErrClosed
 	}
-	v := Template{ID: id, Name: in.Name, Version: 1, Properties: in.Properties}
+	v := Template{Presentation: in.Presentation, SwitchProbe: in.SwitchProbe, Monitoring: in.Monitoring, ID: id, Name: in.Name, Version: 1, Properties: in.Properties}
 	if id == "" {
 		if len(s.items) >= 1000 {
 			return Template{}, ErrCapacity

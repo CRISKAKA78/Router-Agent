@@ -111,7 +111,7 @@ func TestProbeInvalidProtocolReconnect(t *testing.T) {
 		{"zero-id", protocol.TypeTask, 0, `{}`, func(b []byte) []byte { binary.BigEndian.PutUint64(b[12:], 0); return b }},
 		{"repeat-id", protocol.TypeTask, 0, `{}`, func(b []byte) []byte { binary.BigEndian.PutUint64(b[12:], 1); return b }},
 		{"gap-id", protocol.TypeTask, 0, `{}`, func(b []byte) []byte { binary.BigEndian.PutUint64(b[12:], 3); return b }},
-		{"control-limit-header-only", protocol.TypeTask, 0, `{}`, func(b []byte) []byte { binary.BigEndian.PutUint32(b[8:], 1025); return b[:20] }},
+		{"control-limit-header-only", protocol.TypeTask, 0, `{}`, func(b []byte) []byte { binary.BigEndian.PutUint32(b[8:], 65537); return b[:20] }},
 		{"chunk-hard-limit-header-only", protocol.TypeFileChunk, protocol.FlagBinary, `{}`, func(b []byte) []byte { binary.BigEndian.PutUint32(b[8:], 28+512*1024+1); return b[:20] }},
 		{"invalid-json", protocol.TypeTask, 0, `{`, nil},
 		{"array-json", protocol.TypeTask, 0, `[]`, nil},
@@ -137,6 +137,16 @@ func TestProbeInvalidProtocolReconnect(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			p := acceptFilePeer(t, l, tc.name)
+			// Validate the immediate heartbeat before injecting a malformed frame.
+			// Leave it pending so server message IDs remain 1,2.
+			first, err := readProtocolFrame(p.conn)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if first.Header.MessageID != 2 {
+				t.Fatal("first heartbeat sequence", first.Header)
+			}
+			assertSystemHeartbeat(t, first)
 			data, _ := protocol.EncodeFrame(protocol.Frame{Header: protocol.Header{Version: 1, Type: tc.kind, Flags: tc.flags, MessageID: 2}, Payload: []byte(tc.payload)})
 			if tc.mutate != nil {
 				data = tc.mutate(data)
@@ -165,7 +175,7 @@ func TestProbeNegotiatedCoalescedLimit(t *testing.T) {
 	defer l.Close()
 	var out lockedBuffer
 	startProbe(t, bin, l.Addr().String(), "coalesced", &out)
-	for _, n := range []int{1025, 1024} {
+	for _, n := range []int{65537, 65536} {
 		l.(*net.TCPListener).SetDeadline(time.Now().Add(5 * time.Second))
 		c, e := l.Accept()
 		if e != nil {
@@ -176,14 +186,14 @@ func TestProbeNegotiatedCoalescedLimit(t *testing.T) {
 		if e != nil || f.Header.MessageID != 1 {
 			t.Fatal("register", e)
 		}
-		ack, _ := encodedJSONFrame(protocol.TypeRegisterAck, protocol.FlagResponse, 1, map[string]interface{}{"reply_to": 1, "success": true, "session_id": "coalesced", "heartbeat_interval": 10, "server_time": 0, "max_control_payload": 1024, "file_chunk_size": 65536})
+		ack, _ := encodedJSONFrame(protocol.TypeRegisterAck, protocol.FlagResponse, 1, map[string]interface{}{"reply_to": 1, "success": true, "session_id": "coalesced", "heartbeat_interval": 10, "server_time": 0, "max_control_payload": 65536, "telemetry_v2": true, "managed_config_v1": true, "file_chunk_size": 65536})
 		payload := `{"task_id":"limit","type":"exec","timeout":2,"params":{"command":"true"},"padding":"`
 		payload += strings.Repeat("x", n-len(payload)-2) + `"}`
 		data, _ := protocol.EncodeFrame(protocol.Frame{Header: protocol.Header{Version: 1, Type: protocol.TypeTask, MessageID: 2}, Payload: []byte(payload)})
 		if _, e = c.Write(append(ack, data...)); e != nil {
 			t.Fatal(e)
 		}
-		if n == 1025 {
+		if n == 65537 {
 			expectProtocolClose(t, c)
 		} else {
 			p := &phase1cPeer{t: t, conn: c, sent: 2, received: 1}

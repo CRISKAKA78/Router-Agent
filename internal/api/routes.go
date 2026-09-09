@@ -48,6 +48,7 @@ func accepted(id string, data object, err error) response {
 func emptyBody(r *http.Request) bool { var q struct{}; return decode(r, &q) == nil }
 func (a *Server) routes() {
 	a.templateRoutes()
+	a.enrollmentRoutes()
 	a.routerConfigRoutes()
 	a.route("GET /api/v1/devices", false, func(r *http.Request) response {
 		status := r.URL.Query().Get("status")
@@ -55,17 +56,28 @@ func (a *Server) routes() {
 			return invalid()
 		}
 		out := []object{}
-		for _, v := range a.app.Devices().List() {
-			if status == "" || string(v.Status) == status {
-				out = append(out, deviceDTO(v))
+		for _, v := range a.app.Inventory() {
+			p, _ := a.app.Enrollment().Get(v.Registration.DeviceID)
+			if (p.Admission == "managed" || r.URL.Query().Get("admission") == "all") && (status == "" || string(v.Status) == status) {
+				out = append(out, a.managedDTO(v))
 			}
 		}
 		return paged(r, out)
 	})
 	a.route("GET /api/v1/devices/{id}", false, func(r *http.Request) response {
 		v, e := a.app.Devices().Get(r.PathValue("id"))
-		return ok(deviceDTO(v), e)
+		if e != nil {
+			for _, d := range a.app.Inventory() {
+				if d.Registration.DeviceID == r.PathValue("id") {
+					v = d
+					e = nil
+					break
+				}
+			}
+		}
+		return ok(a.managedDTO(v), e)
 	})
+	a.route("GET /api/v1/devices/{id}/connections", false, a.connectionHistory)
 	a.route("GET /api/v1/devices/{id}/sessions", false, func(r *http.Request) response {
 		v, e := a.app.Devices().Sessions(r.PathValue("id"))
 		if e != nil {

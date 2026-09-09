@@ -9,6 +9,55 @@ window.workspace = (() => {
         if (dialogWasOpen && !open && focusBeforeDialog?.isConnected) focusBeforeDialog.focus();
         dialogWasOpen = open;
     });
+    const widths = new WeakMap();
+    function applyColumns(table, state) {
+        table.style.tableLayout = 'fixed';
+        table.style.width = state.sizes.reduce((a,b) => a+b, 0) + 'px';
+        for (const row of table.rows) [...row.cells].forEach((cell, i) => {
+            if (cell.colSpan !== 1 || !state.sizes[i]) return;
+            cell.style.width = state.sizes[i] + 'px';
+            cell.classList.toggle('column-wrap', state.wrapped.has(i));
+        });
+    }
+    function prepareTables() {
+        for (const table of document.querySelectorAll('.data-table')) {
+            for (const header of table.tHead?.rows[0]?.cells || []) {
+                header.tabIndex = 0;
+                header.title = header.textContent.trim() + '（拖动右边缘调整列宽；方向键调整）';
+            }
+            for (const cell of table.querySelectorAll('td')) if (!cell.querySelector('input,select,button')) cell.title = cell.textContent.trim();
+            if (widths.has(table)) applyColumns(table, widths.get(table));
+        }
+    }
+    const tables = new MutationObserver(prepareTables);
+    function columnState(table) {
+        if (!widths.has(table)) widths.set(table, {sizes:[...table.tHead.rows[0].cells].map(h=>h.getBoundingClientRect().width), wrapped:new Set()});
+        return widths.get(table);
+    }
+    function resizeColumn(table, state, index, size) {
+        const width = Math.max(70, size);
+        if (width < state.sizes[index]) state.wrapped.add(index);
+        state.sizes[index] = width;
+        applyColumns(table, state);
+    }
+    function tablePointer(event) {
+        const header = event.target.closest('.data-table th');
+        if (!header || header.getBoundingClientRect().right - event.clientX > 9) return;
+        event.preventDefault();
+        const table = header.closest('table'), state = columnState(table), index = header.cellIndex;
+        const start = event.clientX, width = state.sizes[index];
+        const move = e => resizeColumn(table, state, index, width + e.clientX - start);
+        const end = () => { document.removeEventListener('pointermove',move); document.removeEventListener('pointerup',end); };
+        document.addEventListener('pointermove',move);
+        document.addEventListener('pointerup',end,{once:true});
+    }
+    function tableKey(event) {
+        const header = event.target.closest('.data-table th');
+        if (!header || !['ArrowLeft','ArrowRight'].includes(event.key)) return;
+        event.preventDefault();
+        const table = header.closest('table'), state = columnState(table);
+        resizeColumn(table,state,header.cellIndex,state.sizes[header.cellIndex]+(event.key==='ArrowLeft'?-20:20));
+    }
     const themeQuery = matchMedia('(prefers-color-scheme: dark)');
     let theme = 'Default';
     try { theme = localStorage.getItem('probe-generator.theme') || theme; } catch { /* Storage errors are surfaced by the C# draft service. */ }
@@ -52,6 +101,10 @@ window.workspace = (() => {
         initialize(reference) {
             target = reference;
             dialogs.observe(document.body, {childList:true, subtree:true});
+            tables.observe(document.body, {childList:true, subtree:true});
+            prepareTables();
+            document.addEventListener('pointerdown',tablePointer);
+            document.addEventListener('keydown',tableKey);
             document.removeEventListener('keydown', keyboard);
             document.addEventListener('keydown', keyboard);
             document.addEventListener('click', menus);
@@ -61,6 +114,9 @@ window.workspace = (() => {
         dispose() {
             target = undefined;
             dialogs.disconnect();
+            tables.disconnect();
+            document.removeEventListener('pointerdown',tablePointer);
+            document.removeEventListener('keydown',tableKey);
             document.removeEventListener('keydown', keyboard);
             document.removeEventListener('click', menus);
             document.removeEventListener('change', menuChange);

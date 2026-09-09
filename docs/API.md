@@ -1,14 +1,121 @@
 # Management Server API
 
+## 客户端展示与文件工作区（ADR-047，2026-09-09）
+
+本节取代下方ADR-044/045中存储页恒显、接口属性分组及presentation成员清单的对应说明；其余配置应用、版本冲突与幂等语义保持。
+
+- 模板`presentation`新增可选布尔`storage_visible`。省略按true展示存储空间页，false隐藏该页；显式null返回400。模板保存、版本快照及设备已应用展示均保留该值。仅控制展示，不改变磁盘采集、effective_metrics或文件能力。磁盘属性仍由`builtin_visibility.disk`及字段`visible`独立控制。
+- 客户端属性默认组为系统信息、资源监控、自定义组、其他信息；net_*、switch_*归其他信息。既有`fields[key].group_id="builtin_interfaces"`仍可保存，但客户端展示到其他信息；这个ID/旧名称继续保留为内置保留值，不可声明为自定义组。外壳端口/系统端口为专用同级页，不再承载属性表。
+- 设备列表和设备发现是显示名称，API的managed/pending/ignored值保持。模板选择通过现有`GET /probe-templates`及设备profile完整PUT显式应用，选中最新版本不等于已经生效。
+- 文件页使用现有exec读取有界目录清单，使用`POST /assets`准备上传内容、`POST /uploads`发送设备；下载串联`POST /downloads`、原任务/transfer查询、`POST /downloads/{task_id}/complete`及资产内容下载。服务端资产身份与保留规则保持，客户端取消等待不等于撤销设备任务。committed/released与Task RESULT分开处理，网络结果不确定复用原幂等键和请求字节。
+- 仓库工具通过现有tools/versions/compatibility及deployments API查询与投放，确认框明确版本、兼容产物、目标目录（默认/tmp）与覆盖选项；投放不自动执行。Windows移除资产/工具发布入口，管理员上传通道未实现，现有公开服务能力不删除。
+
+没有新增HTTP路由、目录协议或Probe消息。实现与验证见[客户工作区改造](CUSTOMER_WORKSPACE_VERIFICATION.md)。
+
+## 设备工作区契约（ADR-045，2026-09-09）
+
+本节取代下方ADR-041的任意设备采样覆盖和ADR-044的资源默认隐藏/嵌套分组说明。现有路由、请求非null校验、整份PUT、幂等键和版本冲突机制保持。
+
+- `presentation.groups`只声明自定义组，不得使用内置ID或名称：`builtin_system`（系统信息）、`builtin_resources`（资源监控）、`builtin_interfaces`（接口信息）、`other`（其他信息）。`fields[key].group_id`可以直接引用这些内置ID，无需先声明；省略/空串使用字段默认分组。系统/资源/自定义组（order、id）/接口/其他顺序固定。CPU使用率、当前频率、memory_*、disk_*默认资源组；net_*、switch_*默认接口组；已知设备字段默认系统组，未归类模板字段默认其他组。显式字段分组优先。
+- disk分类现在默认可见，network/switch仍默认隐藏明细，其他分类默认可见；session_id默认隐藏，显式visible仍可开启。专用存储表和连接历史始终独立于属性分组。所有默认/动态/模板字段均可配置group_id/order/visible。
+- `PUT /devices/{id}/profile`新增可选`interface_sampling`，仅含`network_seconds`（0～86400）和`network_interfaces`（沿用模板名称校验）。成员省略表示继承模板；接口字符串空表示全部默认接口。对象省略清除此覆盖，恢复绑定模板/存量计划默认。请求内不得发送null。改名等完整PUT需带回要保留的接口覆盖。
+- 旧monitoring/property_intervals仅允许原值往返，变更返回400；省略不会静默清除已有非接口覆盖。显式apply_template=true或更换模板时清理旧覆盖，并保留明确传回的interface_sampling。其他采样变化必须先发布模板，再显式应用。
+- 配置内容变化增加revision；显式应用即使同版本也同时增加revision和持久template_generation。相同幂等键/字节重试不增加代次。只改接口不增加代次、不重新执行其他采样；改名不增加采集修订。
+- 设备profile新增`interface_sampling`、`template_generation`、`latest_template`（绑定模板的最新元数据）。`bound_template`为期望快照，`active_template`及`applied_revision`为实际确认事实。只有当前Session ACK匹配desired_revision才显示applied；离线保存仍为waiting_dispatch。发布新模板不会自动应用。
+
+示例：`{"version":2,"admission":"managed","name":"机房路由器","model_id":"router-a","template_id":"tpl_x","interface_sampling":{"network_seconds":3,"network_interfaces":"eth0,br0"}}`。
+
+`GET /devices/{id}/connections`提供连续在线周期，分页items按新到旧排列。每行包含：id、state（online/offline/completed）、online_at、offline_at、reconnected_at、online_seconds、offline_seconds、end_reason、observed_at。未离线时offline_at/reconnected_at/offline_seconds为null；在线秒数累加。离线后在线秒数固定，离线秒数累加；再次上线冻结旧行离线秒数并新增一行。Session在线替换不新建周期，原/sessions接口保留技术查询。
+
+时间和秒数由Server观测状态生成，使用同一次查询时刻；客户端以单调计时器每秒展示，快照校准，失去同步暂停。进程内保留最近history_limit个已完成周期（默认64）及一个当前周期，响应附history_limit/total_periods/evicted_periods。Server重启后仅有持久资料的设备返回空列表，不捏造离线时长；未知设备404。本接口不是持久审计或心跳时序库。
+
+内存容量/百分比原始遥测契约保持，WPF组合为`25%（已用容量/总容量）`；缺失容量显示—，不倒算填充。验证见[DEVICE_WORKSPACE_VERIFICATION](DEVICE_WORKSPACE_VERIFICATION.md)。
+
+## 当前属性展示契约（ADR-044，2026-09-09）
+
+`presentation` 仅包含 `groups`、`fields`、`builtin_visibility`，接口映射 `interface_aliases` 已删除，模板写入携带该字段返回400。`fields[key].visible` 是可选布尔值：省略继承分类，true/false覆盖分类；分类仅接受 hardware/cpu/memory/disk/network/switch/egress，省略时 disk/network/switch 为false，其余true。自定义模板字段默认显示。展示过滤在客户端进行，API的effective_metrics、采集计划、专用页面数据保持完整；开关跟随设备显式应用的模板快照。
+
+REGISTER和API registration不再包含 template/attributes/collection_errors/report_intervals；有效模板读取active_template，属性值、错误与周期读取effective_metrics。当前注册必须支持 managed_config_v1 与 telemetry_v2，不再返回unsupported热配置状态；port_counters_v1仍是独立功能能力校验。
+
+例如：`"presentation":{"groups":[],"fields":{"device_id":{"visible":false},"net_65746830_rx_bytes":{"visible":true}},"builtin_visibility":{"disk":false,"network":false}}` 隐藏设备标识和网口明细，单独保留指定网口字节字段。字段/分类开关不更改monitoring。
+
+本节及ADR-044取代本文下方历史接口别名、旧REGISTER快照和降级说明，完整使用与验证见 [UI_REFINEMENT_VERIFICATION](UI_REFINEMENT_VERIFICATION.md)。
+
+## 外壳网口字节统计（ADR-043）
+
+模板API兼容增加switch_probe.counters（backend、command或rx_field/tx_field、bits、basis），启用时1～16个显式端口。设备effective_metrics的switch组增加逐口原始字节、本次统计累计、bytes_per_sec、seconds与来源/口径/顺序；bytes使用uint64十进制字符串，客户端不能先转double再用于累计差分。没有新HTTP路由，configuration_state=failed且configuration_error=unsupported_port_counters表示Probe需升级。详见[字段与失效语义](PHYSICAL_PORT_MONITORING.md#模板与遥测契约)。
+
+## ADR-042 物理端口可选编号
+
+模板API的switch_probe.ports[].port可省略；显式0表示真实0号端口。以switch_id匹配时port必填；省略的编号在复制、存储、读取和下发中保持省略。旧数字字段保持兼容，没有增加HTTP路由或更改纳管状态机。生成器工程6的编辑格式不进入Server业务模型。具体规则见 [MANAGED_PROBES_DESIGN](MANAGED_PROBES_DESIGN.md)。
+
+
+## 设备纳管、型号目录与动态配置（ADR-041）
+
+本节是当前设备列表/模板分配规则，取代下文旧“客户端指定模板、重启生效”的描述。注册事实与管理员资料分离，读接口仍以公开 HTTP 快照为准；变更复用 Idempotency-Key 和版本冲突处理，WS 沿用 devices 变更提示，首连/重连回查。
+
+| 方法与路径（均在 /api/v1） | 行为 |
+| --- | --- |
+| GET /devices | 仅纳管设备，仍可按 status 筛选；`admission=all` 返回含待纳管/忽略的统一管理快照 |
+| GET /discoveries?admission=pending\|ignored | 默认 pending，分页待纳管池/忽略池；离线发现记录不会丢失 |
+| GET /devices/{id} | 包含未纳管记录；Server 重启后仍可查询持久资料，但显示离线 |
+| PUT /devices/{id}/profile | 按 version 乐观更新整份管理资料；成功后版本+1；仅配置内容变化才增加 desired_revision |
+| GET /device-models?q=文本 | 分页型号目录，按名称/别名包含搜索 |
+| GET /device-models/match?name=探测名称 | 去首尾空白、忽略大小写后精确匹配名称/别名；未匹配 data=null；不做模糊自动绑定 |
+| PUT /device-models/{id} | `{version,name,aliases,template_id}`；新建version=0，修改用现版本；型号最多32别名，跨型号同名/别名冲突409 |
+
+profile 更新示例：
+
+```json
+{"version":1,"admission":"managed","name":"机房路由器","model_id":"router-a","template_id":"tpl_x","template_version":3,"apply_template":true,"monitoring":{"cpu_seconds":10,"memory_seconds":10,"disk_seconds":60,"network_seconds":5,"egress_seconds":600},"property_intervals":{"signal":30}}
+```
+
+- name 为1～128 UTF-8 bytes；model_id 空表示未指定。admission=pending/ignored/managed；待纳管可忽略、恢复或纳管；本轮不提供已纳管退池/资产删除。旧安装没有登记资料的设备也先入池。被忽略设备重连仍保持忽略。
+- template_id 空为内置采集。选择不同模板或 apply_template=true 从服务端解析当前版本并保存完整快照；template_version 非0时必须匹配，避免选择期间发布竞争。相同ID且不应用保留已绑定版本；发布新版、改型号默认映射不会自动更新已纳管设备。被型号或设备引用的模板删除409。
+- monitoring 与 property_intervals 为设备覆盖，省略表示清除覆盖/恢复模板默认；对象成员默认周期同运行模板。interval 0～86400，未知属性覆盖拒绝400。PUT 是完整更新而非PATCH，调用方修改名称时须带回仍需保留的覆盖。模板字段移除后，WPF应用表单只保留新模板仍存在的字段覆盖。
+- Device DTO增加 profile（version/admission/name/model_id/model_name/monitoring/property_intervals/bound_template/desired_revision/configuration_state/configuration_error）、applied_revision、active_template、presentation。bound_template 是绑定元数据及属性 name/interval_seconds，不含可执行命令；active_template/presentation 来自最近实际确认的 Session。Session DTO也带 applied_revision/active_template/presentation，历史快照不借当前模板改写。
+- configuration_state 为 not_managed / unsupported / waiting_dispatch（离线）/ waiting_confirmation / applied / failed。只有确认当前 desired_revision 才为 applied。目录保存期望配置，重启不伪造已确认或在线状态。pending/ignored 的业务请求被服务端拒绝409 device_not_managed，不能绕过UI。
+- 模板 POST/PUT/导入导出支持 presentation、switch_probe；字段结构、顺序和物理端口含义见 [MANAGED_PROBES_DESIGN](MANAGED_PROBES_DESIGN.md)。仅布局/监控模板可用 properties={}；完全空模板仍无效。旧格式字段省略兼容，生成器工程5兼容1～4。模板发布是保存定义，管理员在纳管/设备资料中应用后在线同步，离线下次连接同步。
+
+## ADR-040 出口、统计与监控配置
+
+设备/Session公开effective_metrics兼容增加egress_ipv4/egress_ipv6、net_<hex接口名>_rx_bytes/tx_bytes/elapsed_seconds；Metric增加可选reason。出口由Probe探测，source_ip仍由Server观察TCP连接，二者不能互相冒充。归属地/运营商查询保留在C# Client，不进入Server核心状态。
+
+模板monitoring新增egress_seconds（省略600，0关闭，1～86400）和network_interfaces（可选逗号分隔字符串，省略沿用Probe构建默认值，显式空串选择默认全部接口，null拒绝；最多32个不重复精确名称，每项1～15个ASCII字母/数字/下划线/点/短横线，拒绝单独点和双点）。新生成器工程4兼容1/2/3；更新Server后再发布新配置。既有路由、快照、幂等与任务语义保持。详见 [TELEMETRY_DESIGN](TELEMETRY_DESIGN.md#adr-040-双栈出口与流量统计)。
+
 ADR-035：Windows 调用方现为 `windows/RouterWorkbench.Client` 的原生 C# HTTP/WS Client；资源路径、请求与响应、幂等和业务状态均未变化。ADR-036 的 WPF 页面消费公开 DTO，维护仅打开外部客户端，主程序无内置终端；独立生成器继续使用 ADR-034 的 TemplatePublishingService。ADR-037 已移除旧 React/WinUI/Win32 UI；下文旧客户端描述仅保留为历史语境，当前 Windows 设计见 [WINDOWS_DESKTOP_MIGRATION](WINDOWS_DESKTOP_MIGRATION.md)。
 
 本文件维护 `/api/v1` HTTP/WebSocket规范及原内部Service契约。实现入口 `internal/api`，业务来源为 `management.Server` 与 Service。ADR-029 新增服务端属性模板及注册快照字段；既有 Tunnel 数据面不变。
 
 Phase 6 React Shared Frontend / Windows WebView2 Shell复用本文件公开契约（ADR-026/027），此前重构未补充生产 API；本轮模板扩展见下文。客户端首连/重连HTTP同步、维护与Exec/文件/工具动作、相同键显式重试及入口启动规则见[PHASE6_DESIGN](PHASE6_DESIGN.md)与[Windows使用说明](../windows/README.md)。Windows UI不能直接调用下文内部Go接口。
 
-冻结 UI 的内置 Shell 通过本机 SSH/Telnet 客户端连接重新查询的 Maintenance 公共入口，不通过 HTTP Exec 或 WebSocket 传送持续终端字节。右侧目录使用有界单次 Exec，文件内容通过 uploads/downloads/complete；工具投放列表从 tasks/{id}/operation 的 tool_id 关联得出。当前无 CPU、内存、磁盘、4G、端口遥测 API，界面相应字段显示未提供，不以推测数据替代。
+冻结 UI 的内置 Shell 通过本机 SSH/Telnet 客户端连接重新查询的 Maintenance 公共入口，不通过 HTTP Exec 或 WebSocket 传送持续终端字节。右侧目录使用有界单次 Exec，文件内容通过 uploads/downloads/complete；工具投放列表从 tasks/{id}/operation 的 tool_id 关联得出。ADR-039已提供CPU、内存、存储与网口遥测，4G等未上报属性仍显示未提供。
+
+## 设备监控与连接来源（ADR-039）
+
+GET `/api/v1/devices`、`/devices/{id}`以及Session DTO兼容增加`source_ip`（Server观察到的Probe TCP对端IP，NAT为出口地址）和`effective_metrics`（按属性标识的最新值映射）。SourceIP不从Probe自报字段读取。
+
+每个指标包含name/value/unit/status/entity/interval_seconds/source/group/sampled_at/stale；数值在value中使用不带单位的字符串，容量byte、速率byte/s、频率MHz、百分比0～100。unknown/waiting/error不保留旧成功value；source为builtin/template，由Device Service赋值。模板同标识优先，含失败，不按更新时间抢占；实时结果不修改registration。新Session重新建立监控，离线保留最后样本，存储/网口移除时删除对应组中的旧指标。HTTP字段与范围见 [TELEMETRY_DESIGN](TELEMETRY_DESIGN.md)。
+
+监控变化复用devices resource_changed（有界合并），客户端收到提示回查HTTP，首连/重连完整回查。runtime仍只表达既有心跳时长，不因监控事件覆盖。
+
+模板POST/PUT与返回增加可选monitoring，属性增加可选interval_seconds；旧输入缺省保持启动采集。monitoring子字段省略采用5/5/60/5，0关闭；周期均不超过86400秒，负数/非整数/null子字段拒绝。目录持久保存，新Probe下次启动读取。
 
 ## 部署与生命周期
+
+### 设备运行状态（ADR-038）
+
+`GET /api/v1/devices`、`GET /api/v1/devices/{id}` 的设备 DTO，以及对应 current_session/latest_session 和 `/devices/{id}/sessions` 的 Session DTO，兼容增加 `runtime`。首个有效心跳到达前为 null，收到心跳后为：
+
+```json
+{"uptime_seconds":18372,"reported_at":"2026-09-08T12:00:00Z"}
+```
+
+uptime_seconds 为 0～9223372036854775807 的整数秒，无法获取时 null（有效的 0 不是未知）；reported_at 为 Server 接收该心跳的 UTC RFC3339 时间。缺字段的旧 Server 可由客户端按未提供处理。新版 Probe 的有效性及旧版零值兼容规则见 PROTOCOL 的 ADR-038。
+
+每个 Session 只保存最新采样；设备顶层 runtime 与 latest_session.runtime 一致，在线取当前 Session，离线保留最近结束 Session 的最后值。新 Session 首报前不继承旧值，采集失败覆盖旧值为未知；其他合法活动不会更新 reported_at。Server 重启清空 Inventory，不增加持久化或时序查询。心跳仍不触发 devices WebSocket 事件，WPF 通过既有五秒 HTTP 回查显示最后实测值，不自行累计。
+
+registration.arch/kernel 沿用现有字段及限制。新版 Probe 默认采集内核，显式 kernel 模板仍优先；完整内核字符串继续参与既有精确兼容匹配，不改变匹配规则。
 
 ### 配置任务 API（ADR-031）
 

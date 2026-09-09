@@ -1,26 +1,29 @@
 package device
 
 import (
+	"routerprobe/internal/probetemplate"
 	"testing"
 	"time"
 )
 
 func TestCollectionSnapshotIsolation(t *testing.T) {
 	s, _ := New(2)
-	r := Registration{DeviceID: "id", Template: &TemplateReference{ID: "t", Name: "T", Version: 1}, Attributes: map[string]Attribute{"x": {Name: "X", Value: "first"}}, CollectionErrors: map[string]CollectionError{"y": {Name: "Y", Reason: "empty"}}}
-	s.Publish(r, "one", time.Now())
-	r.Template.Name = "mutated"
-	r.Attributes["x"] = Attribute{}
-	delete(r.CollectionErrors, "y")
+	s.Publish(Registration{DeviceID: "id"}, "one", time.Now())
+	template := &probetemplate.Template{ID: "t", Name: "T", Properties: map[string]probetemplate.Property{"x": {Name: "X"}, "y": {Name: "Y"}}}
+	s.ApplyConfiguration("id", "one", 1, template, "")
+	values := map[string]Metric{"x": {Name: "X", Value: "first", Status: "ok"}, "y": {Name: "Y", Status: "error", Reason: "empty"}}
+	s.Observe("id", "one", "template", values, time.Now())
+	template.Name = "mutated"
+	values["x"] = Metric{}
 	v, _ := s.Get("id")
-	if v.Registration.Template.Name != "T" || v.Registration.Attributes["x"].Value != "first" || len(v.Registration.CollectionErrors) != 1 {
+	if v.LatestSession.ConfigTemplate.Name != "T" || v.LatestSession.Telemetry.Template["x"].Value != "first" || v.LatestSession.Telemetry.Template["y"].Reason != "empty" {
 		t.Fatal(v)
 	}
-	v.Registration.Template.Name = "again"
-	v.Registration.Attributes["x"] = Attribute{}
+	v.LatestSession.ConfigTemplate.Name = "again"
+	v.LatestSession.Telemetry.Template["x"] = Metric{}
 	s.Publish(Registration{DeviceID: "id"}, "two", time.Now())
 	history, _ := s.Sessions("id")
-	if history.Ended[0].Registration.Template.Name != "T" || history.Ended[0].Registration.Attributes["x"].Value != "first" || history.Current.Registration.Template != nil {
+	if history.Ended[0].ConfigTemplate.Name != "T" || history.Ended[0].Telemetry.Template["x"].Value != "first" || history.Current.ConfigTemplate != nil {
 		t.Fatal(history)
 	}
 }

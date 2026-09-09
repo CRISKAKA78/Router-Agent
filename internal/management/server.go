@@ -5,6 +5,7 @@ import (
 	"errors"
 	"net"
 	"path/filepath"
+	"routerprobe/internal/enrollment"
 	"routerprobe/internal/gateway"
 	"routerprobe/internal/probetemplate"
 	"routerprobe/internal/repository"
@@ -14,13 +15,15 @@ import (
 
 type Config struct {
 	TemplateFile        string
-	Tunnel              *tunnel.Config // nil disables data listener for embedded legacy callers
+	Tunnel              *tunnel.Config // nil disables the optional data listener
 	RepositoryDirectory string
 	Gateway             gateway.Config
 }
 type Server struct {
-	templates   *probetemplate.Service
-	maintenance *tunnel.Service
+	enrollment   *enrollment.Service
+	enrollmentMu sync.Mutex
+	templates    *probetemplate.Service
+	maintenance  *tunnel.Service
 	*Service
 	gateway  *gateway.Server
 	repo     *repository.Store
@@ -42,9 +45,26 @@ func New(config Config) (*Server, error) {
 		r.Close()
 		return nil, e
 	}
-	config.Gateway.Templates = templates
+	if config.Gateway.Logger != nil {
+		for _, warning := range templates.StartupWarnings() {
+			config.Gateway.Logger.Printf("warning=%s", warning)
+		}
+	}
+	catalog, e := enrollment.Open(filepath.Join(r.Directory(), "devices", "catalog.json"))
+	if e != nil {
+		templates.Close()
+		r.Close()
+		return nil, e
+	}
+	if config.Gateway.Logger != nil {
+		for _, warning := range catalog.StartupWarnings() {
+			config.Gateway.Logger.Printf("warning=%s", warning)
+		}
+	}
+	config.Gateway.Enrollment = catalog
 	g, e := gateway.New(config.Gateway)
 	if e != nil {
+		catalog.Close()
 		templates.Close()
 		r.Close()
 		return nil, e
@@ -53,6 +73,7 @@ func New(config Config) (*Server, error) {
 		config.Gateway.Logger.Printf("repository_dir=%s", r.Directory())
 		leftovers, err := r.Leftovers()
 		if err != nil {
+			catalog.Close()
 			templates.Close()
 			g.Close()
 			r.Close()
@@ -66,6 +87,7 @@ func New(config Config) (*Server, error) {
 	if config.Tunnel != nil {
 		maintenance, e = tunnel.New(*config.Tunnel, g)
 		if e != nil {
+			catalog.Close()
 			templates.Close()
 			g.Close()
 			r.Close()
@@ -73,7 +95,7 @@ func New(config Config) (*Server, error) {
 		}
 		g.SetTunnelStatus(maintenance.Report)
 	}
-	return &Server{Service: NewService(r, g.Devices(), g), gateway: g, repo: r, maintenance: maintenance, templates: templates}, nil
+	return &Server{enrollment: catalog, Service: NewService(r, g.Devices(), g), gateway: g, repo: r, maintenance: maintenance, templates: templates}, nil
 }
 func (s *Server) ProbeTemplates() *probetemplate.Service { return s.templates }
 func (s *Server) Maintenance() *tunnel.Service           { return s.maintenance }
@@ -83,7 +105,7 @@ func (s *Server) Close() error {
 		if s.maintenance != nil {
 			s.maintenance.Close()
 		}
-		s.closeErr = errors.Join(s.gateway.Close(), s.templates.Close(), s.repo.Close())
+		s.closeErr = errors.Join(s.gateway.Close(), s.enrollment.Close(), s.templates.Close(), s.repo.Close())
 	})
 	return s.closeErr
 }

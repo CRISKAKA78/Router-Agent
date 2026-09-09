@@ -7,6 +7,17 @@ namespace RouterWorkbench.Desktop;
 
 public partial class MainWindow
 {
+    private UIElement settingsContent = null!;
+    private Window? settingsWindow;
+    private void OpenSettings()
+    {
+        if(settingsWindow!=null){settingsWindow.Activate();return;}
+        var dialog = new Window { Owner=this, Title="设置", Width=700, Height=660, MinWidth=560, MinHeight=440, WindowStartupLocation=WindowStartupLocation.CenterOwner, Content=settingsContent };
+        dialog.SetResourceReference(StyleProperty,typeof(Window));
+        settingsWindow=dialog;
+        dialog.Closed+=(_,_)=>{dialog.Content=null;settingsWindow=null;};
+        dialog.ShowDialog();
+    }
     private TextBox sshUser = null!, ServerBox = null!;
     private PasswordBox sshPassword = null!;
     private Button ConnectButton = null!;
@@ -27,15 +38,13 @@ public partial class MainWindow
         panel.Children.Add(Ui.Heading("服务器连接")); panel.Children.Add(Ui.Labeled("服务器地址", ServerBox));
         ConnectButton = Ui.Button("保存并连接", () => _ = Run("保存并连接", SaveAndConnect), true);
         panel.Children.Add(Ui.Bar(ConnectButton, Ui.Button("断开连接", () => DisconnectClick(this, new RoutedEventArgs())), Ui.Button("重新连接", () => _ = Run("连接", Connect))));
-        panel.Children.Add(Ui.Note("程序启动时自动连接上次保存的服务器。连接失败会重试，也可在此修改地址。"));
         panel.Children.Add(Ui.Heading("外观")); panel.Children.Add(Ui.Labeled("主题", appearance));
         panel.Children.Add(Ui.Heading("终端客户端")); panel.Children.Add(Ui.Labeled("SSH 用户名", sshUser));
         panel.Children.Add(Ui.Labeled("SSH 密码", sshPassword));
         panel.Children.Add(Ui.Bar(Ui.Button("选择 SSH 客户端…", () => _ = Run("选择 SSH", () => ChooseClient("ssh"))), Ui.Button("使用系统 SSH", () => _ = Run("恢复 SSH", () => ResetClient("ssh"))))); panel.Children.Add(sshClient);
         panel.Children.Add(Ui.Bar(Ui.Button("选择 Telnet 客户端…", () => _ = Run("选择 Telnet", () => ChooseClient("telnet"))), Ui.Button("使用系统 Telnet", () => _ = Run("恢复 Telnet", () => ResetClient("telnet"))))); panel.Children.Add(telnetClient);
-        panel.Children.Add(Ui.Note("SSH 默认账号和密码均为 admin。密码加密保存在当前 Windows 用户本机；外部客户端询问密码时，在维护页复制并粘贴。修改此处不会修改路由器账号。"));
+        panel.Children.Add(Ui.Note("密码在本机加密保存，可在维护页复制。修改此处不会修改路由器账号。"));
         var save = Ui.Button("保存 SSH 设置", () => _ = Run("保存 SSH 设置", SaveSshSettings), true); save.HorizontalAlignment = HorizontalAlignment.Left; save.Margin = new(0,12,0,14); panel.Children.Add(save);
-        panel.Children.Add(Ui.Note("Ctrl+O 打开设置，Ctrl+F 搜索设备，F5 刷新，Ctrl+J 显示或隐藏活动输出。设备属性按实际模板上报展示。"));
         UpdateClientLabels(); return new ScrollViewer { Content = panel, VerticalScrollBarVisibility = ScrollBarVisibility.Auto };
     }
     private async Task SaveAndConnect()

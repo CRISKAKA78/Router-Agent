@@ -1,16 +1,75 @@
 # 路由器远程运维平台架构基线
 
+## 客户工作区与模板分类（ADR-047）
+
+WPF工作区顺序为设备、维护、文件、配置、仓库工具；设置仅顶部弹窗。设备专用外壳端口和系统端口同级，接口采样设置在设备页末尾；属性表不再有接口分组或接口详情区。模板的storage_visible跟随已应用快照独立控制存储页，既有builtin_interfaces属性展示到其他信息。
+
+shared/DevicePresentation提供稳定编辑分类；Blazor PresentationEditor按来源分类和字段ID维持编辑行，最终展示归组/排序独立计算，修改归组不移动编辑位置。DisplayLayout与WPF采用同一可见性语义。
+
+Client RemoteDirectory复用公开exec任务读取目录；FileExchange只编排一个操作员请求的资产准备、传输与本地保存步骤，服务端File/Task状态仍为事实来源。未完成步骤保留原请求/任务，不自动替换；切换设备/连接取消本地等待。WPF DeviceDirectoryView、RepositoryViews负责设备目录与交互，ToolWorkspace负责只读仓库浏览及显式投放确认，均经公开API使用服务能力。内容沿用内置FILE协议，服务端资产持久化/清理语义保持，管理员上传通道另行实现。
+
+本节局部取代下方旧工作区导航、接口属性和存储恒显说明。验证及入口见[CUSTOMER_WORKSPACE_VERIFICATION](CUSTOMER_WORKSPACE_VERIFICATION.md)。
+
+## 服务端存量目录加载（ADR-046）
+
+`internal/catalogupgrade`仅供probetemplate/enrollment持久目录加载使用，清理明确退役的模板展示字段与注册结果元数据；验证通过后先备份原字节，再复用各Service原子保存。API/协议/生成器不调用该入口，仍严格接受现行格式。模板文件缺失可告警建立空库，设备目录与型号绑定保持；其他损坏或未知结构保留明确错误。Management汇总启动告警，外部更新仍通过原模板与设备配置API。
+
+## 设备分组与采集边界（ADR-045）
+
+WPF DeviceViews按稳定组ID维护同级属性页；系统/资源/自定义/接口/其他之后保留存储与连接历史专页。PropertyGroups负责展示过滤与排序，TableBehavior测量所有行并在手动调整前适配列宽。shared/DevicePresentation.cs由WPF Client和Blazor生成器共享内置属性目录与默认分组。模板管理默认组、动态字段及自定义字段的展示元数据，专用存储/接口数据契约不变。
+
+DeviceActions仅经公开API执行改名/模板应用；Explorer纳管池迁入左侧。Management更新用例限制设备级覆盖为InterfaceSampling，持久目录保存独立template_generation；Gateway复用原配置发送/ACK。LiveTelemetry区分仅接口重配与显式模板应用，SystemSampler保留硬件/静态模板/累计计数边界。
+
+Device Service新增连续ConnectionPeriod视图，在既有Publish/End锁内观察真正上下线；在线Session替换不切断周期。API通过device.Query.Connections返回副本和Server秒数；WPF ConnectionHistory仅展示/校准，不复制服务端设备状态机。历史仍进程内有界，未引入数据库、完整审计或跨重启恢复。
+
+Probe egress.cpp使用独立受限的原生HTTPS请求和静态TLS，固定外部出口服务；信任根、DNS/响应容量及取消边界见PROTOCOL。取消/采样不占控制线程，不调用设备HTTP命令。证书/时间验证不影响现有控制链路TLS未决边界。
+
+本节取代下方属性折叠、任意设备采样和外部HTTP工具实现描述。证据与限制见[DEVICE_WORKSPACE_VERIFICATION](DEVICE_WORKSPACE_VERIFICATION.md)。
+
+## 当前工作区与唯一版本路径（ADR-044）
+
+生成器仅保留工程8/草稿3和当前运行模板，删除接口映射全链路及旧格式导入/迁移。DisplayLayout与WPF属性展示使用同一分类缺省和字段覆盖语义；Server仅保存展示元数据，不过滤采样事实。TableBehavior统一WPF表格的单行文本、原文复制、用户调窄后换行、像素滚动；PropertyGroups负责模板顺序、整行可访问折叠标题和阅读位置。Blazor浏览器脚本仅增加列宽交互，不承载项目业务状态。
+
+Probe只用LiveTelemetry响应服务端配置，删除启动同步采集、模板准备连接、旧协商/降级。Device Service从ConfigTemplate建立waiting字段，并通过EVENT保存独立样本，REGISTER不再承载模板结果。公开客户端通过API/WS读取active_template和effective_metrics；现有Application边界、数据面及设备平台支持保持。
+
+以下早期章节中的工程兼容、接口别名和旧REGISTER路径已被ADR-044取代，不是当前实现入口。
+
+## 外壳网口统计（ADR-043）
+
+模板switch_probe.counters独立描述硬件字节来源，原backend保留链路职责；PortCounterSampler由进程级SystemSampler拥有，执行有界查询、整数差分、失败/重置/来源切换与控制重连基线维护。Server校验port_counters_v1能力并沿用CONFIG_APPLY和完整switch遥测，公开API保留原始整数与统计口径。WPF主表以已确认外壳口为对象，同页展示曲线；逻辑接口与CPU/待核验口折叠展示，不能按关联eth名称拼接逐口流量。生成器工程7提供板卡预设及原始样本解析，不执行预览命令。无新增服务/数据库/持续数据通道；契约见[PHYSICAL_PORT_MONITORING](PHYSICAL_PORT_MONITORING.md)。
+
+## 模板编辑职责（ADR-042）
+
+Blazor的ConfigurationView只编辑模板全局设置，AttributeEditor编辑单个属性；EditorWorkspace/EditorLayout共享presentation状态，DisplayLayout提供字段目录和分组顺序，预览沿用相同规则。工程6导入旧工程，Server/Probe仅扩展可选端口编号语义，不承载编辑器导航或公式图。物理口仍由Probe现有采集后端读取，省略编号保留探测事实或未知；详见 [生成器入口](TEMPLATE_GENERATOR_MIGRATION.md)。
+
+
+## 服务端纳管与配置所有权（ADR-041）
+
+`internal/enrollment.Service` 独立持有 `repository-dir/devices/catalog.json`：发现资料、pending/managed/ignored、管理员名称、型号目录/别名/默认模板、设备绑定版本快照、配置覆盖和期望修订号。使用独占文件锁、临时文件同步替换、32MiB容量限制，不引入外部数据库。其持久化不恢复在线Session、任务、维护或最后已确认的实时数据。
+
+Application 协調型号/模板解析和引用保护；HTTP Adapter只调用公开Service用例。Gateway完成REGISTER_ACK后在锁外持久登记发现，再发布Session；各业务派发复核纳管状态。每条支持热配置的控制Session拥有可取消下发worker，复用有界控制writer，结束Session后关闭连接并等待worker退出。Device Service保存已确认配置与独立实时样本，注册历史不变。
+
+Probe `LiveTelemetry` 独立协调采集切换，CPU静态缓存和累计流量基线由进程级SystemSampler拥有。物理接口采集在独立可取消worker中执行，DSA/sysfs、swconfig或模板配置的有界只读厂商命令输出统一端口指标；板卡映射与逻辑接口别名分别管理。
+
+WPF通过统一管理快照把未纳管设备放入单独池，管理员手动纳管/改名/选型号和搜索模板；设备设置下发采样覆盖。全部属性按实际应用模板的presentation分组、排序、展开/折叠，未分组置末尾。Blazor维护展示元数据和型号映射，发布不自动影响设备；工程5兼容1～4。具体协议/API与升级规则见 [MANAGED_PROBES_DESIGN](MANAGED_PROBES_DESIGN.md)。本节取代下文早期仅注册快照/启动选模板的规则。
+
 本文定义 Management Server、Probe、对外客户端和传输通道之间的长期边界。Phase 1 已实现 TCP Session、并发 exec、进程内幂等、跨 TCP 结果补报与双向文件传输；Phase 2 已实现 Device Inventory 和内部查询；Phase 3 已实现持久 File/Tool Repository、兼容判断和管理端文件投放/下载导入，验证状态见 PROJECT_STATUS。Phase 5已增加统一HTTP/WebSocket Adapter；其他未交付客户端仍是后续方向，实际验证以PROJECT_STATUS为准。
 
 Phase 4 新增 `internal/tunnel.Service` 与 C++11 `TunnelManager`，采用 Accepted ADR-021 / ADR-022 的极简 TCP Maintenance，不使用 FRP/xfrpc。验证状态以 PROJECT_STATUS 为准。
+
+## ADR-040 监控与展示补充
+
+Probe新增独立可取消的固定HTTPS出口命令worker，与内置采样/模板worker分离；接口过滤与累计字节/时长由Probe负责，SystemSampler在进程内跨控制Session保存基线。Gateway协商v2并校验，Device Service保留最新组与模板优先；API不直接访问内部采样状态。WPF通过公开快照维护窗口内最多10分钟的曲线，关闭释放，不引入时序数据库。source_ip仍是TCP对端，egress_ipv4/ipv6才是设备双栈探测。
+
+DeviceProperties按registration与effective_metrics展示；未知值为横杠、悬停原因，来源/采样时间不拼入属性值。时长使用年/月/天/小时/分钟/秒无空格，最近心跳使用runtime.reported_at。模板工程4兼容1/2/3，监控配置包含接口白名单与出口周期。
 
 ## 当前客户端边界（ADR-037 / ADR-036 / ADR-035 / ADR-034）
 
 项目仅保留两个 C# UI：Windows 原生 WPF 工作台与本机 Blazor 探针模板生成器。React 浏览器工作台、WinUI/Win32/WebView2 旧宿主及专属构建/Bridge/ConPTY 已移除；历史演进与验证见 [PHASE6_DESIGN](PHASE6_DESIGN.md)、[PHASE6_VERIFICATION](PHASE6_VERIFICATION.md)，不作为现存模块导航。
 
-`windows/RouterWorkbench.Desktop` 为 .NET 10 / WPF，导航为设备、维护、文件、配置、设置。`RouterWorkbench.Client` 只通过公开 HTTP/WS 查询快照、提交原幂等请求并管理取消和释放，不复制 Server 状态机。Core 保留用户配置、端点校验及外部客户端启动。
+`windows/RouterWorkbench.Desktop` 为 .NET 10 / WPF，导航为设备、待纳管、维护、文件、配置、设置。`RouterWorkbench.Client` 只通过公开 HTTP/WS 查询快照、提交原幂等请求并管理取消和释放，不复制 Server 状态机。Core 保留用户配置、端点校验及外部客户端启动。
 
-服务器地址在设置保存，启动自动恢复连接。HTTP 首连/重连回查快照，五秒恢复刷新按值更新稳定属性行。设备属性由 `DeviceProperties` 从 registration 快照完整展示，包含标准字段、扩展属性、模板版本和采集失败；不读取当前模板定义重新解释历史值。
+服务器地址在设置保存，启动自动恢复连接。HTTP 首连/重连回查快照，五秒恢复刷新按值更新稳定属性行。设备属性由 `DeviceProperties` 从 registration 快照完整展示，包含标准字段、扩展属性、模板版本和采集失败；不读取当前模板定义重新解释历史值。ADR-038 增加 runtime 开机时长和采样时间，全部属性表在同设备/同字段集合时仅通知变化值，保留选择；时长从最高有效单位连续显示到秒，年=365日、月=30日，离线不累计。
 
 维护页仅展示公共 Web/SSH/Telnet 链接，启动前回查维护及设备 Session。主程序没有 WebView2、内置终端、工具管理或通用任务页。外部进程由用户管理，退出 UI 不撤销 Server 维护；SSH 默认 admin/admin，密码由 `SshPasswordStore` 用当前 Windows 用户 DPAPI 独立加密，显式复制，不写日志、URL 或进程参数。文件/配置结果在各自页面，committed/released 与最终 Task RESULT 分开。
 
@@ -108,13 +167,17 @@ Management Server 是平台核心程序，优先使用 Go 实现。
 
 ## Probe
 
+ADR-039：`telemetry.cpp`内置采集和模板命令各自有界worker，主控制循环发送合并EVENT；CPU/内存/磁盘/网口独立周期，模板逐属性周期和公平轮转，不阻塞心跳。`device.Telemetry`持有Session最新组，Device Service产生模板优先effective_metrics，API只转交公开快照；监控变化更新devices revision。Server由RemoteAddr记录来源IP，WPF通过Client的IpLocation对所选公网IP异步查询，缓存和取消不进入Probe或核心设备状态。契约见 [TELEMETRY_DESIGN](TELEMETRY_DESIGN.md)。
+
 ADR-031：`internal/routerconfig` 定义共享配置参数校验；Management 提供 CreateRouterConfig 用例，Task Service 持有不可变结构化规格，Gateway 检查 Session capability 并复用现有任务发送。HTTP 提供 config-tasks，WPF 配置表单通过 C# Client 使用公开 API，结果留在配置页。
 
 Probe `router_config.cpp` 校验参数并构造 argv，`task.cpp` 复用有界执行器直接执行 PATH 中固件程序；`TaskManager` 在原 worker pool 中按接受顺序串行调度配置任务，允许 Exec 并行。模板 source 与配置任务共用参数/执行路径，来源仅 get。无新队列服务、协议消息或厂商库依赖，不改变身份、注册快照、文件与 Tunnel 生命周期。
 
 ADR-029：`internal/probetemplate.Service` 独立拥有设备属性模板持久化、唯一名称、版本冲突与删除身份墓碑；`management.Server` 组合其生命周期，HTTP Adapter 通过它管理，Gateway 通过只读 Resolve 接口响应 0x05/0x06 准备连接。模板不作为 File/Tool 资产，不改变 Repository schema 或稳定资产身份。
 
-Probe `collection.cpp` 在正常注册前执行所选模板的有界命令采集；准备连接不创建设备，采集后仍由 Gateway 的成功 REGISTER 发布完整 Device/Session 快照。扩展属性和失败摘要是启动采集结果，不是实时遥测；重连复用本进程快照。模板管理现由 ADR-034 的独立 C# / Blazor 生成器承担，WPF 设备详情继续显示公开 registration 字段。默认 ID 在 `identity.cpp` 从显式参数或一次 `nvram get SN` 取得。
+Probe `collection.cpp` 在正常注册前执行所选模板的有界命令采集；准备连接不创建设备，采集后仍由 Gateway 的成功 REGISTER 发布完整 Device/Session 快照。registration中的扩展属性和失败摘要保持启动采集结果，重连复用本进程快照。ADR-039新增独立周期采集，实时结果单独保存。模板管理现由 ADR-034 的独立 C# / Blazor 生成器承担，WPF 设备详情继续显示公开 registration 字段。默认 ID 在 `identity.cpp` 从显式参数或一次 `nvram get SN` 取得。
+
+ADR-038：Probe `system_info.cpp` 拥有本机架构、uname 内核和系统开机秒数采集；不执行外部采集命令。已知编译目标/端序和显式 arch 保持工具兼容含义，内核是启动默认值且显式模板优先。注册后立即首个心跳，后续按协商间隔重读系统时长。Gateway 校验 uptime/uptime_valid 后，按原 Gateway → Device 锁序同步调用 Heartbeat；Device 原子更新当前 Session 的最后运行采样及活动时间，拒绝旧会话/迟到采样，返回独立副本。API 通过原 Application 查询暴露 runtime，不读取 Gateway 表；既有 Session 历史仅多带最后采样，不保存每次心跳或推送逐心跳事件。
 
 Probe 是与 Management Server 独立的设备端程序。Phase 1 起采用 **C++11 + CMake**：第一开发与验证平台为 Linux x86_64；后续通过 CMake toolchain files 适配 mipsel、ARM 和 ARM64 交叉工具链。目标侧只运行编译后的 Probe，不依赖 CMake。Probe 实现不得使用高于 C++11 的语言特性，并应避免不必要的重型运行时依赖。
 
@@ -279,7 +342,7 @@ Device/Session 生命周期、历史保留、进程内存储与 Gateway 边界�
 - 通用Tunnel及平台访问控制；固定三服务的Relay/租约已由ADR-021决定。
 - Probe 自身重启后的 task_id 缓存、未上报结果和任务恢复策略。
 - Server 重启后的任务与会话恢复策略。
-- Repository 之外的长期存储、在线备份/迁移、物理 GC 与跨平台实机兼容矩阵仍待后续阶段；Phase 3 范围已由 Accepted ADR-019 决定。真实 Probe 目前省略 libc/kernel/model，兼容判断不能假定这些资料已知。
+- Repository 之外的长期存储、在线备份/迁移、物理 GC 与跨平台实机兼容矩阵仍待后续阶段；Phase 3 范围已由 Accepted ADR-019 决定。新版 Probe 默认采集 kernel；libc/model 仍依赖模板，任何字段缺失时兼容判断不能假定已知。
 - Management Server 的配置格式、日志、指标和运维接口。
 - API 的资源模型、认证、错误格式和实时事件协议。
 - 各前端的实现顺序和技术栈。

@@ -1,0 +1,30 @@
+<section class="editor-section config-section">
+ <h3>分组管理</h3><p>系统信息、资源监控固定在前，其他信息在后；自定义分组按顺序排列。</p>
+ <fieldset disabled="@State.Locked">
+ <button @onclick="State.AddGroup">添加分组</button>
+ <div class="data-table-wrap"><table class="data-table group-editor"><thead><tr><th>分组名称</th><th>排序</th><th>操作</th></tr></thead><tbody>
+ @foreach(var g in DisplayLayout.CustomGroups(State.Project)){<tr @key="g.Id"><td><input aria-label="分组名称" @bind="g.Name" @bind:after="State.Touch" /></td><td><input aria-label="分组排序" type="number" min="0" max="1000000" @bind="g.Order" @bind:after="State.Touch" /></td><td class="row-actions"><button aria-label="上移分组 @g.Name" @onclick="()=>State.MoveGroup(g,-1)">↑</button><button aria-label="下移分组 @g.Name" @onclick="()=>State.MoveGroup(g,1)">↓</button><button @onclick="()=>State.RemoveGroup(g)">删除分组</button></td></tr>}
+ @foreach(var group in DisplayLayout.BuiltinGroups.Where(g=>g.Key!="builtin_interfaces")){<tr><td>@group.Value</td><td>系统固定分组</td><td>可分配属性</td></tr>}
+ </tbody></table></div>
+ <h3>内置参数在属性页显示</h3><p>分类与字段开关控制属性显示；存储空间页面可独立关闭。采集周期单独设置。</p>
+ <div class="visibility-categories">@foreach(var category in DisplayLayout.Categories){<label class="inline-check"><input type="checkbox" aria-label="@(category.Value+"在属性页显示")" checked="@DisplayLayout.CategoryVisible(State.Project,category.Key)" @onchange="e=>State.SetCategoryVisible(category.Key,e.Value is true)" />@category.Value</label>}</div>
+ <h3>属性归组与顺序</h3>
+ <nav class="attribute-categories" aria-label="属性分类">@foreach(var category in RouterWorkbench.Display.DevicePresentation.EditCategories){<button type="button" aria-pressed="@(selectedCategory==category.Key)" class="@(selectedCategory==category.Key?"active":"")" @onclick="()=>selectedCategory=category.Key">@category.Value</button>}</nav>
+ @if(selectedCategory=="disk"){<label class="inline-check storage-visibility"><input type="checkbox" aria-label="显示存储空间页面" checked="@(State.Project.Presentation?.StorageVisible!=false)" @onchange="e=>State.SetStorageVisible(e.Value is true)" />显示存储空间页面</label>}
+
+ <label class="config-search">搜索属性<input type="search" aria-label="搜索展示字段" placeholder="在当前分类中搜索名称或标识…" @bind="search" @bind:event="oninput" /></label>
+ <p>修改归组和展示顺序时，此列表保持原位置；最终展示效果见预览。</p>
+ <div class="data-table-wrap"><table class="data-table layout-fields"><thead><tr><th>属性名称 / 标识</th><th>来源</th><th>属性页显示</th><th>所属分组</th><th>组内顺序</th><th>移动</th></tr></thead><tbody>
+ @foreach(var row in Rows()) {var f=State.Placement(row.Key);<tr @key="row.Key" data-field="@row.Key"><td><strong>@row.Name</strong> <code>@row.Key</code></td><td>@row.Kind</td><td><label class="inline-check"><input type="checkbox" aria-label="@(row.Name+"在属性页显示")" checked="@DisplayLayout.IsVisible(State.Project,row.Key)" @onchange="e=>State.SetVisible(row.Key,e.Value is true)" />显示</label>@if(f.Visible is not null){<button aria-label="@(row.Name+"恢复分类设置")" @onclick="()=>State.SetVisible(row.Key,null)">恢复默认</button>}</td><td><select aria-label="@(row.Name+"所属分组")" value="@DisplayLayout.GroupId(State.Project,row.Key)" @onchange='e=>State.SetGroup(row.Key,e.Value?.ToString()??"")'>@foreach(var g in DisplayLayout.Groups(State.Project)){<option value="@g.Id">@g.Name</option>}</select></td><td><input aria-label="@(row.Name+"字段排序")" type="number" min="0" max="1000000" value="@State.VisibleOrder(row.Key)" placeholder="末尾" @onchange="e=>Order(row.Key,e)" /></td><td class="row-actions"><button aria-label="上移字段 @row.Name" @onclick="()=>State.MoveField(row.Key,-1)">↑</button><button aria-label="下移字段 @row.Name" @onclick="()=>State.MoveField(row.Key,1)">↓</button></td></tr>}
+ </tbody></table></div>
+ @if(!Rows().Any()){<p class="muted">没有匹配的展示属性。</p>}
+ <details class="advanced-section"><summary>补充设备动态字段</summary><p>网口、挂载点等字段因设备而异。可从主客户端属性页复制实际标识；仅添加展示配置，不创建采集命令。</p><div class="field-grid"><label>设备属性标识<input aria-label="展示属性标识" @bind="fieldKey" /></label><button @onclick="()=>State.AddDeviceField(fieldKey.Trim())">添加设备字段</button></div></details>
+ </fieldset>
+</section>
+@code {
+ [Parameter,EditorRequired]public EditorWorkspace State{get;set;}=default!;
+ private string search="",fieldKey="";
+ private string selectedCategory {get=>State.PresentationCategory;set=>State.PresentationCategory=value;}
+ private IEnumerable<LayoutField> Rows()=>DisplayLayout.Fields(State.Project).Where(f=>RouterWorkbench.Display.DevicePresentation.EditCategory(f.Key)==selectedCategory).OrderBy(f=>f.Key,StringComparer.Ordinal).Where(f=>f.Name.Contains(search,StringComparison.OrdinalIgnoreCase)||f.Key.Contains(search,StringComparison.OrdinalIgnoreCase));
+ private void Order(string key,ChangeEventArgs e){if(int.TryParse(e.Value?.ToString(),out var n))State.SetOrder(key,n);}
+}
