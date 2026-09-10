@@ -2,6 +2,7 @@
 #include "rmp/json.h"
 #include "rmp/task.h"
 #include "rmp/switch_probe.h"
+#include "rmp/neighbors.h"
 #include <sstream>
 #include <algorithm>
 #include <fstream>
@@ -55,6 +56,7 @@ bool ParseCollectionTemplate(const std::string& json,CollectionTemplate* value,s
  if(root.count("monitoring")){JsonObject m;if(!ParseJsonObject(root["monitoring"].raw_value,&m,error))return false;const char*groups[]={"cpu","memory","disk","network","egress"};const unsigned defaults[]={5,5,60,5,600};for(unsigned n=0;n<5;++n){std::string key=std::string(groups[n])+"_seconds";std::uint64_t seconds=defaults[n];if(m.count(key)&&!Number(m,key,0,86400,&seconds))return false;parsed.monitoring[groups[n]]=static_cast<unsigned>(seconds);}
  if(m.count("network_interfaces")){if(m["network_interfaces"].type!=JsonType::kString||!ParseNetworkInterfaces(m["network_interfaces"].string_value,&parsed.network_interfaces))return false;parsed.has_network_interfaces=true;}}
  if(root.count("switch_probe")){if(!ValidateSwitchProbe(root["switch_probe"].raw_value))return false;parsed.switch_json=root["switch_probe"].raw_value;}
+ if(root.count("neighbor_probe")){NeighborPlan plan;if(!ParseNeighborPlan(root["neighbor_probe"].raw_value,&plan))return false;parsed.neighbor_json=root["neighbor_probe"].raw_value;}
  unsigned custom=0;
  for(JsonObject::const_iterator i=props.begin();i!=props.end();++i){
   JsonObject p;CollectionProperty property;std::uint64_t seconds;

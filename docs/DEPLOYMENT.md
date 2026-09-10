@@ -281,6 +281,8 @@ ldd build/probe/router-probe
 
 2026-09-09 换行修复验证：原失败运行 `runs/20260909-010848-6f1a539c` 的脚本含 CRLF，远端 Bash 5.2.21 将 `pipefail` 后的 CR 当作选项内容。已将本地脚本保存为 LF，并在上传解包后、Bash 执行前使用 `sed` 去除行末 CR，覆盖 Windows 编辑器重新写入 CRLF 的情况。原失败脚本的独立副本经过同一处理后通过 `bash -n`；PowerShell AST 通过。执行 `powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\probe-build.ps1 -NetworkInterfaces eth0,eth1,br0`，真实 Windows → SSH → GCC 5.2.0 Release 构建成功，记录为 `runs/20260909-011116-bc8fcaa1`，成品 373112 字节，ELF ARMv7 小端/EABI5/uClibc，编译参数确认默认接口 `eth0,eth1,br0`；`cmp` 确认固定成品一致，latest-build 指向本次运行。成品与两份日志另外取回本地 `build/arm-gcc52-20260909/`。原 `seconds` 警告仍存在，未修改 Probe 业务逻辑，未在厂商路由器运行。
 
+2026-09-10 邻居版本首轮交互认证构建 `runs/20260910-203128-4121706b` 在该SDK的C++头未导出`std::snprintf`处失败；全局`::snprintf`已由其`stdio.h`声明。一键脚本的每次运行副本适配现补充`<stdio.h>`并转换该调用，不修改仓库Probe产品源码。Git Bash语法检查、内嵌适配实际输出、适配后Probe核心编译和原始Probe 15项CTest已通过；BatchMode仍无认证，因此尚未用真实GCC5.2复跑，也未更新固定ARM成品或`latest-build.txt`。
+
 优先取得**设备对应固件的 SDK/交叉工具链**。例如 OpenWrt 应匹配固件版本、target/subtarget 和 libc；厂商固件应使用厂商 SDK。仅凭 CPU 名字随意选编译器容易出现“文件存在却找不到”“缺少 GLIBC 版本”等错误。
 
 下面只是工具链文件格式示例，路径必须来自你实际取得的 SDK，不能原样执行。文件名示例 `router-toolchain.cmake`，保存在源码根目录：

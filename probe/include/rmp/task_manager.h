@@ -6,8 +6,10 @@
 #include <deque>
 #include <thread>
 #include <vector>
+#include <memory>
 
 namespace rmp {
+class Neighbors;
 
 // Process lifetime registry. Only the connection thread sends frames; workers
 // never hold or access a socket. Accepted identities and results are not evicted.
@@ -16,6 +18,7 @@ public:
     TaskManager(unsigned workers = 4, std::size_t capacity = 128,
                 std::size_t byte_capacity = 8U * 1024U * 1024U, std::size_t file_capacity = 8);
     ~TaskManager();
+    void SetNeighbors(std::shared_ptr<Neighbors> n){neighbors_=n;}
     // Returns queued/running/terminal, rejected, or conflict. Admission occurs
     // before ACK transmission, so losing an ACK never loses an accepted task.
     std::string Submit(const ExecTask& task, bool valid, std::size_t input_size,
@@ -29,7 +32,9 @@ public:
     unsigned RunningTasks() const;
 
 private:
+    std::shared_ptr<Neighbors> neighbors_;
     struct Entry {
+        std::shared_ptr<std::atomic<bool>> cancel=std::make_shared<std::atomic<bool>>(false);
         ExecTask task;
         std::string state;
         std::string payload;

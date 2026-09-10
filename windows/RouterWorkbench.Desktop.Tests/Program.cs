@@ -29,14 +29,30 @@ internal static partial class Program
     }
     [STAThread] private static int Main(string[] args)
     {
-        RenderOptions.ProcessRenderMode = System.Windows.Interop.RenderMode.SoftwareOnly;
+        if (args.FirstOrDefault() is not ("--components" or "--compact-preview")) RenderOptions.ProcessRenderMode = System.Windows.Interop.RenderMode.SoftwareOnly;
         output = Path.GetFullPath(args.Length > 1 ? args[1] : "build/windows-desktop/verification"); Directory.CreateDirectory(output);
         var app = new Application { ShutdownMode = ShutdownMode.OnExplicitShutdown };
         app.Resources.MergedDictionaries.Add(new ResourceDictionary { Source = new Uri("pack://application:,,,/RouterWorkbench;component/Themes/Controls.xaml") });
         Theme.Apply("Light"); var exit = 1;
+        if(args.FirstOrDefault()=="--compact-export") {
+            app.MainWindow=CreateCompactPreview();app.MainWindow.Show();
+            app.Dispatcher.BeginInvoke(async()=>{try {
+                await Task.Delay(120);
+                foreach(var page in new[]{"files","maintenance","config","tools"}) {Invoke(app.MainWindow,"Navigate",page);await Task.Delay(90);Render(app.MainWindow,"preview-"+page+".png");}
+                exit=0;
+            }catch(Exception error){Console.Error.WriteLine(error);}finally{app.Shutdown();}});
+            app.Run();return exit;
+        }
+        if(args.FirstOrDefault()=="--compact-preview") {app.ShutdownMode=ShutdownMode.OnMainWindowClose;app.MainWindow=CreateCompactPreview();app.MainWindow.Show();app.Run();return 0;}
+        if (args.FirstOrDefault() == "--components") {
+            app.ShutdownMode = ShutdownMode.OnMainWindowClose;
+            app.MainWindow = CreateComponentGallery(); app.MainWindow.Show(); app.Run(); return 0;
+        }
         app.Dispatcher.BeginInvoke(async () => {
             try {
-                await TelemetryChecks(); await ClientChecks(); await SourceSummaryChecks(); await FileExchangeRetryChecks(); await IntegrationChecks(args[0]);
+                await ComponentChecks();
+                if (args.FirstOrDefault() == "--component-checks") { Console.WriteLine($"PASS {checks} component checks; screenshots: {output}"); exit = 0; return; }
+                SummaryAllocationChecks(); await TelemetryChecks(); await ClientChecks(); await SourceSummaryChecks(); await FileExchangeRetryChecks(); await IntegrationChecks(args[0]);
                 Console.WriteLine($"PASS {checks} checks; screenshots: {output}"); exit = 0;
             } catch (Exception e) { Console.Error.WriteLine(e); }
             finally { app.Shutdown(); }
@@ -45,6 +61,7 @@ internal static partial class Program
     }
     private static async Task ClientChecks()
     {
+        await NullableSessionChecks();
         foreach (var (seconds, expected) in new (long?, string)[] {
             (null, "—"), (-1, "—"), (0, "0秒"), (59, "59秒"), (60, "1分钟0秒"),
             (3599, "59分钟59秒"), (3600, "1小时0分钟0秒"), (86400, "1天0小时0分钟0秒"),
@@ -101,7 +118,7 @@ internal static partial class Program
     private static async Task VerifyRuntime(MainWindow window, WorkspaceConnection connection, TestProbe peer, ApiClient api)
     {
         const string id = "desktop-router-02";
-        var grid = Field<DataGrid>(window, "properties");
+        var grid = Visuals<DataGrid>(Field<TabControl>(window, "overviewTabs")).First(g => g.Items.OfType<PropertyRow>().Any(p => p.Key == "uptime"));
         var row = grid.Items.Cast<PropertyRow>().Single(p => p.Name == "开机时长");
         grid.SelectedItem = row;
         await peer.ReportUptimeAsync(3661);
@@ -109,7 +126,7 @@ internal static partial class Program
         Check(ReferenceEquals(grid.SelectedItem, row) && grid.Items.Cast<PropertyRow>().Any(p => ReferenceEquals(p, row)), "uptime updates preserve selected property row");
         var device = await api.GetAsync<Device>("devices/" + id);
         Check(device.Runtime?.UptimeSeconds == 3661 && device.CurrentSession?.Runtime == device.Runtime && device.LatestSession?.Runtime == device.Runtime, "HTTP device and session runtime DTOs agree");
-        Check(grid.Items.Cast<PropertyRow>().Any(p => p.Name == "工具兼容架构" && p.Value == "x86_64") && grid.Items.Cast<PropertyRow>().Any(p => p.Name == "内核版本" && p.Value == "6.6-test"), "CPU architecture and kernel visible in native properties");
+        Check(Visuals<DataGrid>(Field<TabControl>(window, "overviewTabs")).SelectMany(g => g.Items.OfType<PropertyRow>()).Any(p => p.Name == "工具兼容架构" && p.Value == "x86_64") && Visuals<DataGrid>(Field<TabControl>(window, "overviewTabs")).SelectMany(g => g.Items.OfType<PropertyRow>()).Any(p => p.Name == "内核版本" && p.Value == "6.6-test"), "CPU architecture and kernel visible in native properties");
         var offline = DeviceProperties.Rows(device with { Status = "offline" }).Single(p => p.Name == "开机时长").Value;
         Check(offline == "1小时1分钟1秒" && DeviceProperties.Uptime(device with { Status = "offline" }).ValueTip.Contains("离线"), "offline displays final measured uptime without extrapolation");
         Check(DeviceProperties.Rows(device with { Runtime = null }).Single(p => p.Name == "开机时长").Value == "—", "old API or first heartbeat pending state");
@@ -166,6 +183,8 @@ internal static partial class Program
             var props = Field<PropertyRow[]>(window, "propertyRows").ToArray();
             Check(props.Count(p => p.Key.StartsWith("property_") && p.Group == "其他信息" && p.Value != "—") == 30 && props.Count(p => p.Key is "signal" or "wan_ip" && p.Value == "—" && p.ValueTip.Contains("采集")) == 2 && props.Any(p => p.Value.Contains(new string('X', 800))), "all template attributes, failures and full multiline values reach native table");
             await VerifyRuntime(window, connection, peers[1], api);
+            await PropertyInspectorChecks(window);
+            await DetailsLayoutChecks(window);
             devices.SelectedItem = devices.Items.Cast<Device>().Single(d => d.DeviceId == "desktop-router-03");
             Check(Field<PropertyRow[]>(window, "propertyRows").Count(p => p.Key.StartsWith("property_") && p.Group == "其他信息" && p.Value != "—") == 1, "switching templates removes previous device attributes");
             devices.SelectedItem = devices.Items.Cast<Device>().Single(d => d.DeviceId == "desktop-router-02");
@@ -187,7 +206,8 @@ internal static partial class Program
             var download = await api.ExecuteAsync(new("download", "downloads", new { device_id = "desktop-router-02", remote_path = "/tmp/desktop.bin", name = "returned.bin", timeout_seconds = 10 }));
             var downloadId = download.GetProperty("task_id").GetString()!;
             await Eventually(async () => { var transfer = await api.GetAsync<Transfer>("tasks/"+downloadId+"/transfer"); return transfer.Committed && transfer.Released; }, "download committed and released independently");
-            Invoke(window,"Navigate","files"); Invoke(window,"ShowCreatedTask",download); connection.Invalidate(); await Task.Delay(350); await InvokeAsync(window,"RefreshDetails");
+            Invoke(window,"Navigate","files"); Invoke(window,"ShowCreatedTask",download); connection.Invalidate(); await InvokeAsync(window,"RefreshDetails");
+            await Eventually(()=>Task.FromResult(Field<Transfer?>(window,"transfer") is { Committed: true, Released: true }), "file details finish their queued refresh before transfer assertions");
             Check(Field<Transfer>(window,"transfer").Committed && Field<Transfer>(window,"transfer").Released && Field<DataGrid>(window,"tasksGrid").Items.Cast<TaskSummary>().All(t => t.Type is "upload" or "download"), "file page retains scoped transfer facts without general task entrance");
 
             var complete = await api.ExecuteAsync(new("complete", $"downloads/{downloadId}/complete")); var returned = complete.GetProperty("asset").Deserialize<Asset>(ApiJson.Options)!;
@@ -221,16 +241,19 @@ internal static partial class Program
             var configDetail = await api.GetAsync<TaskDetail>("tasks/"+configTaskId); Check(configDetail.Params.GetProperty("backend").GetString() == "nvram" && configDetail.Params.GetProperty("operation").GetString() == "get", "native config parameters match public contract");
             await InvokeAsync(window,"RefreshDetails");
             Check(Field<TextBox>(window,"configOutput").Text.Contains("成功") && ((TabItem)((TabControl)window.FindName("WorkspaceTabs")).SelectedItem).Tag.ToString() == "config", "configuration result stays on configuration page");
+            await CompactWorkspaceChecks(window);
             devices.SelectedItem = devices.Items.Cast<Device>().Single(d => d.DeviceId == "desktop-router-02");
             Invoke(window,"Navigate","maintenance");
             Invoke(window,"Navigate","files");
             await ExchangeWorkspaceChecks(window,api,connection,tool);
             await NativeTelemetryChecks(window,peers[1]);
             await ManagedDeviceChecks(window,api,connection,peers,controlPort);
+            await InspectorChecks(window);
+            await AppearanceChecks(window, profileFile);
             foreach (var theme in new[] { "Light", "Dark" }) {
                 Theme.Apply(theme);
                 foreach (var page in new[] { "overview", "maintenance", "files", "config", "tools" }) {
-                    Invoke(window, "Navigate", page); await Task.Delay(150); await InvokeAsync(window,"RefreshDetails");
+                    Invoke(window, "Navigate", page); if(page=="overview")Field<TabControl>(window,"overviewTabs").SelectedIndex=0; await Task.Delay(150); await InvokeAsync(window,"RefreshDetails");
                     Render(window, theme.ToLowerInvariant()+"-"+page+"-1480.png");
                     if(page=="overview") {foreach(var pair in new[]{("storageMetrics","storage"),("networkMetrics","network")}) {var table=Field<DataGrid>(window,pair.Item1);var tabs=Field<TabControl>(window,"overviewTabs");var tab=tabs.Items.Cast<TabItem>().Single(t=>t.Header?.ToString()==(pair.Item2=="storage"?"存储空间":"接口状态"));tabs.SelectedItem=tab;if(pair.Item2=="network")Field<TabControl>(window,"interfaceTabs").SelectedIndex=1;await Task.Delay(80);Render(window,theme.ToLowerInvariant()+"-"+pair.Item2+"-1480.png");tabs.SelectedIndex=0;}}
                 }
@@ -248,9 +271,10 @@ internal static partial class Program
             var afterReplacement=(await api.ListAsync<ConnectionPeriod>("devices/desktop-router-02/connections")).First();Check(beforeReplacement.Id==afterReplacement.Id&&beforeReplacement.OnlineAt==afterReplacement.OnlineAt,"session replacement retains continuous online history via API");
             await api.ExecuteAsync(new("archive version", $"tools/{tool.ToolId}/versions/1.0/archive")); await api.ExecuteAsync(new("archive asset", $"assets/{asset.AssetId}/archive"));
             Check((await api.GetAsync<Asset>($"assets/{asset.AssetId}")).Archived, "archive preserves original identity");
+            await NeighborChecks(window);
             await InvokeAsync(window, "Disconnect"); Check(!connection.Synchronized || connection.Token.IsCancellationRequested, "native disconnect cancels old connection");
             Check(((DataGrid)window.FindName("DevicesGrid")).Items.Count == 0, "disconnect clears native snapshot");
-            Check(((TextBlock)window.FindName("StatusText")).Text == "已断开连接。" && ((TextBlock)window.FindName("ConnectionText")).Text == "未连接" && ((DataGrid)window.FindName("QuickProperties")).Items.Count == 0, "disconnect updates status and clears selected-device properties");
+            Check(((TextBlock)window.FindName("StatusText")).Text == "已断开连接。" && ((TextBlock)window.FindName("ConnectionText")).Text == "未连接" && Field<TextBlock>((DeviceSummary)window.FindName("Summary"), "title").Text == "工作区" && Field<FlexibleSummaryPanel>((DeviceSummary)window.FindName("Summary"), "metadata").Visibility == Visibility.Collapsed, "disconnect updates status and clears selected-device properties");
             Check(Field<string>(window,"taskId") == "" && Field<string>(window,"configTaskId") == "", "disconnect clears scoped file and configuration results before switching servers");
             Field<TextBox>(window,"ServerBox").Text = "http://bad/path";
             try { await InvokeAsync(window,"SaveAndConnect"); throw new Exception("invalid origin accepted"); } catch (ArgumentException) { Check(ServerProfile.Load(profileFile).ServerUrl == profile.ServerUrl, "invalid setting preserves saved server"); }
@@ -261,10 +285,13 @@ internal static partial class Program
             Field<TextBox>(window,"sshUser").Text = "operator"; Field<PasswordBox>(window,"sshPassword").Password = "edited-test-password";
             await InvokeAsync(window,"SaveSshSettings");
             Check(ServerProfile.Load(profileFile).SshUser == "operator" && SshPasswordStore.Load(profileFile) == "edited-test-password" && !File.ReadAllText(profileFile).Contains("edited-test-password"), "editable SSH account and protected password survive save");
+            Field<ComboBox>(window,"uiFontSize").Text = "16"; await InvokeAsync(window,"SaveTypography",false);
             await InvokeAsync(window,"Disconnect"); window.Close(); await Task.Delay(250); window = null;
+            Typography.Apply(ServerProfile.DefaultUiFontFamily, 13);
             window = new MainWindow(profileFile); window.Show();
             await Eventually(() => Task.FromResult(Field<WorkspaceConnection?>(window,"connection")?.Synchronized == true), "reopened window connects last saved server without toolbar input");
             Check(Field<TextBox>(window,"sshUser").Text == "operator" && Field<PasswordBox>(window,"sshPassword").Password == "edited-test-password", "reopened settings restore user-edited SSH credentials");
+            Check(window.FontSize == 16 && Field<ComboBox>(window,"uiFontSize").Text == "16", "reopened window restores saved typography before use");
             await InvokeAsync(window,"Disconnect"); window.Close(); await Task.Delay(250); window = null;
         } finally {
             if (window != null) { try { await InvokeAsync(window,"Disconnect"); window.Close(); } catch { } }
@@ -275,36 +302,33 @@ internal static partial class Program
     }
     private static async Task VerifyConnectionDisplay(MainWindow window, WorkspaceConnection connection)
     {
-        var quick = (DataGrid)window.FindName("QuickProperties");
-        var source = quick.ItemsSource; var row = quick.Items[0];
+        var summary = (DeviceSummary)window.FindName("Summary");
+        var value = SummaryValue(window, "uptime"); var text = value.Text; var unloaded = 0;
+        value.Unloaded += (_, _) => unloaded++;
         Invoke(window, "ApplySnapshot");
-        Check(ReferenceEquals(source, quick.ItemsSource) && ReferenceEquals(row, quick.Items[0]), "unchanged snapshot preserves selected-device source and row identities");
+        Check(ReferenceEquals(value, SummaryValue(window, "uptime")) && value.Text == text, "unchanged snapshot preserves summary controls and values");
         Check(((TextBlock)window.FindName("StatusText")).Text.StartsWith("已连接") && ((TextBlock)window.FindName("ConnectionText")).Text == "已连接", "successful startup updates both connection status displays");
         var log = Field<System.Collections.ObjectModel.ObservableCollection<ActivityRow>>(window, "activity");
         Check(log.Any(r => r.Level == "连接" && r.Message.StartsWith("已连接")), "output records completed connection after connecting entry");
         var count = log.Count;
         for (var n = 0; n < 4; n++) Invoke(window, "ApplySnapshot");
         Check(log.Count == count, "unchanged snapshots do not repeat connection messages");
-        quick.UpdateLayout(); var container = quick.ItemContainerGenerator.ContainerFromIndex(0); var unloaded = 0;
-        ((FrameworkElement)container).Unloaded += (_,_) => unloaded++;
-        var changes = 0;
-        if (quick.ItemsSource is System.Collections.Specialized.INotifyCollectionChanged observable) observable.CollectionChanged += (_,_) => changes++;
         var before = connection.Snapshot.FetchedAt;
         await Eventually(() => Task.FromResult(connection.Snapshot.FetchedAt > before), "five-second recovery refresh still runs", 7000);
         await Task.Delay(120);
-        Check(ReferenceEquals(source, quick.ItemsSource) && ReferenceEquals(row, quick.Items[0]) && changes == 0 && log.Count == count, "periodic refresh keeps selected-device rows without reset or log spam");
-        quick.UpdateLayout();
-        Check(ReferenceEquals(container, quick.ItemContainerGenerator.ContainerFromIndex(0)) && unloaded == 0, "periodic refresh does not unload or recreate selected-device visual row");
-        object Heartbeat() => quick.Items.Cast<object>().Single(r => r.GetType().GetProperty("Name")!.GetValue(r)?.ToString() == "最近心跳");
-        var heartbeat = Heartbeat(); var notified = new List<string?>();
-        ((System.ComponentModel.INotifyPropertyChanged)heartbeat).PropertyChanged += (_,e) => notified.Add(e.PropertyName);
+        Check(ReferenceEquals(value, SummaryValue(window, "uptime")) && unloaded == 0 && log.Count == count, "periodic refresh neither recreates summary visuals nor repeats activity");
         var original = Field<Snapshot>(window, "snapshot"); var selected = Field<string>(window, "selectedDevice");
-        var device = original.Devices.Single(d => d.DeviceId == selected); var seen = (device.LastSeenAt ?? DateTimeOffset.UtcNow).AddMinutes(1);
-        window.GetType().GetField("snapshot", BindingFlags.Instance | BindingFlags.NonPublic)!.SetValue(window, original with { Devices = original.Devices.Select(d => d.DeviceId == selected ? d with { Runtime = new DeviceRuntime(d.Runtime?.UptimeSeconds, seen), LastSeenAt = seen, Registration = d.Registration with { Model = "" } } : d).ToArray() });
+        var device = original.Devices.Single(d => d.DeviceId == selected);
+        var changes = 0;
+        var descriptor = System.ComponentModel.DependencyPropertyDescriptor.FromProperty(TextBlock.TextProperty, typeof(TextBlock));
+        EventHandler changed = (_, _) => changes++;
+        descriptor.AddValueChanged(value, changed);
+        window.GetType().GetField("snapshot", BindingFlags.Instance | BindingFlags.NonPublic)!.SetValue(window, original with { Devices = original.Devices.Select(d => d.DeviceId == selected ? d with { Runtime = new DeviceRuntime(98765, DateTimeOffset.UtcNow), Registration = d.Registration with { Firmware = "" } } : d).ToArray() });
         Invoke(window, "ApplySnapshot");
-        Check(ReferenceEquals(heartbeat, Heartbeat()) && heartbeat.GetType().GetProperty("Value")!.GetValue(heartbeat)?.ToString() == Labels.Time(seen) && notified.SequenceEqual(device.Runtime == null ? new[] { "ValueTip", "Value" } : new[] { "Value" }) && changes == 0, "heartbeat updates only existing value binding without resetting rows");
-        Check(quick.Items[1].GetType().GetProperty("Value")!.GetValue(quick.Items[1])?.ToString() == "—", "missing selected-device field clears old value explicitly");
-        Invoke(window, "ApplySnapshot"); Check(notified.Count == (device.Runtime == null ? 2 : 1), "unchanged heartbeat value emits no redundant notification");
+        Check(ReferenceEquals(value, SummaryValue(window, "uptime")) && value.Text == DeviceProperties.FormatUptime(98765) && changes == 1, "uptime updates the existing summary visual once");
+        Check(SummaryValue(window, "firmware").Text == "—", "missing summary field explicitly clears its previous value");
+        Invoke(window, "ApplySnapshot"); Check(changes == 1, "unchanged summary value emits no redundant change");
+        descriptor.RemoveValueChanged(value, changed);
         window.GetType().GetField("snapshot", BindingFlags.Instance | BindingFlags.NonPublic)!.SetValue(window, original); Invoke(window, "ApplySnapshot");
         Field<System.Net.WebSockets.ClientWebSocket>(connection, "socket").Abort();
         await Eventually(() => Task.FromResult(log.Any(r => r.Level == "连接" && r.Message.Contains("正在重连"))), "connection loss is recorded in activity output");
@@ -325,6 +349,7 @@ internal static partial class Program
             window.GetType().GetField("snapshot", BindingFlags.Instance | BindingFlags.NonPublic)!.SetValue(window, before);
             Invoke(window, "ApplySnapshot");
             Check(Field<string>(window, "maintenanceId") == current.MaintenanceId, "late pre-create snapshot preserves newly created maintenance identity");
+            Check(Field<DataGrid>(window,"endpointGrid").Items.Cast<object>().All(r=>r.GetType().GetProperty("CanOpen")!.GetValue(r) is true),"ready maintenance enables its three verified channel entrances");
             Field<DataGrid>(window, "maintenanceGrid").SelectedItem = Field<DataGrid>(window, "maintenanceGrid").Items.Cast<Maintenance>().First(m => m.Released);
             await InvokeAsync(window, "CreateMaintenance");
             var live = (await api.ListAsync<Maintenance>("maintenance?device_id=desktop-router-02")).Where(m => !m.Released).ToArray();
@@ -334,6 +359,7 @@ internal static partial class Program
             Invoke(window, "ApplySnapshot");
             Check(Field<DataGrid>(window, "maintenanceGrid").Items.Cast<Maintenance>().Single(m => m.MaintenanceId == current.MaintenanceId).Released, "late pre-close snapshot cannot resurrect released maintenance");
             Check(!Field<Button>(window, "closeMaintenanceButton").IsEnabled, "released response immediately disables closing historical maintenance");
+            Check(Field<DataGrid>(window,"endpointGrid").Items.Cast<object>().All(r=>r.GetType().GetProperty("CanOpen")!.GetValue(r) is false),"closed history has no launchable channel buttons or hyperlinks");
             Check((await api.GetAsync<Maintenance>($"maintenance/{current.MaintenanceId}")).Released, "close releases the current maintenance before reopen");
             connection.Invalidate();
             await Eventually(() => Task.FromResult(connection.Snapshot.Maintenance.Any(m => m.MaintenanceId == current.MaintenanceId && m.Released)), "repeated open-close cycle synchronizes released state");
@@ -346,7 +372,8 @@ internal static partial class Program
     private static Task<JsonElement> InvokeResult(object instance, string name, params object[] args) => (Task<JsonElement>)Invoke(instance,name,args)!;
     private static void Render(Window window, string name)
     {
-        window.UpdateLayout(); var visual = (FrameworkElement)window.Content;
+        // The Window's visual root includes its client background and content margins, but no native title bar.
+        window.UpdateLayout(); var visual = (FrameworkElement)VisualTreeHelper.GetChild(window, 0);
         var size = new Size(visual.ActualWidth, visual.ActualHeight);
         using (var xps = new System.Windows.Xps.Packaging.XpsDocument(Path.Combine(output, Path.ChangeExtension(name,"xps")), FileAccess.Write))
             System.Windows.Xps.Packaging.XpsDocument.CreateXpsDocumentWriter(xps).Write(visual);

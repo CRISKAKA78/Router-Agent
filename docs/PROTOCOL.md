@@ -1,5 +1,37 @@
 # 路由器探针 TCP 长连接控制协议
 
+## 邻居发现（ADR-056，2026-09-10）
+
+REGISTER新增可选能力 `neighbors_v1`。声明该能力的新Probe支持以下结构化EVENT、两个TASK类型和运行模板 `neighbor_probe`；Server只对支持的当前Probe派发。旧Probe应用含此配置的模板时记录 `unsupported_neighbors`，不静默丢弃此功能；无此配置的模板保持原行为。沿用当前64KiB以上控制帧协商下限。
+
+CONFIG_APPLY中完整template可增加下列字段；同revision重放、ACK与template_generation语义保持。域及采集限制见[邻居发现](NEIGHBOR_DISCOVERY.md)。LAN按ports匹配，broadcast全量，允许同接口两类重叠；没有uplink分类。
+
+```json
+{"neighbor_probe":{"interval_seconds":30,"domains":[{"id":"lan","scope":"lan","interface":"br-lan","ports":["lan1","lan2"]},{"id":"local","scope":"broadcast","interface":"br-lan"}]}}
+```
+
+EVENT（0x20）增加 `event:"neighbors"`，采用完整最新快照，不复用平面metrics：
+
+```json
+{"event":"neighbors","config_revision":1,"age_ms":0,"interval_seconds":30,"limited":false,"domains":[{"id":"local","scope":"broadcast","interface":"br0","status":"ok","reason":"","limited":false,"rows":[{"ip":"192.0.2.2","mac":"02:00:00:00:00:02","port":"lan1","hostname":"","source":"arp+fdb","state":"cached"}]}],"unclassified":[]}
+```
+
+该例对应仅配置一个local域；实际domains需与已应用配置的顺序/ID/scope/interface一致。域status为ok/partial/error，reason可含分号分隔的数据源失败原因。rows按域/IP/MAC去重；ip/port/hostname未知时为空字符串，MAC为规范小写单播六字节。source以 `+` 连接arp/ndp/dhcp/fdb/active_arp证据；state为cached/reachable/lease/mac_only/responded。unclassified内每行额外带实际interface，表示未匹配LAN端口的记录。全局最多256行、行编码最多45000字节、EVENT最多64KiB，截断标记limited。
+
+Server校验当前Session和config_revision后接收整份快照；LAN行还必须匹配配置ports。age_ms上限86400000；sampled_at由Server接收时间减age_ms得到，不信任Probe绝对时间。设备离线或采样超过3倍周期时API标记stale；切换配置/Session不继承旧快照。
+
+```json
+{"task_id":"<原task_id>","type":"neighbor_scan","timeout":30,"params":{"domain_id":"local","cidr":"192.0.2.0/24","config_revision":1}}
+```
+
+Probe检查当前配置、三层以太网接口及其直连IPv4子网，仅接受规范/24～/32 CIDR，最多256地址、16请求/秒、总期限30秒。同一Probe仅一项扫描执行。RESULT沿用已有结构，成功stdout为 `{"requests":254,"responses":3}`（计数仅为示例）；失败stderr为固定原因，例如range_not_on_link、raw_socket_unavailable、scan_busy、configuration_changed、cancelled。
+
+```json
+{"task_id":"<取消task_id>","type":"neighbor_cancel","timeout":30,"params":{"target_task_id":"<原扫描task_id>"}}
+```
+
+取消在Probe任务准入时处理，不等待占用中的扫描worker；使用原缓存幂等规则，成功stdout为stop_requested，仅表示已请求停止，原扫描的RESULT确认结束。配置/控制会话变化及进程退出取消扫描并清空主动响应缓存；响应缓存最多60秒。未新增通用任务取消、消息类型或TCP数据面。
+
 ## 配置应用代次与原生出口（ADR-045，2026-09-09）
 
 当前CONFIG_APPLY载荷为`{revision:uint64>0,template_generation:uint64,template:完整运行模板}`，64KiB上限、消息0x07/0x08、ACK关联、修订隔离保持。新版Probe要求template_generation非null无符号整数；存量目录缺失时Server按0发送。新增字段要求配套Server/Probe更新，不新增消息类型或数据面。
@@ -940,6 +972,8 @@ Phase 0 最终细化已经解决 message_id、reply_to 与 RESPONSE、BINARY 与
 每次新会话 REGISTER_ACK 成功后，Probe 补报全部缓存完成结果，包括旧连接上写成功但没有业务接收确认的结果；排队与运行中 exec 不因 TCP 断开终止，完成后通过可用连接发送。补报不伪造旧 TASK_ACK，不增加 RESULT_ACK 消息。running_tasks 使用既有 HEARTBEAT，不新增 REGISTER 字段。
 
 Server 按 device_id/task_id 接受已派发任务的迟到结果，包括缺少 ACK 或派发结果不确定的任务。未知 task_id、错误 device_id、未派发或已 rejected 的任务不能被 RESULT 改写。重复 RESULT 要求已定义结果字段全部相同（包括 result 对象），不能仅比较 status；对象键顺序无关。相同结果幂等成功，冲突返回 ERROR/INVALID_PAYLOAD，保留首个终态。迟到或重复 ACK 不得把 running 回退为 queued，也不得回退已有终态；完成态 ACK 本身不替代 RESULT。
+
+2026-09-10 未知结果处理修复：完成帧、flags、JSON 及通用 TASK_RESULT 字段校验后，若 Task Service 返回 task not found，Gateway 记录 `ignored=TASK_RESULT`（device_id、session_id、message_id、task_id、reason），刷新合法连接活动时间并继续读取；不返回 ERROR、不新建任务、不恢复旧结果，也不发送 RESULT_ACK。这是对上述“未知任务不能被 RESULT 改写”的实现收敛，避免 Server 重启清空任务表、存活 Probe 重连补报时反复断线；仅更新 Server 即兼容已有 Probe。格式错误、错误设备、未派发/rejected 的已知任务和冲突结果继续按原错误路径处理。Probe 进程内缓存及补报规则保持，跨进程任务持久化/恢复与其他未决错误矩阵不由本次修复展开。验证见 [SERVER_RECONNECT_FIX_VERIFICATION](SERVER_RECONNECT_FIX_VERIFICATION.md)。
 
 每次重发 TASK 必须保持原执行内容，并分别记录 session_id/message_id/task_id。ACK 必须匹配这组三元组，不能跨连接比较裸 message_id。Server 不自动生成替代 task_id，也不根据 boot_id 推断同一 Probe 进程（boot_id 可能属于整机启动）。
 

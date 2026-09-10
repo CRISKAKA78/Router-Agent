@@ -20,12 +20,11 @@ public partial class MainWindow : Window
     private Snapshot snapshot = Snapshot.Empty;
     private string selectedDevice = "";
     private readonly ObservableCollection<ActivityRow> activity = [];
-    private readonly ObservableCollection<QuickProperty> quickProperties = [];
     private WorkspaceConnection? reportedConnection;
     private string reportedConnectionStatus = "未连接";
     private readonly Dictionary<string, TabItem> tabs = [];
     private bool refreshing, working, closing, closed;
-    private bool outputUserSet;
+    private double outputHeight = 112;
     private readonly DispatcherTimer clock = new() { Interval = TimeSpan.FromSeconds(1) };
     private Device? Device => snapshot.Devices.FirstOrDefault(d => d.DeviceId == selectedDevice);
     private bool Writable => connection is { Synchronized: true, Busy: false, Pending: null } && !working;
@@ -36,15 +35,24 @@ public partial class MainWindow : Window
         locations = locationService;
         profilePath = settingsPath; SetResourceReference(StyleProperty, typeof(Window)); InitializeComponent();
         try { profile = File.Exists(profilePath) ? ServerProfile.Load(profilePath) : new() { SshUser = "admin" }; } catch (Exception e) { Log("错误", "读取配置失败：" + e.Message); }
-        Theme.Apply(profile.Theme); ActivityGrid.ItemsSource = activity; QuickProperties.ItemsSource = quickProperties;
+        Theme.Apply(profile.Theme); ApplyTypography(profile.UiFontFamily, profile.UiFontSize); ActivityGrid.ItemsSource = activity; Summary.TemplateButton.Click += QuickTemplateClick;
+        for (var index = 0; index < ActivityGrid.Columns.Count; index++) {
+            var column = (DataGridTextColumn)ActivityGrid.Columns[index];
+            var style = new Style(typeof(TextBlock), Ui.CellTextStyle());
+            if (index < 2) style.Setters.Add(new Setter(TextBlock.ForegroundProperty, new System.Windows.DynamicResourceExtension("Muted")));
+            else style.Setters.Add(new Setter(TextBlock.TextAlignmentProperty, TextAlignment.Left));
+            column.ElementStyle = style;
+        }
         SourceInitialized += (_, _) => Theme.ApplyCaption(this);
         BuildViews();
+        WorkspaceTabs.SizeChanged += (_, _) => {
+            var compact = WorkspaceTabs.ActualWidth < 760 * (double)FindResource("UiFontSize") / 13;
+            foreach (var tab in tabs.Values) tab.Padding = new(compact ? 8 : 22, 12, compact ? 8 : 22, 12);
+        };
         foreach(var column in DevicesGrid.Columns.OfType<DataGridTextColumn>().Where(c=>c.Header?.ToString()!="状态"))column.ElementStyle=Ui.CellTextStyle();
-        foreach(var column in QuickProperties.Columns.OfType<DataGridTextColumn>())column.ElementStyle=Ui.CellTextStyle("ValueTip");
         ApplySnapshot();
         Loaded += AutoConnect;
         PreviewKeyDown += HandleKeys; Closing += OnClosing;
-        SizeChanged += (_, _) => { if (!outputUserSet) { var height = ActualHeight < 760 ? 0 : 170; OutputRow.Height = new(height); OutputSplitterRow.Height = new(height == 0 ? 0 : 4); } };
         clock.Tick += (_, _) => { UpdateMaintenanceClock(); UpdateConnectionHistoryClock(); }; clock.Start();
         SystemEvents.UserPreferenceChanged += SystemThemeChanged;
     }
@@ -53,14 +61,22 @@ public partial class MainWindow : Window
         AddPage("overview", "设备详情", BuildOverview()); DiscoveryTab.Content=BuildDiscoveries(); ConfigureDeviceMenu(); AddPage("maintenance", "远程维护", BuildMaintenance());
         AddPage("files", "文件管理", BuildFiles()); AddPage("config", "配置管理", BuildConfig()); settingsContent = BuildSettings(); AddPage("tools", "仓库工具", BuildTools());
     }
-    private void AddPage(string key, string title, UIElement view) { var tab = new TabItem { Header = title, Tag = key, Content = view }; tabs[key] = tab; WorkspaceTabs.Items.Add(tab); }
+    private void AddPage(string key, string title, UIElement view) {
+        // TabItem owns the content logically, so reset inherited header typography at its root.
+        System.Windows.Documents.TextElement.SetFontWeight(view, FontWeights.Normal);
+        if (view is FrameworkElement content) {
+            content.SetResourceReference(System.Windows.Documents.TextElement.FontSizeProperty, "UiFontSize");
+            content.SetResourceReference(System.Windows.Documents.TextElement.ForegroundProperty, "Text");
+        }
+        var tab = new TabItem { Header = Ui.NavigationHeader(key, title), Tag = key, Content = view }; tabs[key] = tab; WorkspaceTabs.Items.Add(tab);
+    }
     private string Page => (WorkspaceTabs.SelectedItem as TabItem)?.Tag?.ToString() ?? "overview";
     private void Navigate(string page) => WorkspaceTabs.SelectedItem = tabs[page];
     private void Log(string level, string message)
     {
         activity.Add(new(DateTime.Now.ToString("HH:mm:ss"), level, message));
         while (activity.Count > 300) activity.RemoveAt(0);
-        StatusText.Text = message; OutputCaption.Text = $"  /  工作区活动 ({activity.Count})";
+        StatusText.Text = message; OutputCaption.Text = $"工作区活动 ({activity.Count})";
     }
     private void UpdateConnectionStatus()
     {
@@ -73,21 +89,8 @@ public partial class MainWindow : Window
     private void UpdateQuickProperties()
     {
         var device = Device;
-        if (device == null) { if (quickProperties.Count != 0) quickProperties.Clear(); return; }
-        var rows = new[] {
-            new PropertyRow("", "设备名称", device.DeviceName, device.DeviceName == "—" ? "设备未上报名称" : ""),
-            device.Profile?.ModelName is {Length:>0} managedModel?new PropertyRow("设备","设备型号",managedModel):DeviceProperties.Field(device,"model","设备型号",device.Registration.Model),
-            new PropertyRow("","设备ID",device.DeviceId),
-            DeviceProperties.Field(device,"firmware","固件版本",device.Registration.Firmware),
-            DeviceProperties.Uptime(device),
-            new PropertyRow("","出口IP", DeviceProperties.Text(device.SourceIp), string.IsNullOrEmpty(device.SourceIp) ? "服务器未提供连接来源 IP" : "服务器观察到的探针连接来源 IP"),
-            new PropertyRow("","运营商及归属地", SourceLocationSummary(device), Location(device.SourceIp).Reason),
-            new PropertyRow("","探针版本",DeviceProperties.Text(device.Registration.ProbeVersion)),
-            new PropertyRow("","模板版本",AppliedTemplateVersion(device),ConfigState(device.Profile?.ConfigurationState)+"\n"+(device.Profile?.ConfigurationError??"")),
-            new PropertyRow("","最近心跳",Labels.Time(device.Runtime?.ReportedAt),device.Runtime==null?"尚未收到心跳":"") };
-        if(quickProperties.Count==0) foreach(var row in rows)quickProperties.Add(new(row.Name));
-        for(var i=0;i<rows.Length;i++){quickProperties[i].ValueTip=rows[i].ValueTip;quickProperties[i].Value=rows[i].Value;quickProperties[i].UpdateTemplateAction(rows[i].Name=="模板版本"&&HasTemplateUpdate(device),Writable&&device.Managed);}
-
+        Summary.Update(device, Location(device?.SourceIp),
+            device != null && HasTemplateUpdate(device), Writable && device is { Managed: true });
     }
     private async Task Run(string label, Func<Task> action)
     {
@@ -152,8 +155,6 @@ public partial class MainWindow : Window
         try {
             if (!snapshot.Devices.Any(d => d.DeviceId == selectedDevice)) selectedDevice = snapshot.Devices.FirstOrDefault(d=>ExplorerTabs.SelectedIndex==0?d.Managed:d.Profile?.Admission=="pending")?.DeviceId ?? "";
             ApplyDeviceFilter();
-            DeviceTitle.Text = Device?.DisplayName ?? "工作区";
-            DeviceSubtitle.Text = Device == null ? "选择设备以查看属性与操作" : $"{Device.StatusText}   ·   {TelemetryPresentation.Architecture(Device)} / {Device.Registration.Libc}";
             UpdateQuickProperties(); UpdateConnectionStatus();
             CountText.Text = $"设备 {snapshot.Devices.Length}   在线 {snapshot.Devices.Count(d => d.Online)}";
             SyncText.Text = snapshot.FetchedAt is { } fetched ? "同步 " + fetched.ToLocalTime().ToString("HH:mm:ss") : "";
@@ -194,12 +195,15 @@ public partial class MainWindow : Window
         foreach (var button in writes) button.IsEnabled = Writable;
         samplingButton.IsEnabled = Writable && Device is { Managed: true };
         configSubmit.IsEnabled = online && Device?.Registration.Capabilities.Contains("router_config") == true;
-        UpdateMaintenanceClock(); UpdateQuickProperties(); UpdateConnectionHistoryClock();
+        UpdateMaintenanceClock(); UpdateQuickProperties(); UpdateConnectionHistoryClock(); UpdateFiles(); UpdateToolActions(); UpdateTaskDetail();
     }
     private void SystemThemeChanged(object sender, UserPreferenceChangedEventArgs e) { if (profile.Theme == "Default") Dispatcher.BeginInvoke(() => { Theme.Apply("Default"); }); }
     private async Task SetTheme(string theme) { profile = profile with { Theme = theme }; Theme.Apply(theme); await profile.SaveAsync(profilePath); }
     private void HandleKeys(object sender, KeyEventArgs e)
     {
+        if (Keyboard.Modifiers == (ModifierKeys.Control | ModifierKeys.Shift) && e.Key == Key.F && Page == "overview") {
+            inspectorWorkspace.Search.Focus(); inspectorWorkspace.Search.SelectAll(); e.Handled = true; return;
+        }
         if (Keyboard.Modifiers == ModifierKeys.Control) {
             switch (e.Key) {
                 case Key.F: DeviceSearch.Focus(); DeviceSearch.SelectAll(); break;
@@ -209,7 +213,9 @@ public partial class MainWindow : Window
             } e.Handled = true;
         } else if (e.Key == Key.F5) { connection?.Invalidate(); e.Handled = true; }
     }
-    private void ToggleOutput() { outputUserSet = true; var show = OutputRow.Height.Value == 0; OutputRow.Height = new(show ? 170 : 0); OutputSplitterRow.Height = new(show ? 4 : 0); }
+    private void OutputResized(object sender, System.Windows.Controls.Primitives.DragCompletedEventArgs e) { if (OutputRow.ActualHeight > 0) outputHeight = OutputRow.ActualHeight; }
+    private void ToggleOutput() { var show = OutputRow.Height.Value == 0; if (!show) outputHeight = OutputRow.ActualHeight; OutputRow.Height = new(show ? outputHeight : 0); OutputSplitterRow.Height = new(show ? 4 : 0); OutputToggleText.Text = show ? "收起" : "展开"; }
+    private void ShellSizeChanged(object sender, SizeChangedEventArgs e) => ExplorerColumn.MaxWidth = Math.Max(210, e.NewSize.Width - 644);
     private async void OnClosing(object? sender, CancelEventArgs e)
     {
         if (closed) return; e.Cancel = true; if (closing) return;
@@ -233,7 +239,7 @@ public partial class MainWindow : Window
     private void DeviceInspectClick(object sender, RoutedEventArgs e) { if(Device != null) Inspect("设备公开快照", Device); }
     private void DeviceDisconnectClick(object sender, RoutedEventArgs e) => _ = Run("断开设备", DisconnectDevice);
     private void ToggleOutputClick(object sender, RoutedEventArgs e) => ToggleOutput();
-    private void ClearActivityClick(object sender, RoutedEventArgs e) { activity.Clear(); OutputCaption.Text = "  /  工作区活动"; }
+    private void ClearActivityClick(object sender, RoutedEventArgs e) { activity.Clear(); OutputCaption.Text = "工作区活动"; }
     private void ExitClick(object sender, RoutedEventArgs e) => Close();
     private void AboutClick(object sender, RoutedEventArgs e) => MessageBox.Show(this, "Router Workbench\n原生 C# / WPF 设备工程工作区\n\nCtrl+O 连接与设置\nCtrl+F 搜索设备\nCtrl+J 显示 / 隐藏输出\nF5 刷新快照\nCtrl+C 复制表格选中行\n拖动分隔条调整工作区；单击列标题排序。", "快捷键与关于");
     private void RetryClick(object sender, RoutedEventArgs e) => _ = Run("重试原请求", async () => {

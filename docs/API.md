@@ -1,5 +1,23 @@
 # Management Server API
 
+## 邻居发现（ADR-056，2026-09-10）
+
+新增路由均通过Management Application进入Device/Task/Gateway服务，前端不访问连接表。路径前缀 `/api/v1`，响应继续使用data/error信封，写请求需要Idempotency-Key。
+
+| 方法与路径 | 请求与结果 |
+| --- | --- |
+| `GET /devices/{id}/neighbors` | `data:{snapshot:对象或null}`；暂无当前有效配置样本为null，设备不存在404 |
+| `POST /devices/{id}/neighbor-scans` | `{"domain_id":"local","cidr":"192.0.2.0/24","config_revision":1}`；202返回 `{task_id,dispatch_uncertain?}` |
+| `POST /devices/{id}/neighbor-scans/{task_id}/cancel` | 空对象 `{}`；202返回取消任务自己的task_id，原扫描通过 `GET /tasks/{task_id}` 查询终态 |
+
+快照包含config_revision、interval_seconds、sampled_at、stale、limited、domains和unclassified。domains内为id、scope（lan/broadcast）、interface、status、reason、limited、rows；行包含ip/mac/port/hostname/source/state，未匹配行额外含interface。空IP/端口表示未知；不把租约或缓存解释成在线。完整结构与限额见[协议](PROTOCOL.md#邻居发现adr-0562026-09-10)与[功能说明](NEIGHBOR_DISCOVERY.md)。
+
+设备列表/详情DTO增加 `neighbors`（无样本为null），已应用模板时增加 `neighbor_domains`（id/scope/interface/ports/lease_file配置，不含可执行命令）；WPF沿用HTTP快照与WS变更通知。发布模板API增加可选neighbor_probe，当前C#工程8/草稿3可选保存该字段，新建及版本更新均保留；默认未启用不改变旧模板。
+
+扫描要求设备已纳管、在线且声明neighbors_v1，域属于当前已应用配置、revision一致。无能力422 unsupported_capability；离线/未纳管/会话变化或配置冲突409；不存在的设备/任务404；无效域、非规范CIDR、IPv6扫描、/24以外的大网段及非法字段400。范围是否在接口当前直连IPv4子网由Probe检查，失败通过原TASK RESULT返回。取消只接受本设备的neighbor_scan任务，不得取消其他设备或其他类型。
+
+响应不确定重试原路径、字节与Idempotency-Key，不创建替代扫描；原TASK与取消TASK各自查询终态。主动发现结果通过后续快照刷新，不把“任务已提交”解释成已发现设备。
+
 ## 来源 IP 摘要与接口导航（ADR-048，2026-09-09）
 
 WPF所选设备“出口IP”只显示已有`source_ip`，运营商及归属地查询以该地址为目标；它仍表示Server观察到的TCP对端，不改变`egress_ipv4/egress_ipv6`的Probe探测语义，缺失时不互相替代。客户端解析结果不写入Server设备状态。

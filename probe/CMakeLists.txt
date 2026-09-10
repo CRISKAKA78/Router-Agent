@@ -17,6 +17,7 @@ add_library(rmp_probe_core STATIC
     src/client.cpp
     src/system_info.cpp
     src/telemetry.cpp
+    src/neighbors.cpp
     src/egress.cpp
     src/live_config.cpp
     src/switch_probe.cpp
@@ -101,3 +102,8 @@ endif()
 add_executable(switch_probe_tests tests/switch_probe_tests.cpp)
 target_link_libraries(switch_probe_tests rmp_probe_core)
 add_test(NAME switch_probe_tests COMMAND switch_probe_tests)
+
+add_executable(neighbor_tests tests/neighbor_tests.cpp)
+target_link_libraries(neighbor_tests rmp_probe_core)
+add_test(NAME neighbor_tests COMMAND neighbor_tests)
+set_tests_properties(neighbor_tests PROPERTIES TIMEOUT 15)

@@ -61,7 +61,10 @@ public partial class MainWindow
         matched=models.FirstOrDefault(m=>m.ModelId==matched?.ModelId);
         if(connection!=ownerConnection||closing)return;
         var window=new Window {Owner=this,Title="添加设备",Width=650,Height=570,WindowStartupLocation=WindowStartupLocation.CenterOwner};window.SetResourceReference(StyleProperty,typeof(Window));
-        var body=new StackPanel {Margin=new(18)};window.Content=new ScrollViewer {Content=body,VerticalScrollBarVisibility=ScrollBarVisibility.Auto};
+        var root=new DockPanel {Margin=new(16)};window.Content=root;
+        var footer=new StackPanel();var footerBand=new Border {Child=footer,Margin=new(0,12,0,0),Padding=new(0,12,0,0),BorderThickness=new(0,1,0,0)};
+        footerBand.SetResourceReference(Border.BorderBrushProperty,"Line");DockPanel.SetDock(footerBand,Dock.Bottom);root.Children.Add(footerBand);
+        var body=new StackPanel();root.Children.Add(new ScrollViewer {Content=body,VerticalScrollBarVisibility=ScrollBarVisibility.Auto});
         body.Children.Add(Ui.Note($"设备 ID：{d.DeviceId}\n探测型号：{DeviceProperties.Text(d.Registration.Model)}"));
         var name=Ui.Input(d.DisplayName);body.Children.Add(Ui.Labeled("设备名称",name));
         var model=new ComboBox {ItemsSource=new[]{new DeviceModel("","未指定型号",0,[],"")}.Concat(models).ToArray(),SelectedItem=matched};if(matched==null)model.SelectedIndex=0;
@@ -81,8 +84,10 @@ public partial class MainWindow
         var apply=new CheckBox {Content="应用所选模板的当前发布版本",IsChecked=!d.Managed,Margin=new(0,5,0,10)};body.Children.Add(apply);
         if(d.Profile?.BoundTemplate is {} bound)body.Children.Add(Ui.Note($"当前绑定：{bound.Name} · v{bound.Version}。搜索列表展示服务端最新发布版本。"));
         body.Children.Add(Ui.Note("发布新模板不会自动改变本设备。勾选应用后，在线探针同步配置；离线探针下次连接同步。"));
-        var error=Ui.Text("");error.TextWrapping=TextWrapping.Wrap;body.Children.Add(error);
-        var save=Ui.Button("确认纳管",()=>{});body.Children.Add(save);
+        var error=Ui.Text("");error.TextWrapping=TextWrapping.Wrap;error.SetResourceReference(TextBlock.ForegroundProperty,"Error");footer.Children.Add(error);
+        var actions=new StackPanel {Orientation=Orientation.Horizontal,HorizontalAlignment=HorizontalAlignment.Right,Margin=new(0,12,0,0)};footer.Children.Add(actions);
+        var save=Ui.Button("确认纳管",()=>{},true);save.IsDefault=true;save.MinWidth=78;actions.Children.Add(save);
+        actions.Children.Add(new Button {Content="取消",IsCancel=true,MinWidth=78});
         save.Click+=async(_,_)=>{save.IsEnabled=false;try{if(selection.SelectedItem is not ProbeTemplate t)throw new InvalidOperationException("请从搜索结果中选择模板。");if(name.Text.Trim().Length==0)throw new InvalidOperationException("设备名称不能为空。");var intervals=d.Profile?.PropertyIntervals;if(intervals!=null&&(apply.IsChecked==true||t.TemplateId!=d.Profile?.BoundTemplate?.TemplateId))intervals=intervals.Where(p=>t.Properties.ContainsKey(p.Key)).ToDictionary(p=>p.Key,p=>p.Value);await SaveProfile(d,"managed",name.Text.Trim(),(model.SelectedItem as DeviceModel)?.ModelId??"",t.TemplateId,t.Version,apply.IsChecked==true,d.Profile?.Monitoring,intervals);window.Close();if(!d.Managed){refreshing=true;try{ExplorerTabs.SelectedIndex=0;}finally{refreshing=false;}selectedDevice=d.DeviceId;ApplySnapshot();Navigate("overview");}}catch(Exception e){error.Text=e.Message;}finally{save.IsEnabled=true;}};
         window.ShowDialog();
     }
@@ -99,7 +104,7 @@ public partial class MainWindow
         internalPorts=Ui.Table("内部与待核验端口",("名称","Entity",100),("系统接口","A",100),("交换机 / 端口","B",130),("CPU侧关联","C",100),("链路","D",70),("管理状态","E",80),("协商 / 双工","F",130),("用途","G",100));
         portChart=new();
         switchPorts.MinHeight=130;
-        return Ui.Split(switchPorts,portChart,true,1);
+        return Ui.Split(Ui.Page(Ui.Heading("外壳端口"), switchPorts),portChart,true,1);
     }
     private UIElement BuildSystemPorts()
     {

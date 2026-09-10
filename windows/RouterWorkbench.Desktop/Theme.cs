@@ -14,9 +14,9 @@ public static class Theme
         var systemDark = (int?)Registry.GetValue(@"HKEY_CURRENT_USER\Software\Microsoft\Windows\CurrentVersion\Themes\Personalize", "AppsUseLightTheme", 1) == 0;
         IsDark = choice == "Dark" || (choice == "Default" && systemDark);
         string[] colors = IsDark
-            ? ["#1E1F22", "#25262A", "#2B2D31", "#35373D", "#DCDDDF", "#A7ABB4", "#383A40", "#383E48", "#263B53", "#60A5FA", "#102036", "#D78787"]
-            : ["#FFFFFF", "#F5F6F8", "#ECEEF1", "#E2E5E9", "#25282D", "#616974", "#D8DCE2", "#E8ECF2", "#E3EDFA", "#1765C1", "#FFFFFF", "#A83B3B"];
-        string[] names = ["Surface", "Panel", "Chrome", "InputBorder", "Text", "Muted", "Line", "Hover", "Selected", "Accent", "AccentText", "Error"];
+            ? ["#1E1F22", "#25262A", "#2B2D31", "#35373D", "#DCDDDF", "#A7ABB4", "#34363C", "#383E48", "#263B53", "#60A5FA", "#102036", "#D78787", "#7DBB98"]
+            : ["#FFFFFF", "#F4F7FA", "#F4F7FB", "#D7E1EC", "#223650", "#687D96", "#E3EAF2", "#EEF4FB", "#E2F0FF", "#006FE6", "#FFFFFF", "#B43C43", "#149653"];
+        string[] names = ["Surface", "Panel", "Chrome", "InputBorder", "Text", "Muted", "Line", "Hover", "Selected", "Accent", "AccentText", "Error", "Online"];
         for (var i = 0; i < names.Length; i++) {
             var brush = new SolidColorBrush((Color)ColorConverter.ConvertFromString(colors[i])); brush.Freeze(); Application.Current.Resources[names[i]] = brush;
         }

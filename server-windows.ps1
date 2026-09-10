@@ -63,7 +63,7 @@ try {
 
     $serverArguments = @(
         '-listen', '0.0.0.0:9000',
-        '-http-listen', '0.0.0.0:8080',
+        '-http-listen', '0.0.0.0:8888',
         '-repository-dir', $repositoryDirectory,
         '-tunnel-bind', '0.0.0.0',
         '-tunnel-host', 'pcv6.criskaka.com',
@@ -73,7 +73,7 @@ try {
         '-tunnel-port-last', '20199'
     )
     Write-Host "Persistent data: $repositoryDirectory"
-    Write-Host 'Client API: http://pcv6.criskaka.com:8080'
+    Write-Host 'Client API: http://pcv6.criskaka.com:8888'
     Write-Host 'Probe: pcv6.criskaka.com:9000; press Ctrl+C to stop before rebuilding.'
     & $serverExecutable @serverArguments
     exit $LASTEXITCODE

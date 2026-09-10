@@ -59,6 +59,8 @@ for path in sorted((probe / 'src').glob('*.cpp')):
         data = b'#include "rmp/gcc52_compat.h"' + newline + data.replace(b'std::to_string(', b'rmp::Gcc52DecimalString(')
     if b'std::strtoull(' in data:
         data = b'#include <stdlib.h>' + newline + data.replace(b'std::strtoull(', b'::strtoull(')
+    if b'std::snprintf(' in data:
+        data = b'#include <stdio.h>' + newline + data.replace(b'std::snprintf(', b'::snprintf(')
     if path.name == 'file_manager.cpp' and b'#include <stdio.h>' not in data:
         data = b'#include <stdio.h>' + newline + data
     if data != original:

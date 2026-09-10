@@ -1,4 +1,5 @@
 #include "rmp/task.h"
+#include "rmp/neighbors.h"
 
 #include "rmp/json.h"
 
@@ -272,6 +273,7 @@ bool ParseTask(const std::string& input, ExecTask* task, std::string* error) {
         if (task->timeout == 0) { *error="file timeout must be positive"; return false; }
         return ParseFileParams(value->raw_value,task->type,&task->file,error);
     }
+    if(task->type=="neighbor_scan"||task->type=="neighbor_cancel"){return task->timeout==30&&ParseNeighborTask(value->raw_value,task->type=="neighbor_cancel",&task->config);}
     if (task->type == "router_config") {
         if (task->timeout < 1 || task->timeout > 30) { *error="configuration timeout must be 1-30 seconds"; return false; }
         return ParseRouterConfig(value->raw_value, &task->config, error);

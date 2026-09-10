@@ -28,6 +28,7 @@ func (s *Service) ApplyConfiguration(id, session string, revision uint64, t *pro
 		current.ConfigRevision = revision
 		current.ConfigTemplate = copyTemplate(t)
 		current.Telemetry = emptyTelemetry()
+		current.Neighbors = nil
 		for key, p := range t.Properties {
 			current.Telemetry.Template[key] = Metric{Name: p.Name, Unit: MetricUnit(key), Source: "template", Group: "template", Interval: p.Interval, Status: "waiting", SampledAt: time.Time{}}
 		}

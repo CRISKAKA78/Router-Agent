@@ -39,8 +39,8 @@ internal static partial class Program
         }
         string Value(string name, string property = "Value")
         {
-            var row = ((DataGrid)window.FindName("QuickProperties")).Items.Cast<object>().Single(r => r.GetType().GetProperty("Name")!.GetValue(r)?.ToString() == name);
-            return row.GetType().GetProperty(property)!.GetValue(row)?.ToString() ?? "";
+            var value = SummaryValue(window, name == "出口IP" ? "ip" : name == "归属地" ? "place" : "isp");
+            return property == "Value" ? value.Text : value.ToolTip?.ToString() ?? "";
         }
         try
         {
@@ -50,7 +50,7 @@ internal static partial class Program
             Select(device with { DeviceId = "new-source", SourceIp = "8.8.4.4" });
             late.SetResult(Json("{\"success\":true,\"ip\":\"8.8.8.8\",\"country\":\"过期归属地\",\"connection\":{\"isp\":\"旧运营商\"}}"));
             await Field<Task>(window, "locationWork");
-            Check(Value("出口IP") == "8.8.4.4" && Value("运营商及归属地") == "测试运营商 / 测试国家·测试地区", "late lookup from previous device cannot replace current source location");
+            Check(Value("出口IP") == "8.8.4.4" && Value("运营商") == "测试运营商" && Value("归属地") == "测试国家·测试地区", "late lookup cannot replace current source and ISP/place display as independent items");
             Select(device with { SourceIp = "2001:4860:4860::8888" });
             await Field<Task>(window, "locationWork");
             Check(Value("出口IP") == "2001:4860:4860::8888" && Value("运营商及归属地").StartsWith("测试运营商"), "IPv6 server source also produces a single IP and operator/location row");

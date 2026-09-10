@@ -18,6 +18,7 @@ public partial class MainWindow
     private CancellationTokenSource detailsCancel = new();
     private bool detailsRunning, detailsDirty;
     private string lastDetailError = "";
+    private Button saveDownloadButton = null!;
     private UIElement BuildTransfers()
     {
         taskScope = Ui.Combo(["当前设备", "全部设备"]); taskState = Ui.Combo(["全部状态", "执行中", "成功", "失败 / 拒绝"]);
@@ -29,9 +30,10 @@ public partial class MainWindow
         tasksGrid.MouseDoubleClick += (_, _) => { if (task != null) Inspect("任务详情", task); };
         taskEmpty = Ui.Text("当前筛选下没有任务", true); taskEmpty.HorizontalAlignment = HorizontalAlignment.Center; taskEmpty.VerticalAlignment = VerticalAlignment.Top; taskEmpty.Margin = new(10,55,10,0); taskEmpty.IsHitTestVisible = false;
         var list = new Grid(); list.Children.Add(tasksGrid); list.Children.Add(taskEmpty);
-        transferGrid = Ui.Table("传输详情", ("属性", "Name", 150), ("值", "Value", -1));
+        transferGrid = PropertySheet.Create("传输详情");
         taskHeading = Ui.Text("未选择传输", true);taskFooter=Ui.Text("",true);taskFooter.TextWrapping=TextWrapping.Wrap;
-        var detail=Ui.Page(Ui.Bar(Ui.Button("保存已下载文件…",()=>_ = Run("保存下载",SaveCompletedDownload)),taskHeading),transferGrid,Ui.Note(""));
+        saveDownloadButton=Ui.Button("保存已下载文件…",()=>_ = Run("保存下载",SaveCompletedDownload));
+        var detail=Ui.Page(Ui.Bar(saveDownloadButton,taskHeading),transferGrid,Ui.Note(""));
         var footer=(DockPanel)detail;footer.Children.RemoveAt(1);DockPanel.SetDock(taskFooter,Dock.Bottom);footer.Children.Insert(1,taskFooter);
         return Ui.Page(Ui.Bar(taskScope,taskState,taskSearch,Ui.Button("刷新",()=>{connection?.Invalidate();_ = RefreshDetails();})),Ui.Split(list,detail));
     }
@@ -45,6 +47,7 @@ public partial class MainWindow
         var was = refreshing; refreshing = true;
         Ui.SetRows(tasksGrid, rows); tasksGrid.SelectedItem = rows.FirstOrDefault(t => t.TaskId == taskId); refreshing = was;
         taskEmpty.Visibility = rows.Length == 0 ? Visibility.Visible : Visibility.Collapsed;
+        if(transferHistory!=null) transferHistory.Header=$"传输记录（{rows.Length}）";
         UpdateTaskDetail();
     }
     private void ShowCreatedTask(JsonElement response)
@@ -55,6 +58,9 @@ public partial class MainWindow
     }
     private void UpdateTaskDetail()
     {
+        if(saveDownloadButton==null)return;
+        saveDownloadButton.IsEnabled=Writable && Device?.DeviceId==task?.DeviceId && task?.Type=="download" && transfer is {Committed:true,Released:true};
+        saveDownloadButton.ToolTip=saveDownloadButton.IsEnabled?"将所选已完整接收的文件保存到本机":"请选择当前设备已完整接收的下载记录";
         if(task==null){taskHeading.Text=taskId==""?"未选择传输":"正在查询原传输…";taskFooter.Text="";transferGrid.ItemsSource=null;return;}
         taskHeading.Text=task.TypeText+" · "+task.StateText;
         taskFooter.Text=task.Result==null?"等待设备确认结果":task.Result.Status=="success"?"设备已确认完成":task.StateText+" · "+task.Result.Stderr;
@@ -62,7 +68,7 @@ public partial class MainWindow
         if(transfer!=null){facts.Add(new("","文件大小",Labels.Bytes(transfer.Size)));facts.Add(new("","文件接收",transfer.Committed?"完整文件已提交":transfer.Failed?"传输失败":"等待完整文件"));}
         if(operation is {ToolId.Length:>0}){facts.Add(new("","工具",snapshot.Tools.FirstOrDefault(t=>t.ToolId==operation.ToolId)?.Name??operation.ToolId));facts.Add(new("","版本",operation.Version));}
         if(exchange?.TaskId==task.TaskId){facts.Add(new("","设备路径",exchange.RemotePath));facts.Add(new("","本地路径",exchange.LocalPath));facts.Add(new("","本地状态",exchange.Status));}
-        transferGrid.ItemsSource=facts;
+        transferGrid.ItemsSource=facts;TableBehavior.FitPropertyColumns(transferGrid,facts);
     }
     private async Task SaveCompletedDownload()
     {
@@ -99,7 +105,7 @@ public partial class MainWindow
                 var configId = configTaskId;
                 var detail = await c.TrackAsync(() => c.Api.GetAsync<TaskDetail>($"tasks/{Id(configId)}", cancel));
                 if (c == connection && device == selectedDevice && configId == configTaskId && !cancel.IsCancellationRequested)
-                    configOutput.Text = detail.Result == null ? $"{detail.StateText} · 等待最终结果 ({configId})" : $"{detail.StateText} · 退出码 {detail.Result.ExitCode}" + (detail.Result.Truncated ? " · 输出已截断" : "") + "\n" + detail.Result.Stdout + (detail.Result.Stderr == "" ? "" : "\n" + detail.Result.Stderr);
+                    ShowConfigResult(detail);
             }
             lastDetailError = "";
         } catch (OperationCanceledException) { }

@@ -47,6 +47,7 @@ public sealed partial class TemplateCompiler
     {
         var issues = new List<ValidationIssue>();
  ValidatePresentation(project,issues);
+ ValidateNeighbors(project,issues);
         void Check(Action action, TemplateAttribute? row, string field)
         {
             try { action(); }
@@ -107,7 +108,7 @@ public sealed partial class TemplateCompiler
                 issues.Add(new(row.Id, "Input", $"{row.Key} 的 UCI 路径须为 package.section.option"));
         }
         var display = project.Attributes.Where(row => row.Visibility == AttributeVisibility.Display).ToList();
-        if ((display.Count==0 && project.Monitoring is null && project.Presentation is null && project.SwitchProbe is null) || display.Count > 38 || display.Count(row => !Standard.ContainsKey(row.Key)) > 32)
+        if ((display.Count==0 && project.Monitoring is null && project.Presentation is null && project.SwitchProbe is null && project.NeighborProbe is null) || display.Count > 38 || display.Count(row => !Standard.ContainsKey(row.Key)) > 32)
             issues.Add(new(null, "Attributes", "请添加展示属性或内置监控/展示配置；最多 32 个自定义展示属性及 6 个已有字段"));
         return issues;
     }
@@ -203,7 +204,7 @@ public sealed partial class TemplateCompiler
     public RuntimeTemplate Compile(TemplateProject project)
     {
         var analysis = Analyze(project);
-        var output = new RuntimeTemplate { Presentation=project.Presentation?.Copy(),SwitchProbe=project.SwitchProbe?.Copy(),Name = project.Name, Monitoring = project.Monitoring?.Copy() };
+        var output = new RuntimeTemplate { NeighborProbe=project.NeighborProbe?.Copy(),Presentation=project.Presentation?.Copy(),SwitchProbe=project.SwitchProbe?.Copy(),Name = project.Name, Monitoring = project.Monitoring?.Copy() };
         foreach (var row in analysis.Display)
         {
             if (row.Source is not (AttributeSource.Expression or AttributeSource.Rules))

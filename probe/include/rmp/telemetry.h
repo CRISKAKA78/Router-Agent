@@ -1,6 +1,7 @@
 #ifndef RMP_TELEMETRY_H
 #define RMP_TELEMETRY_H
 #include "rmp/collection.h"
+#include "rmp/neighbors.h"
 #include <atomic>
 #include <chrono>
 #include <map>
@@ -21,6 +22,7 @@ Metrics HardwareMetrics(const std::string& root="");
 class SystemSampler {
  public:
  explicit SystemSampler(const std::string& root="",const std::vector<std::string>& names={}):root_(root),names_(names){}
+ std::shared_ptr<Neighbors> NeighborCollector(){std::lock_guard<std::mutex> lock(neighbor_mutex_);if(!neighbors_)neighbors_=std::make_shared<Neighbors>(root_);return neighbors_;}
  Metrics Sample(const std::string& group);
  Metrics SampleSwitch(const std::string&,const std::atomic<bool>*);
  void DisableSwitchCounters();
@@ -42,6 +44,7 @@ class SystemSampler {
  struct Net {std::uint64_t rx,tx;std::string index;std::chrono::steady_clock::time_point at;std::uint64_t start_rx=0,start_tx=0;std::chrono::steady_clock::time_point start;};
  std::map<std::string,Net> networks_;
  std::shared_ptr<PortCounterSampler> ports_;
+ std::mutex neighbor_mutex_;std::shared_ptr<Neighbors> neighbors_;
 };
 // The control thread alone drains coalesced observations and owns wire sends.
 class TelemetryCollector {

@@ -20,6 +20,9 @@ for path in files:
             assert "当前生效" in text and "应用版本" in text and "应用" in text and "取消" in text, f"Incomplete template confirmation: {path}"
         elif path.stem == "tool-deploy":
             assert all(label in text for label in ["工具版本", "目标目录", "目标文件", "确认投放", "取消"]), f"Incomplete tool dialog: {path}"
+        elif path.stem.startswith("font-chart-"):
+            assert all(label in text for label in ["B/s", "接收", "发送", "等待有效速率采样"]), f"Incomplete large-font chart: {path}"
+            assert len(re.findall(r"\d{2}:\d{2}", text)) >= 3 and len(doc[0].get_drawings()) >= 5, f"Missing large-font axes: {path}"
         elif path.stem.startswith("network-chart-"):
             assert "B/s" in text and "接收" in text and "发送" in text, f"Missing chart units or legend: {path}"
             assert len(re.findall(r"\d{2}:\d{2}", text)) >= 6 and len(doc[0].get_drawings()) >= 8, f"Missing chart axes or curves: {path}"

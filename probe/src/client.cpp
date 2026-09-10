@@ -131,7 +131,7 @@ std::string RegisterPayload(const ClientConfig& config) {
         output<<','<<EscapeJsonString(i->first)<<':'<<EscapeJsonString(i->second);
     output << ",\"arch\":" << EscapeJsonString(config.arch)
            << ",\"boot_id\":" << EscapeJsonString(config.boot_id)
-           << ",\"capabilities\":[\"exec\",\"file\",\"tunnel\",\"router_config\",\"telemetry_v2\",\"managed_config_v1\",\"port_counters_v1\"]}";
+           << ",\"capabilities\":[\"exec\",\"file\",\"tunnel\",\"router_config\",\"telemetry_v2\",\"managed_config_v1\",\"port_counters_v1\",\"neighbors_v1\"]}";
     return output.str();
 }
 
@@ -350,7 +350,7 @@ bool HandleOnlineFrames(const std::vector<Frame>& frames,
                 const bool accepted = state != "rejected";
                 std::string reason;
                 if (!parsed) reason = "invalid task payload";
-                else if (task.type != "exec" && task.type != "router_config" && !file) reason = "unsupported task type";
+                else if (task.type != "exec" && task.type != "router_config" && task.type != "neighbor_scan" && task.type != "neighbor_cancel" && !file) reason = "unsupported task type";
                 else if (!accepted) reason = "task capacity exhausted";
                 std::string ack = TaskAckPayload(frame->header.message_id, task.task_id, accepted, reason, state);
                 if (!writer->Send(kTypeTaskAck, kFlagResponse, ack, &outgoing_id)) return false;
@@ -595,6 +595,7 @@ int RunClient(const ClientConfig& initial) {
     sampler.StartHardware(config.monitoring.at("cpu")?config.monitoring.at("cpu"):5);
     CollectFirmware(&config);
     TaskManager task_worker(config.task_workers, config.task_capacity, config.task_cache_bytes, config.file_queue_capacity);
+    task_worker.SetNeighbors(sampler.NeighborCollector());
     const unsigned delays[] = {1, 2, 5, 10, 30};
     std::size_t backoff_index = 0;
     while (true) {

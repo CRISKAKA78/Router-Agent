@@ -342,6 +342,12 @@ func (s *Server) dispatchChecked(active *session, spec task.Spec, requireCurrent
 	if e := s.requireManaged(active.deviceID); e != nil {
 		return 0, e
 	}
+	if spec.Type == "neighbor_scan" || spec.Type == "neighbor_cancel" {
+		if !slices.Contains(active.capabilities, "neighbors_v1") {
+			return 0, routerconfig.ErrUnsupported
+		}
+		requireCurrent = true
+	}
 	if spec.Type == "router_config" {
 		if !supportsRouterConfig(active) {
 			return 0, routerconfig.ErrUnsupported
@@ -634,6 +640,19 @@ func (s *Server) handleConnection(conn net.Conn) {
 					}
 					lastSeen = s.recordActivity(active)
 				case protocol.TypeEvent:
+					var eventName struct {
+						Event string `json:"event"`
+					}
+					_ = json.Unmarshal(frame.Payload, &eventName)
+					if eventName.Event == "neighbors" {
+						n, age, e := parseNeighbors(frame.Payload)
+						if frame.Header.Flags != 0 || e != nil || !slices.Contains(active.capabilities, "neighbors_v1") {
+							return
+						}
+						s.devices.ObserveNeighbors(active.deviceID, active.sessionID, n, time.Now(), age)
+						lastSeen = s.recordActivity(active)
+						continue
+					}
 					group, values, err := parseTelemetry(frame.Payload)
 					if frame.Header.Flags != 0 || err != nil {
 						_ = s.sendError(writer, frame.Header.MessageID, "INVALID_PAYLOAD", "invalid telemetry")
@@ -715,6 +734,15 @@ func (s *Server) handleConnection(conn net.Conn) {
 						return
 					}
 					if err := s.tasks.HandleResult(active.deviceID, result); err != nil {
+						if errors.Is(err, task.ErrTaskNotFound) {
+							// A surviving Probe replays cached results after Server restart.
+							// Do not import unknown tasks or send ERROR: older Probes treat
+							// ERROR as fatal and would replay the same result forever.
+							lastSeen = s.recordActivity(active)
+							s.config.Logger.Printf("ignored=TASK_RESULT device_id=%q session_id=%s message_id=%d task_id=%q reason=task_not_found", active.deviceID, active.sessionID, frame.Header.MessageID, result.TaskID)
+							continue
+						}
+						s.config.Logger.Printf("rejected=TASK_RESULT device_id=%q session_id=%s message_id=%d task_id=%q reason=%q", active.deviceID, active.sessionID, frame.Header.MessageID, result.TaskID, err.Error())
 						_ = s.sendError(writer, frame.Header.MessageID, "INVALID_PAYLOAD", err.Error())
 						return
 					}
@@ -746,6 +774,7 @@ func (s *Server) handleConnection(conn net.Conn) {
 }
 
 func (s *Server) sendError(writer *connectionWriter, replyTo uint64, errorCode, message string) error {
+	s.config.Logger.Printf("response=ERROR remote=%s reply_to=%d code=%s detail=%q", writer.conn.RemoteAddr(), replyTo, errorCode, message)
 	_, err := writer.sendJSON(protocol.TypeError, protocol.FlagResponse, errorResponse{
 		ReplyTo: replyTo,
 		Code:    errorCode,

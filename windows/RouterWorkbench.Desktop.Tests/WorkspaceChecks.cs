@@ -12,8 +12,16 @@ internal static partial class Program
         var devices = (DataGrid)window.FindName("DevicesGrid");
         var device = connection.Snapshot.Devices.Single(d=>d.DeviceId=="managed-ui");
         Check(devices.ContextMenu.Items.Cast<MenuItem>().Select(i=>i.Header.ToString()).SequenceEqual(new[]{"复制","修改设备名…","更新模板…"}),"device context menu has requested operations");
-        devices.ContextMenu.Items.Cast<MenuItem>().First().RaiseEvent(new RoutedEventArgs(MenuItem.ClickEvent));
-        Check(Clipboard.GetText().Contains("managed-ui")&&Clipboard.GetText().Contains(device.DisplayName),"device context copy includes selected device name and identity");
+        string copied;
+        for (var attempt = 0; ; attempt++) {
+            try {
+                devices.ContextMenu.Items.Cast<MenuItem>().First().RaiseEvent(new RoutedEventArgs(MenuItem.ClickEvent));
+                copied = Clipboard.GetText(); break;
+            }
+            // The desktop clipboard is shared with the user's applications; retry only its transient busy error.
+            catch (System.Runtime.InteropServices.COMException error) when (error.HResult == unchecked((int)0x800401D0) && attempt < 4) { await Task.Delay(250); }
+        }
+        Check(copied.Contains("managed-ui")&&copied.Contains(device.DisplayName),"device context copy includes selected device name and identity");
         async Task Submit(string method,string title,string? name=null,string? templateChoice=null,bool cancel=false) {
             var done=new TaskCompletionSource();
             _=window.Dispatcher.BeginInvoke(new Action(async()=>{try{await InvokeAsync(window,method,device);done.SetResult();}catch(Exception error){done.SetException(error);}}));
@@ -36,11 +44,11 @@ internal static partial class Program
         await api.ExecuteAsync(new("更新测试模板","probe-templates/"+templateId,new{version=1,name="更新后的模板",properties=new{signal=new{name="信号",command="printf 95",interval_seconds=7}},presentation=new{fields=new{signal=new{group_id="builtin_resources",order=1}}}},"PUT"));
         connection.Invalidate();
         await Eventually(()=>Task.FromResult(connection.Snapshot.Devices.Single(d=>d.DeviceId==device.DeviceId).Profile?.LatestTemplate?.Version==2),"latest template version appears without applying it");
-        var quick=(DataGrid)window.FindName("QuickProperties");var version=quick.Items.Cast<object>().Single(r=>r.GetType().GetProperty("Name")!.GetValue(r)?.ToString()=="模板版本");
-        Check(version.GetType().GetProperty("HasTemplateUpdate")!.GetValue(version) is true&&version.GetType().GetProperty("Value")!.GetValue(version)?.ToString()=="v1","update icon appears while applied version remains unchanged");
+        var updateButton = ((DeviceSummary)window.FindName("Summary")).TemplateButton;
+        Check(updateButton.Visibility == Visibility.Visible && connection.Snapshot.Devices.Single(d=>d.DeviceId==device.DeviceId).ActiveTemplate?.Version == 1,"update icon appears while applied version remains unchanged");
         device=connection.Snapshot.Devices.Single(d=>d.DeviceId==device.DeviceId);await Submit("UpdateDeviceTemplate","选择设备模板");
         await Eventually(()=>Task.FromResult(connection.Snapshot.Devices.Single(d=>d.DeviceId==device.DeviceId).ActiveTemplate?.Version==2),"template update reflects actual acknowledged version");
-        Check(version.GetType().GetProperty("HasTemplateUpdate")!.GetValue(version) is false,"update icon disappears after latest template applies");
+        Check(updateButton.Visibility == Visibility.Collapsed,"update icon disappears after latest template applies");
         Check(!Field<PropertyRow[]>(window,"propertyRows").Any(r=>r.Key=="session_id"),"session identifier hidden by default");
         await InvokeAsync(window,"RefreshDetails");
         var periods=await api.ListAsync<ConnectionPeriod>("devices/managed-ui/connections");

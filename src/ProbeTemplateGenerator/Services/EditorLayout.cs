@@ -9,7 +9,7 @@ public sealed partial class EditorWorkspace
     public void ConfigureField(string key){PresentationCategory=RouterWorkbench.Display.DevicePresentation.EditCategory(key);Configure(1);}
     private readonly Dictionary<string,string> pendingLayoutKeys = new();
     private PresentationSettings Layout => Project.Presentation ??= new();
-    public void Configure(int tab) { ConfigurationTab=Math.Clamp(tab,0,2); SetStage(0); }
+    public void Configure(int tab) { ConfigurationTab=Math.Clamp(tab,0,3); SetStage(0); }
     public void SetVisible(string key,bool? visible) {
         if(Locked)return;
         var field=Placement(key);field.Visible=visible;Layout.Fields[key]=field;Touch();

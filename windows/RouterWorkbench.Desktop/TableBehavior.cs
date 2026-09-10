@@ -11,12 +11,39 @@ namespace RouterWorkbench.Desktop;
 
 public static class TableBehavior
 {
+    public static readonly DependencyProperty InspectorTableProperty = DependencyProperty.RegisterAttached("InspectorTable", typeof(bool), typeof(TableBehavior), new PropertyMetadata(false));
+    public static void SetInspectorTable(DependencyObject target, bool value) => target.SetValue(InspectorTableProperty, value);
+    public static bool GetInspectorTable(DependencyObject target) => (bool)target.GetValue(InspectorTableProperty);
+    public static readonly DependencyProperty PropertyInsetProperty = DependencyProperty.RegisterAttached("PropertyInset", typeof(double), typeof(TableBehavior), new PropertyMetadata(0d));
+    public static void SetPropertyInset(DependencyObject target, double value) => target.SetValue(PropertyInsetProperty, value);
+    public static double GetPropertyInset(DependencyObject target) => (double)target.GetValue(PropertyInsetProperty);
+    public static readonly DependencyProperty CompactPropertiesProperty = DependencyProperty.RegisterAttached("CompactProperties", typeof(bool), typeof(TableBehavior), new PropertyMetadata(false));
+    public static void SetCompactProperties(DependencyObject target, bool value) => target.SetValue(CompactPropertiesProperty, value);
+    public static bool GetCompactProperties(DependencyObject target) => (bool)target.GetValue(CompactPropertiesProperty);
     private static readonly System.Runtime.CompilerServices.ConditionalWeakTable<DataGrid, HashSet<DataGridColumn>> manualColumns = new();
 
-    public static void FitPropertyColumns(DataGrid grid, IEnumerable<RouterWorkbench.Client.PropertyRow> rows)
+    public static void FitTextColumn(DataGrid grid, int index, string sample, double minimum)
+    {
+        var column = grid.Columns[index];
+        if (manualColumns.GetOrCreateValue(grid).Contains(column)) return;
+        var text = new FormattedText(sample, CultureInfo.CurrentCulture, grid.FlowDirection,
+            new Typeface(grid.FontFamily, grid.FontStyle, grid.FontWeight, grid.FontStretch), grid.FontSize, Brushes.Black, VisualTreeHelper.GetDpi(grid).PixelsPerDip);
+        column.Width = new DataGridLength(Math.Ceiling(Math.Max(minimum, text.WidthIncludingTrailingWhitespace + 24)));
+    }
+
+    public static void FitPropertyColumns(DataGrid grid, IEnumerable<RouterWorkbench.Client.PropertyRow> rows, bool resetAutomaticWidths = false)
     {
         var values = rows.ToArray();
         var manual = manualColumns.GetOrCreateValue(grid);
+        if (GetCompactProperties(grid))
+        {
+            var labelWidth = GetInspectorTable(grid) ? 240 : 148;
+            if (!manual.Contains(grid.Columns[0])) grid.Columns[0].Width = new(Math.Min(labelWidth * grid.FontSize / 13, grid.ActualWidth > 0 ? grid.ActualWidth * (GetInspectorTable(grid) ? .38 : .42) : labelWidth));
+            // Recompute the remaining viewport after a sheet changes its column span.
+            // WPF can retain a star column's previous display width across that reflow.
+            if (!manual.Contains(grid.Columns[1])) grid.Columns[1].Width = new(Math.Max(45, (grid.ActualWidth > 0 ? grid.ActualWidth : 500) - grid.Columns[0].Width.Value - SystemParameters.VerticalScrollBarWidth - GetPropertyInset(grid)));
+            return;
+        }
         var face = new Typeface(grid.FontFamily, grid.FontStyle, grid.FontWeight, grid.FontStretch);
         var dpi = VisualTreeHelper.GetDpi(grid).PixelsPerDip;
         double Measure(string value) => new FormattedText(value.Replace("\r\n", " ").Replace('\n', ' ').Replace('\r', ' '), CultureInfo.CurrentUICulture, grid.FlowDirection, face, grid.FontSize, Brushes.Black, dpi).WidthIncludingTrailingWhitespace + 28;
@@ -25,13 +52,27 @@ public static class TableBehavior
             var column = grid.Columns[i];
             if (manual.Contains(column)) continue;
             var width = Math.Max(Measure(column.Header?.ToString() ?? ""), values.Select(row => Measure(i == 0 ? row.Name : row.Value)).DefaultIfEmpty(0).Max());
-            var existing = column.Width.IsAbsolute ? column.Width.Value : column.MinWidth;
+            var existing = resetAutomaticWidths ? (i == 0 ? 164 : 300) : column.Width.IsAbsolute ? column.Width.Value : column.MinWidth;
             column.Width = new DataGridLength(Math.Ceiling(Math.Max(existing, width)));
         }
     }
     public static readonly DependencyProperty EnabledProperty = DependencyProperty.RegisterAttached("Enabled",typeof(bool),typeof(TableBehavior),new PropertyMetadata(false,Changed));
     public static void SetEnabled(DependencyObject target,bool value)=>target.SetValue(EnabledProperty,value);
     public static bool GetEnabled(DependencyObject target)=>(bool)target.GetValue(EnabledProperty);
+    public static void ResizeColumn(DataGrid grid, DataGridColumn column, double width)
+    {
+        var previous = column.ActualWidth;
+        column.Width = new DataGridLength(Math.Clamp(width, column.MinWidth, column.MaxWidth));
+        manualColumns.GetOrCreateValue(grid).Add(column);
+        if (column.Width.Value < previous - 0.5) EnableWrapping(grid, column);
+    }
+    private static void EnableWrapping(DataGrid grid, DataGridColumn column)
+    {
+        if (column.CellStyle?.Setters.OfType<Setter>().Any(s => s.Property == WrapModeProperty && s.Value is TextWrapping.Wrap) == true) return;
+        var style = new Style(typeof(DataGridCell), column.CellStyle ?? grid.CellStyle ?? (Style)grid.FindResource(typeof(DataGridCell)));
+        style.Setters.Add(new Setter(WrapModeProperty, TextWrapping.Wrap));
+        column.CellStyle = style;
+    }
     public static readonly DependencyProperty WrapModeProperty = DependencyProperty.RegisterAttached("WrapMode",typeof(TextWrapping),typeof(TableBehavior),new FrameworkPropertyMetadata(TextWrapping.NoWrap,FrameworkPropertyMetadataOptions.Inherits));
     public static void SetWrapMode(DependencyObject target,TextWrapping value)=>target.SetValue(WrapModeProperty,value);
     public static TextWrapping GetWrapMode(DependencyObject target)=>(TextWrapping)target.GetValue(WrapModeProperty);
@@ -48,6 +89,7 @@ public static class TableBehavior
                 if(raw is Binding binding && string.IsNullOrEmpty(text.SortMemberPath))text.SortMemberPath=binding.Path?.Path??"";
                 var display=new MultiBinding{Converter=new CellDisplayConverter()};display.Bindings.Add(raw);
                 display.Bindings.Add(new Binding{RelativeSource=new(RelativeSourceMode.Self),Path=new PropertyPath(WrapModeProperty)});
+                if (GetInspectorTable(grid) && raw is Binding { Path.Path: "Value" }) display.Bindings.Add(new Binding("Key"));
                 text.Binding=display;
                 var style=new Style(typeof(TextBlock),text.ElementStyle??Ui.CellTextStyle());
                 var tip=new MultiBinding{Converter=new CellTipConverter()};tip.Bindings.Add(raw);
@@ -67,8 +109,7 @@ public static class TableBehavior
         grid.AddHandler(Thumb.DragCompletedEvent,new DragCompletedEventHandler((_,_)=>{
             if(resizing is {} changed && Math.Abs(changed.ActualWidth-startWidth)>0.5) manualColumns.GetOrCreateValue(grid).Add(changed);
             if(resizing is {} column && column.ActualWidth<startWidth-0.5) {
-                var style=new Style(typeof(DataGridCell),column.CellStyle??(Style)grid.FindResource(typeof(DataGridCell)));
-                style.Setters.Add(new Setter(WrapModeProperty,TextWrapping.Wrap));column.CellStyle=style;
+                EnableWrapping(grid, column);
             }
             resizing=null;
         }),true);
@@ -99,6 +140,8 @@ public static class TableBehavior
 public sealed class CellDisplayConverter:IMultiValueConverter {
     public object Convert(object[] values,Type target,object parameter,CultureInfo culture) {
         var text=values[0]==DependencyProperty.UnsetValue?"":values[0]?.ToString()??"";
+        if (values.Length > 2 && values[2] is "capabilities" && text != "—" && text.Length > 0)
+            return $"{text.Split(',', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries).Length} 项 · 查看完整值";
         return values.Length>1&&values[1] is TextWrapping.Wrap?text:text.Replace("\r\n"," ").Replace('\r',' ').Replace('\n',' ');
     }
     public object[] ConvertBack(object value,Type[] targets,object parameter,CultureInfo culture)=>throw new NotSupportedException();

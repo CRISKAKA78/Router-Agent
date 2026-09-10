@@ -1,5 +1,7 @@
 #include "rmp/task_manager.h"
 #include "rmp/json.h"
+#include "rmp/neighbors.h"
+#include <ctime>
 #include <iostream>
 #include <stdexcept>
 
@@ -28,6 +30,7 @@ TaskManager::TaskManager(unsigned workers, std::size_t capacity, std::size_t byt
 }
 
 TaskManager::~TaskManager() {
+    {std::lock_guard<std::mutex> lock(mutex_);for(auto& item:entries_)*item.second.cancel=true;}
     stop_.store(true);
     condition_.notify_all();
     for (std::size_t i = 0; i < workers_.size(); ++i) workers_[i].join();
@@ -53,7 +56,7 @@ std::string TaskManager::Submit(const ExecTask& task, bool valid,
         for(std::map<std::string,Entry>::const_iterator i=entries_.begin();i!=entries_.end();++i)
             if(i->second.task.file.transfer_id==task.file.transfer_id) return "rejected";
     }
-    if (!valid || (task.type != "exec" && task.type != "router_config" && !file) || entries_.size() >= capacity_ ||
+    if (!valid || (task.type != "exec" && task.type != "router_config" && task.type != "neighbor_scan" && task.type != "neighbor_cancel" && !file) || entries_.size() >= capacity_ ||
         reservation > byte_capacity_ - reserved_bytes_) return "rejected";
     Entry entry;
     entry.task = task;
@@ -62,6 +65,13 @@ std::string TaskManager::Submit(const ExecTask& task, bool valid,
     entries_.insert(std::make_pair(task.task_id, entry));
     reserved_bytes_ += reservation;
     if (fresh) *fresh=true;
+    if(task.type=="neighbor_cancel"){
+        auto target=entries_.find(task.config.at("target_task_id"));ExecResult result;result.task_id=task.task_id;result.started_at=result.finished_at=static_cast<std::uint64_t>(std::time(NULL));
+        bool found=target!=entries_.end()&&target->second.task.type=="neighbor_scan";
+        if(found)*target->second.cancel=true;
+        result.status=found?"success":"failed";result.exit_code=found?0:1;result.stdout_text=found?"stop_requested":"";result.stderr_text=found?"":"scan_not_found";
+        auto& stored=entries_.at(task.task_id);std::string error;BuildTaskResultPayload(result,max_payload,&stored.payload,&error);stored.state=result.status;reserved_bytes_-=max_payload-stored.payload.size();return stored.state;
+    }
     if (file) ++file_count_; else queue_.push_back(task.task_id);
     condition_.notify_one();
     return "queued";
@@ -120,6 +130,7 @@ void TaskManager::Run() {
     while (true) {
         ExecTask task;
         std::uint32_t max_payload;
+        std::shared_ptr<std::atomic<bool>> cancel;
         {
             std::unique_lock<std::mutex> lock(mutex_);
             condition_.wait(lock, [this] { return stop_.load() || Runnable(); });
@@ -130,12 +141,16 @@ void TaskManager::Run() {
             queue_.erase(next);
             if(entry.task.type=="router_config") config_running_=true;
             entry.state = "running";
-            task = entry.task;
+            task = entry.task;cancel=entry.cancel;
             max_payload = entry.max_payload;
             running_.fetch_add(1);
             std::cout << "task_state=RUNNING task_id=" << task.task_id << std::endl;
         }
-        ExecResult result = ExecuteExec(task, &stop_);
+        ExecResult result;
+        if(task.type=="neighbor_scan"){
+            if(neighbors_)result=neighbors_->Scan(task,cancel);
+            else{result.task_id=task.task_id;result.status="failed";result.stderr_text="neighbors_unavailable";result.started_at=result.finished_at=static_cast<std::uint64_t>(std::time(NULL));}
+        }else result=ExecuteExec(task,&stop_);
         std::string payload, error;
         // Valid task IDs and >=1024-byte negotiation guarantee metadata fits.
         if (!BuildTaskResultPayload(result, max_payload, &payload, &error)) {

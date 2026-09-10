@@ -65,6 +65,8 @@ ADR-037 之后只维护新版 WPF 主工作台与 Blazor 模板生成器，旧 R
 
 Desktop.Tests 的 TestProbe 为测试专用协议对端，不进入产品。测试输出 WPF XPS；`windows/RouterWorkbench.Desktop.Tests/render.py` 使用 Python/PyMuPDF 转为 PNG，属于实际控件矢量布局，不等于物理屏幕/DPI 验收。
 
+共享控件迭代可运行 `build/dotnet10/dotnet.exe run --project windows/RouterWorkbench.Desktop.Tests -c Release -- --components build/component-qa` 打开真实WPF样板；将 `--components` 换为 `--component-checks` 可执行输入/选择/弹出层/字体几何专项检查。完整桌面回归也包含这些检查。对验证目录运行 `python windows/RouterWorkbench.Desktop.Tests/component-density.py <验证目录>` 输出100/125/150/200%离屏密度图；它只检查真实WPF矢量在不同栅格密度的表现，不能代替物理显示器或跨屏DPI验收。组件视觉必须以[方案3](design/property-inspector-target.png)和实际程序截图联合比较，规范见[COMPONENT_VISUAL_SPEC](COMPONENT_VISUAL_SPEC.md)。
+
 Linux 测试复用项目外 WSL 2 `RouterAgentTest`，复制当前源码，在 network/devpts namespace 隔离运行；见 [WSL_TEST_ENVIRONMENT](WSL_TEST_ENVIRONMENT.md)。不将工作区 bind mount 进测试 rootfs。完整入口 [tests/verify-phase5.sh](../tests/verify-phase5.sh) 支持 release/asan/race，真实 80/22/23 服务不能占用用户生产端口；缺失运行库如实记录，不降低断言。
 
 当前 WPF 完整闭环包括连接/断线/重连、设备属性与 Session replacement、维护创建/关闭/默认和自定义租期/到期/外部三入口、文件传输与配置结果、API 错误和不确定请求、重复操作与切换/退出释放。通用任务/工具入口已按 ADR-036 移除，其公开 API 与业务集成仍保留。

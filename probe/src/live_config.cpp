@@ -8,7 +8,7 @@ static std::string Ack(std::uint64_t reply,std::uint64_t revision,bool success,c
 LiveTelemetry::LiveTelemetry(const ClientConfig&c,SystemSampler*s):initial_(c),sampler_(s){
  worker_=std::thread(&LiveTelemetry::Run,this);
 }
-LiveTelemetry::~LiveTelemetry(){stop_=true;if(worker_.joinable())worker_.join();collector_.reset();}
+LiveTelemetry::~LiveTelemetry(){stop_=true;if(worker_.joinable())worker_.join();collector_.reset();sampler_->NeighborCollector()->Configure("",0);}
 bool LiveTelemetry::Apply(const std::string&bytes,std::uint64_t reply,std::string*error){
  if(error)error->clear();
  JsonObject root;CollectionTemplate t;std::string why;
@@ -23,7 +23,7 @@ bool LiveTelemetry::Apply(const std::string&bytes,std::uint64_t reply,std::strin
  for(const auto&p:t.monitoring)c.monitoring[p.first]=p.second;
  if(t.has_network_interfaces)c.network_interfaces=t.network_interfaces;
  else c.network_interfaces=initial_.default_network_interfaces;
- c.switch_json=t.switch_json;
+ c.switch_json=t.switch_json;c.neighbor_json=t.neighbor_json;
  pending_=c;pending_bytes_=bytes;pending_revision_=revision;reply_=reply;requested_=true;return true;
 }
 static std::string NonNetworkPlan(const ClientConfig&config){
@@ -48,6 +48,7 @@ void LiveTelemetry::Run(){
     fresh.reset(new TelemetryCollector(next,sampler_));
    }
    std::lock_guard<std::mutex> lock(mutex_);
+   sampler_->NeighborCollector()->Configure(next.neighbor_json,rev);
    collector_=std::move(fresh);applied_=next;revision_=rev;applied_bytes_=bytes;
    ack_=Ack(pending_revision_==rev?reply_:reply,rev,true);
   }
@@ -55,5 +56,5 @@ void LiveTelemetry::Run(){
  }
 }
 bool LiveTelemetry::NextAck(std::string*out){std::lock_guard<std::mutex>l(mutex_);if(ack_.empty())return false;*out=ack_;ack_.clear();ready_=true;return true;}
-bool LiveTelemetry::Next(std::size_t limit,std::string*out){std::lock_guard<std::mutex>l(mutex_);return ready_&&collector_&&collector_->Next(limit,out);}
+bool LiveTelemetry::Next(std::size_t limit,std::string*out){std::lock_guard<std::mutex>l(mutex_);return ready_&&collector_&&(sampler_->NeighborCollector()->Next(limit,out)||collector_->Next(limit,out));}
 }

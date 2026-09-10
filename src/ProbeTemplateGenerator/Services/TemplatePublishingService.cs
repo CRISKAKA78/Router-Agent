@@ -211,7 +211,7 @@ public sealed class TemplatePublishingService(HttpClient http) : IAsyncDisposabl
         if (update && (Target is null || Target.Origin != Origin))
             throw new InvalidOperationException("当前工程未绑定此服务器模板，请另存为新模板或选择更新目标");
         var body = update
-            ? JsonSerializer.Serialize(new UpdateTemplate { Presentation=template.Presentation, SwitchProbe=template.SwitchProbe, Monitoring=template.Monitoring, Name = template.Name, Properties = template.Properties, Version = Target!.Version }, Json)
+            ? JsonSerializer.Serialize(new UpdateTemplate { NeighborProbe=template.NeighborProbe, Presentation=template.Presentation, SwitchProbe=template.SwitchProbe, Monitoring=template.Monitoring, Name = template.Name, Properties = template.Properties, Version = Target!.Version }, Json)
             : JsonSerializer.Serialize(template, Json);
         var request = NewMutation(update ? "更新模板" : "发布新模板", update ? "PUT" : "POST",
             update ? "probe-templates/" + Uri.EscapeDataString(Target!.Id) : "probe-templates", body);

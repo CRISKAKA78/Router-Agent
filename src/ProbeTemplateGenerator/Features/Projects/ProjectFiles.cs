@@ -48,13 +48,13 @@ public sealed class ProjectFiles
             });
         }
         // Invalid/incomplete draft values remain editable; compilation performs semantic validation.
-        return new TemplateProject { Name = file.Name, Attributes = attributes, Presentation=file.Presentation,SwitchProbe=file.SwitchProbe,Monitoring=file.Monitoring };
+        return new TemplateProject { Name = file.Name, Attributes = attributes, Presentation=file.Presentation,NeighborProbe=file.NeighborProbe,SwitchProbe=file.SwitchProbe,Monitoring=file.Monitoring };
     }
 
     public TemplateProject FromTemplate(RuntimeTemplate template)
     {
         var project = TemplateCompiler.EmptyProject();
-        project.Presentation=template.Presentation?.Copy();project.SwitchProbe=template.SwitchProbe?.Copy();
+        project.NeighborProbe=template.NeighborProbe?.Copy();project.Presentation=template.Presentation?.Copy();project.SwitchProbe=template.SwitchProbe?.Copy();
  project.Name = template.Name; project.Monitoring=template.Monitoring?.Copy();
         foreach (var (key, property) in template.Properties)
         {
@@ -76,7 +76,7 @@ public sealed class ProjectFiles
     private static TemplateProject ReadTemplate(ImportedFile file)
     {
         if (file.Name is null || file.Properties is null) throw new InvalidOperationException("不是有效的模板 JSON");
-        var project = new TemplateProject { Name = file.Name,Presentation=file.Presentation,SwitchProbe=file.SwitchProbe,Monitoring=file.Monitoring };
+        var project = new TemplateProject { Name = file.Name,Presentation=file.Presentation,NeighborProbe=file.NeighborProbe,SwitchProbe=file.SwitchProbe,Monitoring=file.Monitoring };
         foreach (var (key, property) in file.Properties)
         {
             if (property?.Name is null || property.Source is not (null or "command" or "nvram" or "uci"))
@@ -98,6 +98,7 @@ public sealed class ProjectFiles
     private sealed class ImportedFile
     {
  [JsonPropertyName("presentation")] public PresentationSettings? Presentation{get;set;}
+ [JsonPropertyName("neighbor_probe")] public NeighborSettings? NeighborProbe{get;set;}
  [JsonPropertyName("switch_probe")] public SwitchSettings? SwitchProbe{get;set;}
         [JsonPropertyName("monitoring")] public MonitoringSettings? Monitoring {get;set;}
         [JsonPropertyName("format")] public string? Format { get; set; }

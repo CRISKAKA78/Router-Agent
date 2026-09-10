@@ -1,0 +1,140 @@
+{
+  "revision": "f1a33bcbe1b133cf36bbb80b2dc7ca935a1011bf",
+  "icons": [
+    {
+      "key": "caret-down",
+      "size": 16,
+      "source": "https://raw.githubusercontent.com/microsoft/fluentui-system-icons/f1a33bcbe1b133cf36bbb80b2dc7ca935a1011bf/assets/Caret%20Down/SVG/ic_fluent_caret_down_16_filled.svg"
+    },
+    {
+      "key": "chevron-down",
+      "size": 16,
+      "source": "https://raw.githubusercontent.com/microsoft/fluentui-system-icons/f1a33bcbe1b133cf36bbb80b2dc7ca935a1011bf/assets/Chevron%20Down/SVG/ic_fluent_chevron_down_16_regular.svg"
+    },
+    {
+      "key": "chevron-right",
+      "size": 16,
+      "source": "https://raw.githubusercontent.com/microsoft/fluentui-system-icons/f1a33bcbe1b133cf36bbb80b2dc7ca935a1011bf/assets/Chevron%20Right/SVG/ic_fluent_chevron_right_16_regular.svg"
+    },
+    {
+      "key": "search",
+      "size": 20,
+      "source": "https://raw.githubusercontent.com/microsoft/fluentui-system-icons/f1a33bcbe1b133cf36bbb80b2dc7ca935a1011bf/assets/Search/SVG/ic_fluent_search_20_regular.svg"
+    },
+    {
+      "key": "dismiss",
+      "size": 20,
+      "source": "https://raw.githubusercontent.com/microsoft/fluentui-system-icons/f1a33bcbe1b133cf36bbb80b2dc7ca935a1011bf/assets/Dismiss/SVG/ic_fluent_dismiss_20_regular.svg"
+    },
+    {
+      "key": "copy",
+      "size": 20,
+      "source": "https://raw.githubusercontent.com/microsoft/fluentui-system-icons/f1a33bcbe1b133cf36bbb80b2dc7ca935a1011bf/assets/Copy/SVG/ic_fluent_copy_20_regular.svg"
+    },
+    {
+      "key": "checkmark",
+      "size": 16,
+      "source": "https://raw.githubusercontent.com/microsoft/fluentui-system-icons/f1a33bcbe1b133cf36bbb80b2dc7ca935a1011bf/assets/Checkmark/SVG/ic_fluent_checkmark_16_regular.svg"
+    },
+    {
+      "key": "subtract",
+      "size": 16,
+      "source": "https://raw.githubusercontent.com/microsoft/fluentui-system-icons/f1a33bcbe1b133cf36bbb80b2dc7ca935a1011bf/assets/Subtract/SVG/ic_fluent_subtract_16_regular.svg"
+    },
+    {
+      "key": "info",
+      "size": 20,
+      "source": "https://raw.githubusercontent.com/microsoft/fluentui-system-icons/f1a33bcbe1b133cf36bbb80b2dc7ca935a1011bf/assets/Info/SVG/ic_fluent_info_20_regular.svg"
+    },
+    {
+      "key": "details",
+      "size": 20,
+      "source": "https://raw.githubusercontent.com/microsoft/fluentui-system-icons/f1a33bcbe1b133cf36bbb80b2dc7ca935a1011bf/assets/Panel%20Left/SVG/ic_fluent_panel_left_20_regular.svg"
+    },
+    {
+      "key": "network",
+      "size": 20,
+      "source": "https://raw.githubusercontent.com/microsoft/fluentui-system-icons/f1a33bcbe1b133cf36bbb80b2dc7ca935a1011bf/assets/Organization/SVG/ic_fluent_organization_20_regular.svg"
+    },
+    {
+      "key": "files",
+      "size": 20,
+      "source": "https://raw.githubusercontent.com/microsoft/fluentui-system-icons/f1a33bcbe1b133cf36bbb80b2dc7ca935a1011bf/assets/Folder/SVG/ic_fluent_folder_20_regular.svg"
+    },
+    {
+      "key": "config",
+      "size": 20,
+      "source": "https://raw.githubusercontent.com/microsoft/fluentui-system-icons/f1a33bcbe1b133cf36bbb80b2dc7ca935a1011bf/assets/Options/SVG/ic_fluent_options_20_regular.svg"
+    },
+    {
+      "key": "tools",
+      "size": 20,
+      "source": "https://raw.githubusercontent.com/microsoft/fluentui-system-icons/f1a33bcbe1b133cf36bbb80b2dc7ca935a1011bf/assets/Box/SVG/ic_fluent_box_20_regular.svg"
+    },
+    {
+      "key": "device",
+      "size": 20,
+      "source": "https://raw.githubusercontent.com/microsoft/fluentui-system-icons/f1a33bcbe1b133cf36bbb80b2dc7ca935a1011bf/assets/Router/SVG/ic_fluent_router_20_regular.svg"
+    },
+    {
+      "key": "cpu",
+      "size": 20,
+      "source": "https://raw.githubusercontent.com/microsoft/fluentui-system-icons/f1a33bcbe1b133cf36bbb80b2dc7ca935a1011bf/assets/Developer%20Board/SVG/ic_fluent_developer_board_20_regular.svg"
+    },
+    {
+      "key": "memory",
+      "size": 16,
+      "source": "https://raw.githubusercontent.com/microsoft/fluentui-system-icons/f1a33bcbe1b133cf36bbb80b2dc7ca935a1011bf/assets/Memory/SVG/ic_fluent_memory_16_regular.svg"
+    },
+    {
+      "key": "storage",
+      "size": 20,
+      "source": "https://raw.githubusercontent.com/microsoft/fluentui-system-icons/f1a33bcbe1b133cf36bbb80b2dc7ca935a1011bf/assets/Hard%20Drive/SVG/ic_fluent_hard_drive_20_regular.svg"
+    },
+    {
+      "key": "runtime",
+      "size": 20,
+      "source": "https://raw.githubusercontent.com/microsoft/fluentui-system-icons/f1a33bcbe1b133cf36bbb80b2dc7ca935a1011bf/assets/Pulse/SVG/ic_fluent_pulse_20_regular.svg"
+    },
+    {
+      "key": "signal",
+      "size": 20,
+      "source": "https://raw.githubusercontent.com/microsoft/fluentui-system-icons/f1a33bcbe1b133cf36bbb80b2dc7ca935a1011bf/assets/Cellular%20Data%201/SVG/ic_fluent_cellular_data_1_20_regular.svg"
+    },
+    {
+      "key": "probe",
+      "size": 20,
+      "source": "https://raw.githubusercontent.com/microsoft/fluentui-system-icons/f1a33bcbe1b133cf36bbb80b2dc7ca935a1011bf/assets/Window%20Console/SVG/ic_fluent_window_console_20_regular.svg"
+    },
+    {
+      "key": "refresh",
+      "size": 20,
+      "source": "https://raw.githubusercontent.com/microsoft/fluentui-system-icons/f1a33bcbe1b133cf36bbb80b2dc7ca935a1011bf/assets/Arrow%20Clockwise/SVG/ic_fluent_arrow_clockwise_20_regular.svg"
+    },
+    {
+      "key": "history",
+      "size": 20,
+      "source": "https://raw.githubusercontent.com/microsoft/fluentui-system-icons/f1a33bcbe1b133cf36bbb80b2dc7ca935a1011bf/assets/History/SVG/ic_fluent_history_20_regular.svg"
+    },
+    {
+      "key": "upload",
+      "size": 20,
+      "source": "https://raw.githubusercontent.com/microsoft/fluentui-system-icons/f1a33bcbe1b133cf36bbb80b2dc7ca935a1011bf/assets/Arrow%20Upload/SVG/ic_fluent_arrow_upload_20_regular.svg"
+    },
+    {
+      "key": "download",
+      "size": 20,
+      "source": "https://raw.githubusercontent.com/microsoft/fluentui-system-icons/f1a33bcbe1b133cf36bbb80b2dc7ca935a1011bf/assets/Arrow%20Download/SVG/ic_fluent_arrow_download_20_regular.svg"
+    },
+    {
+      "key": "arrow-up",
+      "size": 20,
+      "source": "https://raw.githubusercontent.com/microsoft/fluentui-system-icons/f1a33bcbe1b133cf36bbb80b2dc7ca935a1011bf/assets/Arrow%20Up/SVG/ic_fluent_arrow_up_20_regular.svg"
+    },
+    {
+      "key": "file",
+      "size": 20,
+      "source": "https://raw.githubusercontent.com/microsoft/fluentui-system-icons/f1a33bcbe1b133cf36bbb80b2dc7ca935a1011bf/assets/Document/SVG/ic_fluent_document_20_regular.svg"
+    }
+  ]
+}

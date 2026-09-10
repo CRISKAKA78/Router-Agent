@@ -40,6 +40,9 @@ func (a *Server) managedDTO(d device.Snapshot) object {
 	}
 	if t := d.LatestSession.ConfigTemplate; t != nil {
 		out["presentation"] = t.Presentation
+		if t.NeighborProbe != nil {
+			out["neighbor_domains"] = t.NeighborProbe.Domains
+		}
 		out["active_template"] = object{"template_id": t.ID, "name": t.Name, "version": t.Version}
 	}
 	return out

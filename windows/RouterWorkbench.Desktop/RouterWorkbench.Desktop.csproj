@@ -6,5 +6,7 @@
   </PropertyGroup>
   <ItemGroup>
     <ProjectReference Include="../RouterWorkbench.Client/RouterWorkbench.Client.csproj" />
+    <None Update="Assets/Fluent/LICENSE" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
   </ItemGroup>
+  <ItemGroup><InternalsVisibleTo Include="RouterWorkbench.Desktop.Tests" /></ItemGroup>
 </Project>

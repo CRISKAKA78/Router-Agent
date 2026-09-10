@@ -1,5 +1,31 @@
 # 路由器远程运维平台架构基线
 
+## 邻居发现（ADR-056）
+
+Probe的SystemSampler惰性持有进程级Neighbors采集器；其独立有界worker读取内核邻居/FDB、可选租约及厂商只读表，不阻塞控制连接。LiveTelemetry绑定已应用配置修订，TaskManager复用同一采集器执行原生ARP扫描；取消在任务准入时处理。控制会话释放/重配置清空采样并请求停止扫描。无AI逻辑、新数据库或新数据面。
+
+Gateway校验结构化neighbors EVENT与当前Session，Device Service验证域/端口/配置并持有最新快照；Management组合查询/扫描能力，HTTP Adapter只调用Application。WPF NeighborView经公开Client显示LAN下接与本机广播域两页，两份清单可重叠，不推断上级方向。Blazor生成器通过可选neighbor_probe编辑、校验、导入导出和版本发布。规范与使用见[邻居发现](NEIGHBOR_DISCOVERY.md)、ADR-056及API/PROTOCOL对应章节。
+
+## 四个操作工作区（ADR-055，紧凑操作台）
+
+MaintenanceViews、RepositoryViews、DeviceViews中的配置区及ToolWorkspace采用本轮方案1。CompactWorkspace仅复用工具栏和原生Expander，按剩余窗口高度为历史/版本分配空间；不承担业务状态机。DeviceDirectoryView负责文件图标、左对齐名称与选择/加载通知，原RemoteDirectory/FileExchange继续处理目录和传输。维护入口可用性来自现有快照，并保留打开前HTTP复核；配置结果取TaskDetail实际参数，独立于正在编辑的表单。工具选中后才显示版本区，投放沿用原确认与兼容性查询。此节局部取代下方四页布局和文件名称居中说明，ADR-053设备详情与ADR-054组件保持。[方案和验证](COMPACT_WORKSPACE_VERIFICATION.md)。
+
+## 字体与公共控件（ADR-054）
+
+在ADR-053既有结构内，Themes/Controls合并Inputs、Menus、Icons；ControlChrome仅携带图标/搜索外观选项，WorkbenchIcon渲染随源码固定的Fluent原始几何。Typography维护统一字号与完整值行距，默认Microsoft YaHei UI，原用户字体偏好继续由ServerProfile保存。原WPF控件负责输入、选择、菜单、焦点与可访问性，模板不复制业务状态。Desktop.Tests中的组件样板只用于校准和回归，不进入产品导航。规范与证据见[组件视觉规范](COMPONENT_VISUAL_SPEC.md)及[Design QA](../design-qa.md)。
+
+## 设备详情展示布局（ADR-053，方案3）
+
+DeviceSummary 使用现有快照及异步归属结果表达持续摘要，SummaryBlock/FlexibleSummaryPanel 测量文本并分配宽度，不增加数据查询或预先截短地址。DeviceList 只为可见行附加视图序号，使用原 WPF 集合排序，不扩展 Device DTO。
+
+DeviceViews 保留原详情页面及专用视图，PropertyInspectorWorkspace 用页面名称/ID选择器驱动原 TabItem；选项不直接承载 UIElement，避免 WPF 重新挂载页面。PropertySheet 在原模板过滤和排序之后展示单一连续属性表，检索只过滤原 PropertyRow 集合视图。语义类别和完整原值进入所选字段面板，能力值的紧凑摘要不改变源值或复制内容；宽窗口侧边、窄窗口下方停靠。首屏不再构建 SystemOverview 或 PropertySheetColumns，活动条默认收起。WorkbenchIcon、Themes/Controls、Ui、Typography 继续提供既有主题、字体偏好和线性图标。此节取代下方对应旧布局说明；Client、Service、Gateway/Probe 边界及 API/协议不变。唯一视觉目标和验证见根目录 [Design QA](../design-qa.md)。
+
+## 原生 Workbench 展示层（ADR-049）
+
+ADR-050 在该展示层统一表格居中，并以 Typography 动态资源应用本机字体/字号，SettingsView 通过既有 ServerProfile 保存偏好；InputFeedback 只区分鼠标与键盘的焦点提示，不控制业务选择。现有窗口继承资源，属性自动列宽重新测量而手动列宽保持；详见[外观与交互验证](APPEARANCE_INTERACTION_VERIFICATION.md)。
+
+WPF 保留 ADR-048 的主工作区与接口结构。Themes/Controls 和 Ui 统一主工作区、详情、接口三级 Tab、密集列表及表单；PropertySheet 在 PropertyGroups 完成已应用模板过滤和排序之后组织连续阅读小节，存在模板字段展示覆盖时保留原顺序。DeviceViews 沿用稳定 PropertyRow 通知和集合视图，TableBehavior 管理首次完整列宽、无表头列宽手柄、手动换行及像素滚动。外观分组不进入共享字段目录、API 或业务状态机；不引入 UI 框架依赖。验证见 [WORKBENCH_VISUAL_VERIFICATION](WORKBENCH_VISUAL_VERIFICATION.md)。
+
 ## 来源摘要与接口状态（ADR-048）
 
 WPF工作区名称为设备详情、远程维护、文件管理、配置管理、仓库工具。DeviceViews在接口状态内维护外壳端口/系统端口子分组，SamplingView只在末尾同排按钮点击后构建弹窗，保存通过原公开profile API。表单捕获目标设备、连接和资料版本，取消不修改配置，旧设备或连接不接收当前表单操作。

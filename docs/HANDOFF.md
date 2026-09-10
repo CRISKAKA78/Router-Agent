@@ -1,5 +1,21 @@
 # 项目接管手册
 
+2026-09-10 用户已明确授权将当前累计源码、测试和文档提交并推送到 GitHub `CRISKAKA78/Router-Agent` 的 `main`。本次仅整理提交：核对远端基线、文件范围和 `git diff --check`，不重跑全量产品测试；构建包、运行数据和本地配置留在本机。下文各轮“未提交/推送”为当时记录，当前提交号与推送结果以 Git 为准；ARM、sanitizer 和实机验收缺口保持。
+
+2026-09-10 本轮入口为[邻居发现](NEIGHBOR_DISCOVERY.md)与ADR-056：用户明确第二类为本机广播域全部记录，不是上级；不能固化FNR100的LAN1接线。LAN按配置转发端口证据筛选，和broadcast可以重叠。新增各层neighbors模块、Probe Neighbors、WPF NeighborView与生成器NeighborEditor；协议/API使用既有传输与幂等。配套Windows成品、557项WPF/67份布局及其他测试证据、通用模板示例见专项说明。厂商ARM首轮交互认证已进入GCC5.2编译，暴露旧uClibc不导出`std::snprintf`；`scripts/build-probe-gcc52.sh`现仅在远端副本增加`<stdio.h>`并改用`::snprintf`，本地转换/编译/15项CTest通过，真实GCC5.2仍需交互密码复跑。当前生产实例未替换。此前Server重连修复与ADR-053～055展示改动保留，不回退已有工作区，也未提交/推送。
+
+2026-09-10 最新后端修复入口：[Server重连修复验证](SERVER_RECONNECT_FIX_VERIFICATION.md)。Gateway仅在通用RESULT校验通过且Task Service返回ErrTaskNotFound时记录并继续，不发送ERROR、不导入旧任务；其他结果校验保持。不要为处理旧补报清空Probe缓存或恢复跨进程任务。新增gateway孤立结果回归与真实Probe Server实例重建回归，Windows/Linux全量、Go race、14项CTest及隔离EXE通过，C++sanitizer仍缺库。成品 `build/server-reconnect-fix/router-server.exe`，生产Server仍为旧进程；正常关闭后运行 `server-windows.cmd`，无需重启Probe。详细证据见专项记录，无提交推送。桌面入口继续下方ADR-055。
+
+2026-09-10 最新桌面入口为**ADR-055 + ADR-053/054**。本轮四页采用[方案1](design/compact-workspace-target.png)，详情页方案3保持；先读[紧凑工作区验证](COMPACT_WORKSPACE_VERIFICATION.md)和[Design QA](../design-qa.md)。CompactWorkspace复用工具栏/原生历史折叠；DeviceDirectoryView发选择和加载通知；MaintenanceViews复核入口可用性；配置结果绑定TaskDetail参数；ToolWorkspace选择后显示版本。551项回归、62份布局及发布通过，启动`build/windows-desktop-compact/win-x64/RouterWorkbench.exe`。最终原生鼠标/截图复验受桌面会话限制，实际WPF渲染已比较；旧进程/数据保留，无提交推送。下文“最新”为历史轮次。
+
+2026-09-10 最新桌面入口为 **ADR-053/054**。先读[组件视觉规范](COMPONENT_VISUAL_SPEC.md)、[唯一方案3原图](design/property-inspector-target.png)与根目录[Design QA](../design-qa.md)。共享模板位于Themes/Inputs、Menus、Controls；WorkbenchIcon使用Fluent原始几何，默认尺寸必须放依赖属性元数据，避免覆盖模板。Typography统一字体/行距；正文根节点使用Text资源，不能继承选中Tab蓝色。保留PropertyInspectorWorkspace原页面选择、顺序、原始值复制和业务。519项检查、54份布局、16份离屏密度及发布通过；启动 `build/windows-desktop-components/win-x64/RouterWorkbench.exe`，无需重启后端。上一轮组件QA结论已撤回并重新比较；物理多屏DPI与完整读屏未验收，无Git提交/推送。
+
+2026-09-10 最新修复入口：[快照刷新修复验证](SNAPSHOT_REFRESH_FIX_VERIFICATION.md)。Client/Models.cs的DeviceSession.StartedAt/LastSeenAt须保持可空；后端零时间合法返回null，不能改回必填或伪造日期。481项检查与现有后端实际快照同步通过。启动`build/windows-desktop-snapshotfix/win-x64/RouterWorkbench.exe`即可使用，后端无需重启；当前用户实例未替换，未提交/推送。UI仍为ADR-052。
+
+2026-09-09 最新桌面入口为 ADR-052，先读[系统信息层级验证](SYSTEM_INFORMATION_HIERARCHY_VERIFICATION.md)。DeviceSummary/SystemOverview共享SummaryBlock/FlexibleSummaryPanel测量和分配空间；PropertySheet负责四类卡片、完整换行与顺序，Themes定义二级Tab状态。模板显式顺序、原属性对象/操作及业务调用保持。473项检查、47份布局和独立发布通过；成品 `build/windows-desktop-hierarchy/win-x64/RouterWorkbench.exe`。原客户端正常关闭后启动新包；用户实例/配置/数据保留，无提交/推送。物理输入/DPI、厂商设备和发布EXE手工启停限制见专项记录；下文“最新”为历史轮次。
+
+2026-09-09 最新桌面基线为 ADR-049/050，先读[外观与交互验证](APPEARANCE_INTERACTION_VERIFICATION.md)。Themes/Ui 统一居中与状态样式；Typography/SettingsView 保存并应用字体，InputFeedback 区分键盘焦点，TableBehavior 测量字号变化后的自动列宽。连续 PropertySheet、模板排序/过滤和业务链路保持。340 项检查、41 份布局及自包含发布通过；成品 `build/windows-desktop-fonts/win-x64/RouterWorkbench.exe`。用户实例/配置未替换，无提交/推送；物理输入/DPI与发布 EXE 直接启停限制见专项记录。下方“最新”为历史轮次。
+
 2026-09-09最新界面基线为ADR-048，先读[接口工作区验证](INTERFACE_WORKSPACE_VERIFICATION.md)。MainWindow/TelemetryViews负责source_ip摘要及异步归属；DeviceViews收纳接口状态子分组，SamplingView仅构建弹窗并经原profile API保存。306项桌面检查、32份布局及自包含发布通过；最新客户端`build/windows-desktop-interfaces/win-x64/RouterWorkbench.exe`。本机公网归属实查超时，不记作真实解析成功；其余实机限制见专项文档。未替换用户运行实例/数据。本轮源码、测试及文档纳入当前进度提交，按用户追加授权同步GitHub的origin/main；提交号与远端状态通过Git核对，构建包和运行数据留在本机。
 
 2026-09-09已按当前用户授权将累积产品改造和ADR-047提交并推送至`origin/main`（`CRISKAKA78/Router-Agent`），源码提交`810de06be5b145c2a08504fd66589906eff5d405`已由远端查询确认。运行数据、构建包及本地配置未上传；随后文档提交仅同步此事实。下方各轮“未提交/推送”为历史说明，后续接管以Git记录核对最新状态，不推断实机已验收。

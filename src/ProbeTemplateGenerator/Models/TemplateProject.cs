@@ -34,6 +34,7 @@ public sealed class MonitoringSettings
 public sealed class TemplateProject
 {
  [JsonPropertyName("presentation"),JsonIgnore(Condition=JsonIgnoreCondition.WhenWritingNull)] public PresentationSettings? Presentation {get;set;}
+ [JsonPropertyName("neighbor_probe"),JsonIgnore(Condition=JsonIgnoreCondition.WhenWritingNull)] public NeighborSettings? NeighborProbe {get;set;}
  [JsonPropertyName("switch_probe"),JsonIgnore(Condition=JsonIgnoreCondition.WhenWritingNull)] public SwitchSettings? SwitchProbe {get;set;}
     [JsonPropertyName("format")] public string Format { get; set; } = "router-agent-template-project";
     [JsonPropertyName("schema_version")] public int SchemaVersion { get; set; } = 8;
@@ -68,6 +69,7 @@ public sealed class ResultRule
 public class RuntimeTemplate
 {
  [JsonPropertyName("presentation"),JsonIgnore(Condition=JsonIgnoreCondition.WhenWritingNull)] public PresentationSettings? Presentation {get;set;}
+ [JsonPropertyName("neighbor_probe"),JsonIgnore(Condition=JsonIgnoreCondition.WhenWritingNull)] public NeighborSettings? NeighborProbe {get;set;}
  [JsonPropertyName("switch_probe"),JsonIgnore(Condition=JsonIgnoreCondition.WhenWritingNull)] public SwitchSettings? SwitchProbe {get;set;}
     [JsonPropertyName("monitoring"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public MonitoringSettings? Monitoring {get;set;}
     [JsonPropertyName("name")] public string Name { get; set; } = "";

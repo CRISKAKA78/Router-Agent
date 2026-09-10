@@ -14,14 +14,14 @@ public sealed record Metric(string Name, string Value, string Unit, string Statu
 public sealed record DeviceRuntime(long? UptimeSeconds, DateTimeOffset ReportedAt);
 public sealed record Registration(string DeviceId, string Hostname, string Serial, string Model, string Firmware,
     string ProbeVersion, string Arch, string Kernel, string Libc, string BootId, string[] Capabilities);
-public sealed record DeviceSession(string SessionId, Registration Registration, DateTimeOffset StartedAt,
-    DateTimeOffset LastSeenAt, DateTimeOffset? EndedAt, string EndReason, DeviceRuntime? Runtime = null, string? SourceIp = null, Dictionary<string, Metric>? EffectiveMetrics = null)
+public sealed record DeviceSession(string SessionId, Registration Registration, DateTimeOffset? StartedAt,
+    DateTimeOffset? LastSeenAt, DateTimeOffset? EndedAt, string EndReason, DeviceRuntime? Runtime = null, string? SourceIp = null, Dictionary<string, Metric>? EffectiveMetrics = null)
 {
     [JsonIgnore] public string StartedText => Labels.Time(StartedAt);
 }
 public sealed record Device(string DeviceId, Registration Registration, string Status, DeviceSession? CurrentSession,
     DeviceSession? LatestSession, DateTimeOffset? FirstSeenAt, DateTimeOffset? LastSeenAt,
-    DateTimeOffset? LastOnlineAt, DateTimeOffset? LastOfflineAt, long TotalSessions, long EvictedSessions, DeviceRuntime? Runtime = null, string? SourceIp = null, Dictionary<string, Metric>? EffectiveMetrics = null, DeviceProfile? Profile=null, Presentation? Presentation=null, TemplateReference? ActiveTemplate=null, ulong AppliedRevision=0)
+    DateTimeOffset? LastOnlineAt, DateTimeOffset? LastOfflineAt, long TotalSessions, long EvictedSessions, DeviceRuntime? Runtime = null, string? SourceIp = null, Dictionary<string, Metric>? EffectiveMetrics = null, DeviceProfile? Profile=null, Presentation? Presentation=null, TemplateReference? ActiveTemplate=null, ulong AppliedRevision=0, NeighborSnapshot? Neighbors=null, NeighborDomainConfig[]? NeighborDomains=null)
 {
     [JsonIgnore] public string DeviceName => Profile?.Name ?? (string.IsNullOrEmpty(Registration.Hostname) ? "—" : Registration.Hostname);
     [JsonIgnore] public string DisplayName => Profile?.Name ?? (string.IsNullOrEmpty(Registration.Hostname) ? DeviceId : Registration.Hostname);

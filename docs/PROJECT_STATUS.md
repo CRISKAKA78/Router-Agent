@@ -1,5 +1,21 @@
 # 项目状态
 
+2026-09-10 用户已明确授权将当前累计源码、测试和文档提交并推送到 GitHub `CRISKAKA78/Router-Agent` 的 `main`。本次仅整理提交：核对远端基线、文件范围和 `git diff --check`，不重跑全量产品测试；构建包、运行数据和本地配置留在本机。下文各轮“未提交/推送”为当时记录，当前提交号与推送结果以 Git 为准；ARM、sanitizer 和实机验收缺口保持。
+
+2026-09-10 **ADR-056邻居发现已实现**：LAN下接与本机广播域两份清单允许重叠，已按用户纠正取消上级分类；Probe被动读取/限速ARP扫描及取消、Server公开API、WPF两页、生成器配置/发布闭环已接通。Windows/Linux Go、真实Linux Probe完整回归/race、15项CTest、生成器176项/浏览器14组、WPF557项/67份布局及独立发布通过记录见[邻居发现](NEIGHBOR_DISCOVERY.md)。成品为 `build/neighbors/router-server.exe` 和 `build/windows-desktop-neighbors/win-x64/RouterWorkbench.exe`。ARM交互认证后的首轮GCC5.2构建在`std::snprintf`处失败；一键构建的远端副本适配已补为`::snprintf`并通过脚本语法、转换结果、适配后核心编译及原始Probe 15项CTest，真实GCC5.2复跑仍需交互密码。C++sanitizer仍缺库；FNR100未部署新Probe，保留用户生产进程/数据，无Git提交/推送。下方“最新”为历史轮次。
+
+2026-09-10 **Server 重启后 Probe 循环断线已修复**：合法未知 TASK_RESULT 记日志并忽略，保留心跳/新任务，未知任务不重建；只需更新 Server，Probe 保持。旧代码回归已复现 `task not found`。Windows/Linux全量、真实Linux Probe跨Server实例重建及再次重连、Go race、14项CTest与隔离Windows EXE通过；C++sanitizer仍缺库，见[验证](SERVER_RECONNECT_FIX_VERIFICATION.md)。成品 `build/server-reconnect-fix/router-server.exe`；当前生产进程/数据未替换，正常关闭Server后重开 `server-windows.cmd` 生效。未提交/推送。
+
+2026-09-10 **ADR-055紧凑操作台已实现**：本轮方案1覆盖维护、文件、配置、仓库工具；详情页继续ADR-053方案3，组件继续ADR-054。551项桌面回归、62份WPF布局、自包含发布及最终渲染联合对照通过。[验证与限制](COMPACT_WORKSPACE_VERIFICATION.md)、[Design QA](../design-qa.md)。程序`build/windows-desktop-compact/win-x64/RouterWorkbench.exe`已启动并只读同步现有1台在线设备；最终原生鼠标/截图复验被桌面会话错误阻止，未冒充通过。未修改后端或替换旧用户实例，无提交/推送。以下保留各轮历史记录。
+
+2026-09-10 当前桌面视觉基线为 **ADR-053方案3 + ADR-054字体/共享控件校准**：默认微软雅黑UI，统一输入/按钮/下拉/复选/列表/菜单/提示/密码与滚动条，Fluent矢量替代文字和手绘图标；修复模板尺寸被覆盖、正文继承导航蓝色、字重与行距及设备ID宽度。原结构、信息顺序和业务保持。**519项桌面检查、54份WPF布局、16份离屏密度渲染、自包含发布通过**；实际窗口和组件联合对照见根目录[Design QA](../design-qa.md)，规范见[组件视觉规格](COMPONENT_VISUAL_SPEC.md)。成品 `build/windows-desktop-components/win-x64/RouterWorkbench.exe`。上一轮组件视觉通过结论已撤回并重新验收；物理多屏DPI仍未验收。未提交/推送，下方旧产物为历史记录。
+
+2026-09-10 修复会话空时间导致的快照刷新失败：C# Session开始/最后活动时间允许null，与现有API一致。481项桌面检查及独立发布通过，并只读连接用户现有后端确认快照已同步、读到1台设备。最新修复程序为`build/windows-desktop-snapshotfix/win-x64/RouterWorkbench.exe`；ADR-052界面保持，未替换运行实例/数据，未提交推送。[验证记录](SNAPSHOT_REFRESH_FIX_VERIFICATION.md)。
+
+2026-09-09 当前桌面基线为 ADR-052：顶部六项弹性摘要、有边界的二级Tab、系统信息首屏概览与四类语义卡片已完成，长值按真实空间展开/换行。**473项检查、47份WPF布局及自包含发布通过**，见[系统信息层级验证](SYSTEM_INFORMATION_HIERARCHY_VERIFICATION.md)。成品 `build/windows-desktop-hierarchy/win-x64/RouterWorkbench.exe`；整体布局、页面、模板规则和业务/通信保持。用户进程与数据未替换，未提交/推送；物理输入、多屏DPI、厂商设备及发布EXE手工启停仍未验收。ADR-051其余列表/主导航/输出行为保留，下文为此前各轮事实。
+
+2026-09-09 当前桌面视觉基线为 ADR-049/050：Workbench 连续 Inspector 保持，所有表格列居中；设置支持保存字体和字号，修复悬停/首单元格焦点混用选中外观及设备右键异常。340 项桌面检查、41 份 WPF 布局和自包含发布通过，成品 `build/windows-desktop-fonts/win-x64/RouterWorkbench.exe`，见[外观与交互验证](APPEARANCE_INTERACTION_VERIFICATION.md)。五个工作区、模板规则和业务链路保持；物理鼠标/DPI及发布 EXE 直接启停未验收。用户进程/配置保留，未提交或推送。以下为此前各轮事实。
+
 2026-09-09 ADR-048已实现：所选设备拆分出口IP/运营商及归属地，仅以Server的source_ip显示并解析；接口状态包含外壳/系统端口，末尾同排接口采样时间打开弹窗；导航改为设备详情、远程维护、文件管理、配置管理。桌面306项检查、32份WPF布局及自包含发布通过，详见[本轮验证](INTERFACE_WORKSPACE_VERIFICATION.md)。成品为`build/windows-desktop-interfaces/win-x64/RouterWorkbench.exe`；公网归属服务本机实查超时，厂商实机/物理DPI及发布EXE直接启停未验收。未替换用户进程或运行数据。本轮源码、测试及文档纳入当前进度提交；用户已追加授权推送至GitHub的origin/main，构建产物与运行数据不上传。
 
 2026-09-09当前项目源码已按用户授权上传GitHub：`CRISKAKA78/Router-Agent`的main已确认包含源码提交`810de06be5b145c2a08504fd66589906eff5d405`，包含累计产品改造、测试、文档及必要依赖源码，排除运行数据、构建包和本地配置。下文“未提交/推送”为各开发轮次结束时的历史记录。上传前完成提交范围、凭据模式、文件大小及差异检查；保留上游依赖生成文件原有末尾空行。本次没有新增功能或重新执行产品测试，验证事实仍以各专项记录为准。

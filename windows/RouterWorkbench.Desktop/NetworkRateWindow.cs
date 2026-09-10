@@ -63,8 +63,15 @@ public sealed class NetworkRateWindow : Window
     }
 }
 
-internal sealed class RatePlot(RateSeries receive,RateSeries transmit,bool megabits=false) : FrameworkElement
+internal sealed class RatePlot : Control
 {
+    private readonly RateSeries receive, transmit;
+    private readonly bool megabits;
+    private Rect area;
+    public RatePlot(RateSeries receive, RateSeries transmit, bool megabits = false) {
+        this.receive = receive; this.transmit = transmit; this.megabits = megabits;
+        Focusable = false; SetResourceReference(FontSizeProperty, "UiPlotFontSize");
+    }
     private readonly Brush rxBrush=new SolidColorBrush(Color.FromRgb(40,125,225));
     private readonly Brush txBrush=new SolidColorBrush(Color.FromRgb(223,133,35));
     private DateTimeOffset start,end;
@@ -74,12 +81,17 @@ internal sealed class RatePlot(RateSeries receive,RateSeries transmit,bool megab
         var foreground=TryFindResource("Text") as Brush??Brushes.Black;var line=TryFindResource("Line") as Brush??Brushes.Gray;
         dc.DrawRectangle(Brushes.Transparent,null,new Rect(RenderSize));
         end=DateTimeOffset.UtcNow;start=end.AddMinutes(-10);
-        var area=new Rect(82,30,ActualWidth-105,ActualHeight-65);
+        var scale=FontSize/11; area=new Rect(82*scale,30*scale,Math.Max(1,ActualWidth-105*scale),Math.Max(1,ActualHeight-65*scale));
         var max=Math.Max(1,receive.Points.Concat(transmit.Points).Where(p=>p.At>=start&&p.Value.HasValue).Select(p=>p.Value!.Value).DefaultIfEmpty().Max()*1.1);
-        void Text(string text,double x,double y,Brush? brush=null)=>dc.DrawText(new FormattedText(text,CultureInfo.CurrentCulture,FlowDirection.LeftToRight,new Typeface("Segoe UI, Microsoft YaHei UI"),11,brush??foreground,VisualTreeHelper.GetDpi(this).PixelsPerDip),new Point(x,y));
-        Text("● 接收",82,4,rxBrush);Text("● 发送",160,4,txBrush);Text(megabits?"最近10分钟 · Mbps":"最近10分钟 · B/s",250,4);
-        for(var i=0;i<=4;i++){var y=area.Top+area.Height*i/4;dc.DrawLine(new(line,0.5),new(area.Left,y),new(area.Right,y));Text(megabits?(max*(4-i)/4*8/1000000).ToString("0.000",CultureInfo.InvariantCulture):TelemetryPresentation.Size(max*(4-i)/4)+"/s",0,y-7);}
-        for(var i=0;i<=5;i++){var at=start.AddMinutes(i*2);Text(at.ToLocalTime().ToString("HH:mm:ss"),area.Left+area.Width*i/5-23,area.Bottom+10);}
+        FormattedText Format(string text, Brush? brush=null)=>new(text,CultureInfo.CurrentCulture,FlowDirection.LeftToRight,new Typeface(FontFamily,FontStyle,FontWeight,FontStretch),FontSize,brush??foreground,VisualTreeHelper.GetDpi(this).PixelsPerDip);
+        void Text(string text,double x,double y,Brush? brush=null)=>dc.DrawText(Format(text,brush),new Point(x,y));
+        var legend=megabits?"最近10分钟 · Mbps":"最近10分钟 · B/s";
+        Text("● 接收",area.Left,4,rxBrush);Text("● 发送",area.Left+78*scale,4,txBrush);
+        if(250*scale+Format(legend).Width<=ActualWidth)Text(legend,250*scale,4);
+        else {Text(legend,area.Left,FontSize+12);area=new(area.X,area.Y+FontSize+10,area.Width,Math.Max(1,area.Height-FontSize-10));}
+        for(var i=0;i<=4;i++){var y=area.Top+area.Height*i/4;dc.DrawLine(new(line,0.5),new(area.Left,y),new(area.Right,y));Text(megabits?(max*(4-i)/4*8/1000000).ToString("0.000",CultureInfo.InvariantCulture):TelemetryPresentation.Size(max*(4-i)/4)+"/s",0,y-7*scale);}
+        var steps=Math.Clamp((int)(area.Width/(Format("00:00:00").Width+16)),2,5);
+        for(var i=0;i<=steps;i++){var at=start.AddSeconds(600.0*i/steps);var label=at.ToLocalTime().ToString("HH:mm:ss");Text(label,Math.Clamp(area.Left+area.Width*i/steps-Format(label).Width/2,0,Math.Max(0,ActualWidth-Format(label).Width)),area.Bottom+10);}
         void Series(RateSeries data,Brush brush){RatePoint? previous=null;foreach(var point in data.Points){
             if(point.At<start||point.At>end||point.Value==null){previous=null;continue;}
             Point Position(RatePoint p)=>new(area.Left+(p.At-start).TotalSeconds/600*area.Width,area.Bottom-p.Value!.Value/max*area.Height);
@@ -91,8 +103,8 @@ internal sealed class RatePlot(RateSeries receive,RateSeries transmit,bool megab
     }
     protected override void OnMouseMove(System.Windows.Input.MouseEventArgs e)
     {
-        base.OnMouseMove(e);if(ActualWidth<=105)return;
-        var at=start.AddSeconds(Math.Clamp((e.GetPosition(this).X-82)/(ActualWidth-105),0,1)*600);
+        base.OnMouseMove(e);if(area.Width<=0)return;
+        var at=start.AddSeconds(Math.Clamp((e.GetPosition(this).X-area.Left)/area.Width,0,1)*600);
         string Nearest(RateSeries data){var p=data.Points.MinBy(p=>Math.Abs((p.At-at).TotalSeconds));return p==null?"—":p.At.ToLocalTime().ToString("HH:mm:ss")+"  "+(p.Value is {} v?(megabits?(v*8/1000000).ToString("0.000",CultureInfo.InvariantCulture)+" Mbps":TelemetryPresentation.Size(v)+"/s"):"采样中断");}
         ToolTip="接收 "+Nearest(receive)+"\n发送 "+Nearest(transmit);
     }

@@ -1,0 +1,23 @@
+{
+  "name": "邻居发现示例（按实际接口修改）",
+  "properties": {},
+  "neighbor_probe": {
+    "interval_seconds": 30,
+    "domains": [
+      {
+        "id": "lan",
+        "scope": "lan",
+        "interface": "br-lan",
+        "ports": [
+          "lan1",
+          "lan2"
+        ]
+      },
+      {
+        "id": "local",
+        "scope": "broadcast",
+        "interface": "br-lan"
+      }
+    ]
+  }
+}

@@ -27,7 +27,15 @@ func (s *Server) runConfiguration(active *session) {
 			s.mu.Unlock()
 			if applied != p.Configuration.Revision && (sent.Revision != p.Configuration.Revision || time.Since(last) > 10*time.Second) {
 				q := p.Configuration
-				if q.Template.SwitchProbe != nil && q.Template.SwitchProbe.Counters != nil && !slices.Contains(active.capabilities, "port_counters_v1") {
+				if q.Template.NeighborProbe != nil && !slices.Contains(active.capabilities, "neighbors_v1") {
+					if sent.Revision != q.Revision {
+						s.mu.Lock()
+						active.sentConfig = q
+						s.mu.Unlock()
+						s.devices.ApplyConfiguration(active.deviceID, active.sessionID, 0, nil, "unsupported_neighbors")
+					}
+					last = time.Now()
+				} else if q.Template.SwitchProbe != nil && q.Template.SwitchProbe.Counters != nil && !slices.Contains(active.capabilities, "port_counters_v1") {
 					if sent.Revision != q.Revision {
 						s.mu.Lock()
 						active.sentConfig = q

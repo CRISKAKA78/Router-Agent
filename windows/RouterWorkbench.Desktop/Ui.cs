@@ -13,12 +13,14 @@ internal static class Ui
         var block = new TextBlock { Text = text }; if (muted) block.SetResourceReference(TextBlock.ForegroundProperty, "Muted"); return block;
     }
     public static TextBox Input(string value = "", double width = double.NaN) => new() { Text = value, Width = width };
-    public static TextBox Code(string value = "", bool readOnly = false) => new() {
+    public static TextBox Code(string value = "", bool readOnly = false) {
+        var input = new TextBox {
         Text = value, IsReadOnly = readOnly, AcceptsReturn = true, AcceptsTab = true,
-        FontFamily = new FontFamily("Cascadia Mono, Consolas"), FontSize = 12,
         VerticalScrollBarVisibility = ScrollBarVisibility.Auto, HorizontalScrollBarVisibility = ScrollBarVisibility.Auto,
         VerticalContentAlignment = VerticalAlignment.Top, TextWrapping = TextWrapping.NoWrap, BorderThickness = new(0)
-    };
+        };
+        input.SetResourceReference(Control.FontSizeProperty, "UiSmallFontSize"); return input;
+    }
     public static Button Button(string title, Action action, bool primary = false) {
         var button = new Button { Content = title }; if (primary) button.SetResourceReference(FrameworkElement.StyleProperty, "PrimaryButton");
         button.Click += (_, _) => action(); return button;
@@ -26,14 +28,25 @@ internal static class Ui
     public static ComboBox Combo(string[] values, int index = 0, double width = 120) => new() { ItemsSource = values, SelectedIndex = index, Width = width, Margin = new(0,0,8,0) };
     public static Border Bar(params UIElement[] children) {
         var panel = new WrapPanel { Orientation = Orientation.Horizontal };
-        foreach (var child in children) panel.Children.Add(child);
-        var border = new Border { Child = panel, Padding = new(10,6,6,6), BorderThickness = new(0,0,0,1) };
+        foreach (var child in children) { if (child is Button button && button.ReadLocalValue(FrameworkElement.StyleProperty) == DependencyProperty.UnsetValue) button.SetResourceReference(FrameworkElement.StyleProperty, "ToolbarButton"); panel.Children.Add(child); }
+        var border = new Border { Child = panel, Padding = new(8,4,4,4), BorderThickness = new(0,0,0,1) };
         border.SetResourceReference(Border.BackgroundProperty, "Panel"); border.SetResourceReference(Border.BorderBrushProperty, "Line"); return border;
     }
+    public static WrapPanel FormActions(params UIElement[] children) {
+        var panel = new WrapPanel { Margin = new(164,0,0,8) };
+        foreach (var child in children) panel.Children.Add(child);
+        return panel;
+    }
     public static Border Heading(string title) {
-        var text = Text(title); text.FontWeight = FontWeights.SemiBold;
-        var border = new Border { Child = text, Padding = new(10,6,10,6), BorderThickness = new(0,0,0,1) };
-        border.SetResourceReference(Border.BackgroundProperty, "Panel"); border.SetResourceReference(Border.BorderBrushProperty, "Line"); return border;
+        var border = new Border { Child = IconLabel(WorkbenchIcon.ForSection(title), title) };
+        border.SetResourceReference(FrameworkElement.StyleProperty, "SectionHeading"); return border;
+    }
+    public static FrameworkElement IconLabel(string icon, string title) => new StackPanel { Orientation = Orientation.Horizontal,
+        Children = { new WorkbenchIcon { Kind = icon, Margin = new(0,0,7,0) }, new TextBlock { Text = title } } };
+    public static FrameworkElement NavigationHeader(string key, string title) {
+        var header = (StackPanel)IconLabel(key switch { "overview" => "details", "maintenance" => "network", "files" => "files", "config" => "config", _ => "tools" }, title);
+        ((WorkbenchIcon)header.Children[0]).Width = ((WorkbenchIcon)header.Children[0]).Height = 20;
+        return header;
     }
     public static Style CellTextStyle(string? tip = null) {
         var style = new Style(typeof(TextBlock));
@@ -46,7 +59,9 @@ internal static class Ui
     }
     public static DataGrid Table(string name, params (string Title, string Property, double Width)[] columns) {
         var grid = new DataGrid(); AutomationProperties.SetName(grid, name);
-        foreach (var col in columns) grid.Columns.Add(new DataGridTextColumn { Header = col.Title, Binding = new Binding(col.Property), ElementStyle = CellTextStyle(), Width = col.Width < 0 ? new DataGridLength(-col.Width, DataGridLengthUnitType.Star) : new DataGridLength(col.Width), MinWidth = 45 });
+        foreach (var col in columns) {
+            grid.Columns.Add(new DataGridTextColumn { Header = col.Title, Binding = new Binding(col.Property), ElementStyle = CellTextStyle(), Width = col.Width < 0 ? new DataGridLength(-col.Width, DataGridLengthUnitType.Star) : new DataGridLength(col.Width), MinWidth = 45 });
+        }
         return grid;
     }
     public static void SetRows(DataGrid grid, IEnumerable? rows) {
@@ -77,8 +92,11 @@ internal static class Ui
         if (vertical) Grid.SetRow(splitter, 1); else Grid.SetColumn(splitter, 1);
         grid.Children.Add(first); grid.Children.Add(splitter); grid.Children.Add(second); return grid;
     }
-    public static FrameworkElement Labeled(string label, FrameworkElement control) {
-        var panel = new StackPanel { Margin = new(0,0,0,10) }; var text = Text(label, true); text.Margin = new(0,0,0,5); panel.Children.Add(text); panel.Children.Add(control);
+    public static FrameworkElement Labeled(string label, FrameworkElement control, double labelWidth = 164) {
+        var panel = new Grid { Margin = new(0,0,0,8) };
+        panel.ColumnDefinitions.Add(new() { Width = new(labelWidth) }); panel.ColumnDefinitions.Add(new() { Width = new(1, GridUnitType.Star) });
+        var text = Text(label, true); text.TextWrapping = TextWrapping.Wrap; text.Margin = new(0,4,12,0); text.VerticalAlignment = VerticalAlignment.Top;
+        Grid.SetColumn(control, 1); panel.Children.Add(text); panel.Children.Add(control);
         AutomationProperties.SetName(control, label); return panel;
     }
 }
@@ -90,8 +108,9 @@ internal sealed class FormWindow : Window
         SetResourceReference(StyleProperty, typeof(Window));
         Owner = owner; Title = title; Width = 610; MaxHeight = Math.Max(500, SystemParameters.WorkArea.Height - 100);
         SizeToContent = SizeToContent.Height; ResizeMode = ResizeMode.CanResize; WindowStartupLocation = WindowStartupLocation.CenterOwner;
-        var root = new DockPanel { Margin = new(18) }; Content = root;
-        var footer = new StackPanel { Margin = new(0,12,0,0) }; DockPanel.SetDock(footer, Dock.Bottom); root.Children.Add(footer);
+        var root = new DockPanel { Margin = new(16) }; Content = root;
+        var footer = new StackPanel(); var footerBand = new Border { Child = footer, Margin = new(0,12,0,0), Padding = new(0,12,0,0), BorderThickness = new(0,1,0,0) };
+        footerBand.SetResourceReference(Border.BorderBrushProperty, "Line"); DockPanel.SetDock(footerBand, Dock.Bottom); root.Children.Add(footerBand);
         var error = Ui.Text(""); error.TextWrapping = TextWrapping.Wrap; error.SetResourceReference(TextBlock.ForegroundProperty, "Error"); footer.Children.Add(error);
         var actions = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Right, Margin = new(0,10,0,0) }; footer.Children.Add(actions);
         var ok = new Button { Content = "确定", IsDefault = true, MinWidth = 78 }; ok.SetResourceReference(StyleProperty, "PrimaryButton");

@@ -31,8 +31,8 @@ internal static partial class Program
         var grid=Field<DataGrid>(window,"networkMetrics");
         await Eventually(()=>Task.FromResult(grid.Items.Count==1&&((MonitorTableRow)grid.Items[0]).F=="1 MB"),"API flow carries cumulative traffic");
         var row=(MonitorTableRow)grid.Items[0];Check(row.G=="2 MB"&&row.H=="1小时1分钟1秒"&&grid.Columns[^1].Header.ToString()=="更新时间","traffic duration and last update columns");
-        var quick=(DataGrid)window.FindName("QuickProperties");Check(quick.Items.Count==10&&quick.Items[9].GetType().GetProperty("Name")!.GetValue(quick.Items[9])?.ToString()=="最近心跳","selected-device split IP rows, template version and heartbeat order");
-        var devices=(DataGrid)window.FindName("DevicesGrid");Check(devices.Columns.Select(c=>c.Header.ToString()).SequenceEqual(new[]{"设备名","设备ID","状态"}),"device list columns");
+        Check(Field<Dictionary<string,TextBlock>>((DeviceSummary)window.FindName("Summary"), "values").Count == 6 && window.FindName("QuickProperties") == null,"summary has six metadata items plus name and ID, with no duplicate left panel");
+        var devices=(DataGrid)window.FindName("DevicesGrid");Check(devices.Columns.Select(c=>c.Header.ToString()).SequenceEqual(new[]{"序号","设备名","设备ID","状态"}),"device list columns");
         Invoke(window,"OpenNetworkChart",row);var charts=Field<List<NetworkRateWindow>>(window,"networkCharts");Check(charts.Count==1,"double-click action opens interface chart");
         await Task.Delay(100);values[key+"_rx_bytes_per_sec"]=M("接收","4096","bytes_per_sec");await peer.ReportAsync("network",values);
         await Eventually(()=>Task.FromResult(charts[0].Receive.Points.Count(p=>p.Value.HasValue)>=2),"real API samples update chart");

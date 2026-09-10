@@ -362,6 +362,33 @@ try {
   const physical=(await api('probe-templates')).items.find(t=>t.switch_probe?.counters);
   if(physical.switch_probe.counters.rx_field!=='RxGoodByte'||physical.switch_probe.ports[4].display_name!=='WAN')throw Error('Server lost physical profile');
   check('FNR100 profile, exact 64-bit sample preview, invalid counter rejection, layouts, export and real API publication');
+  await tab('模板配置');await tab('邻居发现');
+  await page.getByLabel('启用邻居采集',{exact:true}).check();
+  await page.getByLabel('邻居三层接口',{exact:true}).fill('br0');
+  await page.getByLabel('广播域标识',{exact:true}).fill('local');
+  await page.getByRole('button',{name:'添加广播域',exact:true}).click();
+  await page.getByLabel('广播域标识',{exact:true}).nth(1).fill('lan');
+  await page.getByLabel('邻居分类',{exact:true}).nth(1).selectOption('lan');
+  await page.getByLabel('邻居三层接口',{exact:true}).nth(1).fill('br0');
+  await page.getByLabel('邻居转发端口',{exact:true}).nth(1).fill('lan1,lan2');
+  for(const [width,height,theme] of [[1920,1080,'Light'],[900,760,'Dark']]){
+    await page.setViewportSize({width,height});await page.getByLabel('更多操作').click();await page.getByLabel('外观',{exact:true}).selectOption(theme);
+    await expect(page.locator('html')).toHaveAttribute('data-theme',theme.toLowerCase());
+    await page.locator('.editor-section h3').scrollIntoViewIfNeeded();
+    await page.screenshot({path:resolve(output,`neighbors-${width}-${theme}.png`)});
+    if(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth))throw Error('Neighbor editor overflows viewport');
+  }
+  await tab('导出与发布');
+  const neighbors=await download(()=>page.getByRole('button',{name:'导出运行模板',exact:true}).click());
+  if(neighbors.neighbor_probe.domains[0].scope!=='broadcast'||neighbors.neighbor_probe.domains[1].ports.join(',')!=='lan1,lan2')throw Error('Neighbor configuration missing');
+  await page.getByRole('button',{name:'更新已绑定模板',exact:true}).click();await confirm('更新');
+  await expect.poll(async()=>(await api('probe-templates')).items.find(t=>t.template_id===physical.template_id).version).toBe(2);
+  if((await api('probe-templates')).items.find(t=>t.template_id===physical.template_id).neighbor_probe.domains.length!==2)throw Error('Server lost neighbor domains');
+  const neighborProject=await download(()=>page.keyboard.press('Control+s'));
+  await open(neighborProject);await confirm('替换');await tab('模板配置');await tab('邻居发现');
+  await expect(page.getByLabel('邻居三层接口',{exact:true})).toHaveCount(2);
+  await expect(page.getByLabel('邻居转发端口',{exact:true}).nth(1)).toHaveValue('lan1,lan2');
+  check('neighbor domains share interface, preserve distinct scopes and LAN ports across browser edit, project reload, export and API publication');
   if (errors.length) throw Error('Browser errors: '+errors.join('\n'));
   await writeFile(resolve(output,'browser-results.json'),JSON.stringify({checks,errors},null,2));
   console.log(`PASS ${checks.length} browser scenario groups; no browser errors`);

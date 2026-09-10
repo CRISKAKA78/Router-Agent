@@ -28,7 +28,7 @@ public partial class MainWindow
         DevicesGrid.ContextMenu = menu;
         DevicesGrid.PreviewMouseRightButtonDown += (_, e) => {
             var row = TableBehavior.Ancestor<DataGridRow>(e.OriginalSource as DependencyObject);
-            if (row != null && !row.IsSelected) { DevicesGrid.SelectedItems.Clear(); row.IsSelected = true; }
+            if (row != null && !row.IsSelected) { DevicesGrid.SelectedItem = row.Item; }
         };
     }
 

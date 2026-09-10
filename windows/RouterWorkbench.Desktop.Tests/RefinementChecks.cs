@@ -20,31 +20,36 @@ internal static partial class Program
     }
     private static async Task TableRefinementChecks(MainWindow window)
     {
+        var tabs = Field<TabControl>(window, "overviewTabs"); var selectedTab = tabs.SelectedItem;
+        tabs.SelectedItem = tabs.Items.Cast<TabItem>().First(t => t.Tag?.ToString() == "builtin_resources");
+        window.UpdateLayout();
         var grid=Field<DataGrid>(window,"properties");
         var original=grid.ItemsSource;var width=grid.Columns[1].Width;var cellStyle=grid.Columns[1].CellStyle;
         var longValue=string.Join(" ",Enumerable.Repeat("pgqy 中文完整显示",30))+"\n原始第二行";
         var items=Enumerable.Range(0,100).Select(i=>new PropertyRow("长分组",$"字段 {i:D3}",i==0?longValue:$"第 {i} 项 pgqy"){Key=$"test_{i}",GroupId="test-long"}).ToArray();
         try {
-            grid.ItemsSource=items;TableBehavior.FitPropertyColumns(grid,items);
-            Check(grid.Columns[1].Width.Value>1000,"initial columns fit full values beyond viewport width");
+            var view=new ListCollectionView(items);
+            grid.ItemsSource=view;TableBehavior.FitPropertyColumns(grid,items);
+            Check(grid.Columns.Sum(c => c.Width.Value) <= grid.ActualWidth,"initial Inspector value column fits available sheet width");
             grid.UpdateLayout();await Task.Delay(70);
             var scroll=Visuals<ScrollViewer>(grid).First();scroll.ScrollToTop();grid.UpdateLayout();
             Check(!grid.CanUserSortColumns&&grid.Columns.Count==2,"property table has no sortable or redundant group column");
-            Check(!Visuals<GroupToggleButton>(grid).Any(),"flat property table has no group toggles");
+            Check(grid.HeadersVisibility==DataGridHeadersVisibility.Column&&grid.Items.Groups==null&&!Visuals<GroupToggleButton>(grid).Any(),"continuous inspector has explicit headers and no repeated section containers");
             scroll.ScrollToVerticalOffset(13);grid.UpdateLayout();
             Check(Math.Abs(scroll.VerticalOffset-13)<0.1,"long group scrolls by 13 pixels without jumping to another group");
             scroll.ScrollToVerticalOffset(800);grid.UpdateLayout();
             Check(Visuals<DataGridRow>(grid).Any(r=>r.IsVisible&&r.Item is PropertyRow p&&int.Parse(p.Key[5..]) is >15 and <40),"middle of a group taller than the viewport remains reachable");
+            Check(Visuals<DataGridRow>(grid).Count()<65,"long Inspector section keeps row virtualization");
             var anchor=TableBehavior.Capture(grid);items[0].Value+=" updated";grid.UpdateLayout();TableBehavior.Restore(grid,anchor);grid.UpdateLayout();
             Check(Math.Abs(scroll.VerticalOffset-anchor.Offset)<1,"value refresh preserves pixel scroll position");
             scroll.ScrollToTop();grid.UpdateLayout();
             var text=Visuals<TextBlock>(grid).First(t=>t.Text.StartsWith("pgqy"));
             Check(text.TextWrapping==TextWrapping.NoWrap&&!text.Text.Contains('\n'),"multiline data defaults to one visual line");
             Check(((Binding)grid.Columns[1].ClipboardContentBinding).Path.Path=="Value"&&items[0].Value.Contains('\n'),"copy binding retains original newlines");
-            var columnHeader=Visuals<DataGridColumnHeader>(grid).Single(h=>h.Column==grid.Columns[1]);
-            var thumb=Visuals<Thumb>(columnHeader).Single(t=>t.Name=="PART_RightHeaderGripper");
+            var thumb=Visuals<PropertyColumnThumb>(grid).First(t=>TableBehavior.Ancestor<DataGridCell>(t)?.Column==grid.Columns[1]);
+            var initialWidth=grid.Columns[1].ActualWidth;
             thumb.RaiseEvent(new DragStartedEventArgs(0,0){RoutedEvent=Thumb.DragStartedEvent});
-            grid.Columns[1].Width=190;grid.UpdateLayout();
+            thumb.RaiseEvent(new DragDeltaEventArgs(190-initialWidth,0){RoutedEvent=Thumb.DragDeltaEvent});grid.UpdateLayout();
             thumb.RaiseEvent(new DragCompletedEventArgs(-300,0,false){RoutedEvent=Thumb.DragCompletedEvent});grid.UpdateLayout();await Task.Delay(70);
             var row=Visuals<DataGridRow>(grid).Single(r=>ReferenceEquals(r.Item,items[0]));
             text=Visuals<TextBlock>(row).First(t=>t.Text.StartsWith("pgqy"));
@@ -54,7 +59,7 @@ internal static partial class Program
             Render(window,"long-group-wrapped.png");
             scroll.ScrollToVerticalOffset(37);grid.UpdateLayout();Check(Math.Abs(scroll.VerticalOffset-37)<1,"wrapped tall row supports partial pixel scrolling");
         } finally {
-            grid.Columns[1].Width=width;grid.Columns[1].CellStyle=cellStyle;grid.ItemsSource=original;grid.UpdateLayout();
+            grid.Columns[1].Width=width;grid.Columns[1].CellStyle=cellStyle;grid.ItemsSource=original;grid.UpdateLayout(); tabs.SelectedItem = selectedTab;
         }
     }
 }
