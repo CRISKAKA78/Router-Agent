@@ -1,5 +1,28 @@
 # 路由器探针 TCP 长连接控制协议
 
+## FM160 详细蜂窝 EVENT（ADR-067）
+
+本节为下方身份v1和telemetry v2的兼容扩展，不修改旧事件规则。
+
+- `cellular_probe.details`可选布尔、默认false；true要求telemetry=true及`cellular_details_v1`能力，依旧要求原身份/telemetry能力。非布尔、null或details单独启用拒绝。REGISTER与Server能力查询同时新增该能力。
+- details=true发送`event:"cellular_details"`；顶层/port基本结构和派生字段禁入规则同v2。匹配成功的profile为`fibocom-fm160-details-v1`；未匹配仍为空profile/queries。不接受新profile伪装在旧telemetry事件中；Gateway/Device核对当前会话、已应用配置及details/telemetry组合。
+- queries为**有序24项**：先保留v2八项，随后依次`AT+CBC`、`AT+MTSM?`、`AT+MTSM=1`、`AT+MTSM=6`、`AT+MTSM=7`、`AT+CGATT?`、`AT+CGACT?`、`AT+CGDCONT?`、`AT+CGPADDR`、`AT+CGCONTRDP`、`AT+GTACT?`、`AT+GTACT=?`、`AT+GTCELLLOCK?`、`AT+GTCAINFO?`、`AT+GTCELLINFO?`、`AT+GTCCINFO?`。失败/未执行项仍占固定位置，value为空，status标明原因。
+- 详情事件每项value最多4096字节，身份和旧v2限制不变；Probe串口原始响应也有4096字节边界。保留16候选、当轮15000ms与65536字节/协商帧限制。CA单命令预算3000ms、小区15000ms，其余1500ms；单命令预算仍受整轮剩余时间限制，非24倍累计延长。超时停止后续链，不阻塞控制心跳。
+- MTSM=1/6/7是手册单次测量，受原报告配置检查限制；未知或周期报告保持not_queried。上述等号不构成允许其他设置类命令。GTACT=?只查询支持范围。锁频/小区设置、周期温度报告、主动扫描等均不在白名单。
+- 协议只携带原始结果；展示字段/单位/锁定推导归Device Service。顶层身份ok不表示全部24项成功。详细来源及边界见[验证记录](FM160_DETAILS_VERIFICATION.md)。
+
+## FM160 扩展蜂窝 EVENT v2（ADR-066）
+
+本节局部扩展下方AT身份v1，不修改旧`event:"cellular"`语义。REGISTER新增`cellular_telemetry_v2`，仍声明`cellular_identity_v1`。
+
+- 运行模板`cellular_probe`可新增布尔`telemetry`，省略/false仍是v1；true要求Probe声明两项能力。空对象仍默认30秒，周期10～86400；未知配置键和非布尔telemetry拒绝。
+- true时发送`event:"cellular_telemetry"`，顶层必需键仍为event/config_revision/interval_seconds/age_ms/status/reason/limited/ports。每个port在v1字段基础上**必需**增加`profile`字符串和`queries`数组；未匹配者为`""`与`[]`。不接受Probe提交telemetry、fields、signals、sampled_at、stale等Server派生字段。
+- 唯一当前profile为`fibocom-fm160-v1`，要求身份成功且ATI匹配厂家和FM160-CN。queries恰好按顺序为`AT+CPIN?`、`AT+CCID`、`AT+CIMI`、`AT+COPS?`、`AT+CEREG?`、`AT+C5GREG?`、`AT+CSQ`、`AT+CESQ`。每项结构仍是`{command,status,value}`；状态沿用AtIdentity，value最多1024字节可打印ASCII/换行/Tab，非ok时为空。无查询的尾项明确not_queried。未知profile、额外命令、错误顺序、v1夹带扩展port键均拒绝。
+- 保留16候选上限、每命令1500ms、当轮15000ms、最大65536字节及协商载荷限制。超时停止后续查询，控制心跳线程不等待串口。Gateway/Device继续核对当前Session、已应用config_revision/周期，并要求事件版本与已应用telemetry设置相同；不能用v1结果填充v2配置。
+- Probe仅采集原始响应；字段与物理单位在Device Service归一化。身份成功与各查询成功分开：顶层ok不代表8项全部成功。
+
+真实设备只读证据和未覆盖范围见[FM160验证](FM160_TELEMETRY_VERIFICATION.md)。
+
 ## 串口外部 TCP 注册协议 v1（ADR-063）
 
 这是新串口入口的外部数据协议，**不是Probe控制协议或旧RMT1帧**。`internal/serialauth`已实现并通过隔离测试；产品API、Probe监管和WPF尚未接入，不表示现有Server已开放此端口。

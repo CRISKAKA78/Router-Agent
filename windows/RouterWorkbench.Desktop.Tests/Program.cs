@@ -20,6 +20,7 @@ namespace RouterWorkbench.Desktop.Tests;
 internal static partial class Program
 {
     private static int checks;
+    private static bool cellularOnly;
     private static string output = "";
     private static void Check(bool success, string description) { if (!success) throw new Exception(description); Console.WriteLine("PASS " + description); checks++; }
     private static async Task Eventually(Func<Task<bool>> condition, string description, int milliseconds = 10000) {
@@ -31,6 +32,7 @@ internal static partial class Program
     {
         if (args.FirstOrDefault() == "--directory-shell-command") { Console.Write(RemoteDirectory.Command(args[1])); return 0; }
         if (args.FirstOrDefault() is not ("--components" or "--compact-preview")) RenderOptions.ProcessRenderMode = System.Windows.Interop.RenderMode.SoftwareOnly;
+        cellularOnly = args.Contains("--cellular-checks");
         output = Path.GetFullPath(args.Length > 1 ? args[1] : "build/windows-desktop/verification"); Directory.CreateDirectory(output);
         var app = new Application { ShutdownMode = ShutdownMode.OnExplicitShutdown };
         app.Resources.MergedDictionaries.Add(new ResourceDictionary { Source = new Uri("pack://application:,,,/RouterWorkbench;component/Themes/Controls.xaml") });
@@ -196,6 +198,8 @@ internal static partial class Program
             var props = Field<PropertyRow[]>(window, "propertyRows").ToArray();
             Check(props.Count(p => p.Key.StartsWith("property_") && p.Group == "其他信息" && p.Value != "—") == 30 && props.Count(p => p.Key is "signal" or "wan_ip" && p.Value == "—" && p.ValueTip.Contains("采集")) == 2 && props.Any(p => p.Value.Contains(new string('X', 800))), "all template attributes, failures and full multiline values reach native table");
             await VerifyRuntime(window, connection, peers[1], api);
+            await CellularChecks(window);
+            if (cellularOnly) return;
             await PropertyInspectorChecks(window);
             await DetailsLayoutChecks(window);
             devices.SelectedItem = devices.Items.Cast<Device>().Single(d => d.DeviceId == "desktop-router-03");
@@ -285,7 +289,6 @@ internal static partial class Program
             var afterReplacement=(await api.ListAsync<ConnectionPeriod>("devices/desktop-router-02/connections")).First();Check(beforeReplacement.Id==afterReplacement.Id&&beforeReplacement.OnlineAt==afterReplacement.OnlineAt,"session replacement retains continuous online history via API");
             await api.ExecuteAsync(new("archive version", $"tools/{tool.ToolId}/versions/1.0/archive")); await api.ExecuteAsync(new("archive asset", $"assets/{asset.AssetId}/archive"));
             Check((await api.GetAsync<Asset>($"assets/{asset.AssetId}")).Archived, "archive preserves original identity");
-            await CellularChecks(window);
             await NeighborChecks(window);
             await NeighborInteractionChecks(window,api,connection,controlPort);
             await InvokeAsync(window, "Disconnect"); Check(!connection.Synchronized || connection.Token.IsCancellationRequested, "native disconnect cancels old connection");

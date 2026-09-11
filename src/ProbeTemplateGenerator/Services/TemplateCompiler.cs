@@ -62,6 +62,7 @@ public sealed partial class TemplateCompiler
         Check(() => ValidateText(project.Name, 128, "模板名称"), null, "Name");
         if (project.Name != project.Name.Trim()) issues.Add(new(null, "Name", "模板名称首尾不能有空白"));
         if (project.Attributes.Count>128) issues.Add(new(null, "Attributes", "工程最多128个属性"));
+        if(project.CellularProbe is {Details:true,Telemetry:false}) issues.Add(new(null,"cellular_probe.details","详细采集须同时启用SIM与信号采集"));
         if(project.CellularProbe is {} cellular && cellular.IntervalSeconds is <10 or >86400) issues.Add(new(null,"cellular_probe.interval_seconds","AT 自动探测周期须为10～86400秒"));
         var keys = new HashSet<string>(StringComparer.Ordinal);
         foreach (var row in project.Attributes)

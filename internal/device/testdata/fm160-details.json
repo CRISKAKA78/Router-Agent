@@ -1,0 +1,141 @@
+{
+  "path": "/dev/ttyUSB1",
+  "device_key": "/sys/devices/test/usb1/1-1",
+  "status": "ok",
+  "reason": "",
+  "selected": true,
+  "age_ms": 0,
+  "ati": {
+    "command": "ATI",
+    "status": "ok",
+    "value": "Manufacturer: Fibocom Wireless Inc.\nModel: FM160-CN\nRevision: fixture"
+  },
+  "imei": {
+    "command": "AT+CGSN",
+    "status": "ok",
+    "value": "867123456789012"
+  },
+  "profile": "fibocom-fm160-details-v1",
+  "queries": [
+    {
+      "command": "AT+CPIN?",
+      "status": "ok",
+      "value": "+CPIN: READY"
+    },
+    {
+      "command": "AT+CCID",
+      "status": "ok",
+      "value": "+CCID: 89860000123456789012"
+    },
+    {
+      "command": "AT+CIMI",
+      "status": "ok",
+      "value": "460110000000001"
+    },
+    {
+      "command": "AT+COPS?",
+      "status": "ok",
+      "value": "+COPS: 0,2,\"46011\",11"
+    },
+    {
+      "command": "AT+CEREG?",
+      "status": "ok",
+      "value": "+CEREG: 1,1"
+    },
+    {
+      "command": "AT+C5GREG?",
+      "status": "ok",
+      "value": "+C5GREG: 2,1,\"010203\",\"0000012345\",11,4,\"01.000000\""
+    },
+    {
+      "command": "AT+CSQ",
+      "status": "ok",
+      "value": "+CSQ: 99,99"
+    },
+    {
+      "command": "AT+CESQ",
+      "status": "ok",
+      "value": "+CESQ: 99,99,255,255,255,255,65,74,91"
+    },
+    {
+      "command": "AT+CBC",
+      "status": "ok",
+      "value": "+CBC: 0,3953"
+    },
+    {
+      "command": "AT+MTSM?",
+      "status": "ok",
+      "value": "+MTSM: 0"
+    },
+    {
+      "command": "AT+MTSM=1",
+      "status": "ok",
+      "value": "+MTSM: 38"
+    },
+    {
+      "command": "AT+MTSM=6",
+      "status": "ok",
+      "value": "+MTSM: 42"
+    },
+    {
+      "command": "AT+MTSM=7",
+      "status": "ok",
+      "value": "+MTSM: 40"
+    },
+    {
+      "command": "AT+CGATT?",
+      "status": "ok",
+      "value": "+CGATT: 1"
+    },
+    {
+      "command": "AT+CGACT?",
+      "status": "ok",
+      "value": "+CGACT: 1,1\n+CGACT: 2,1\n+CGACT: 3,0\n+CGACT: 4,0"
+    },
+    {
+      "command": "AT+CGDCONT?",
+      "status": "ok",
+      "value": "+CGDCONT: 1,\"IPV4V6\",\"\",\"192.0.2.1,32.1.13.184.0.0.0.0.0.0.0.0.0.0.0.1\",0,0,0,0,,,,,,,,,\"\",,,,0\n+CGDCONT: 2,\"IPV4V6\",\"IMS\",\"0.0.0.0,32.1.13.184.0.0.0.0.0.0.0.0.0.0.0.2\",0,0,0,0,,,,,,,,,\"\",,,,0\n+CGDCONT: 3,\"IPV4V6\",\"ctwap\",\"0.0.0.0,0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0\",0,0,0,0,,,,,,,,,\"\",,,,0\n+CGDCONT: 4,\"IPV4V6\",\"sos\",\"0.0.0.0,0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0\",0,0,0,1,,,,,,,,,\"\",,,,0"
+    },
+    {
+      "command": "AT+CGPADDR",
+      "status": "ok",
+      "value": "+CGPADDR: 1,\"192.0.2.1\",\"32.1.13.184.0.0.0.0.0.0.0.0.0.0.0.1\"\n+CGPADDR: 2,\"32.1.13.184.0.0.0.0.0.0.0.0.0.0.0.2\"\n+CGPADDR: 3,\"0.0.0.0\",\"0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0\"\n+CGPADDR: 4,\"0.0.0.0\",\"0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0\""
+    },
+    {
+      "command": "AT+CGCONTRDP",
+      "status": "ok",
+      "value": "+CGCONTRDP: 2,2,\"IMS\",\"32.1.13.184.0.0.0.0.0.0.0.0.0.0.0.2.255.255.255.255.255.255.255.255.0.0.0.0.0.0.0.0\",\"254.128.0.0.0.0.0.0.0.0.0.0.0.0.0.1\",\"36.14.0.31.0.1.0.0.0.0.0.0.0.0.0.1\",\"36.14.0.31.0.1.0.0.0.0.0.0.0.0.0.51\",\"36.14.0.248.248.5.0.0.0.0.0.0.0.0.0.4\",\"36.14.0.248.240.5.0.0.0.0.0.0.0.0.0.4\"\n+CGCONTRDP: 1,1,\"ctnet\",\"192.0.2.1.255.255.255.252\",\"192.0.2.2\",\"202.96.128.86\",\"202.96.134.133\",\"0.0.0.0\",\"0.0.0.0\"\n+CGCONTRDP: 1,1,\"ctnet\",\"32.1.13.184.0.0.0.0.0.0.0.0.0.0.0.1.255.255.255.255.255.255.255.255.0.0.0.0.0.0.0.0\",\"254.128.0.0.0.0.0.0.0.0.0.0.0.0.0.1\",\"36.14.0.31.0.1.0.0.0.0.0.0.0.0.0.1\",\"36.14.0.31.0.1.0.0.0.0.0.0.0.0.0.51\",\"0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0\",\"0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0\""
+    },
+    {
+      "command": "AT+GTACT?",
+      "status": "ok",
+      "value": "+GTACT: 20,6,3,1,5,8,101,103,105,108,134,138,139,140,141,501,505,508,5028,5041,5077,5078,5079"
+    },
+    {
+      "command": "AT+GTACT=?",
+      "status": "ok",
+      "value": "+GTACT: (1,2,4,10,14,16,17,20),(2,3,6),(2,3,6),(),(1,5,8),(101,103,105,108,134,138,139,140,141),(),(),(501,505,508,5028,5041,5077,5078,5079)"
+    },
+    {
+      "command": "AT+GTCELLLOCK?",
+      "status": "ok",
+      "value": "+GTCELLLOCK: 0"
+    },
+    {
+      "command": "AT+GTCAINFO?",
+      "status": "ok",
+      "value": "+GTCAINFO:\nPCC: 5078,C6,99240,500,1,,1,3,73"
+    },
+    {
+      "command": "AT+GTCELLINFO?",
+      "status": "ok",
+      "value": "+GTCELLINFO: 0"
+    },
+    {
+      "command": "AT+GTCCINFO?",
+      "status": "ok",
+      "value": "+GTCCINFO:\nNR service cell:\n1,9,460,11,010203,0000012345,99240,C6,5078,100,91,74,74,67\nNR neighbor cell:\n2,9,,,,,99240,1AC,,56,56,65\n2,9,,,,,99240,7C,,45,45,51"
+    }
+  ]
+}

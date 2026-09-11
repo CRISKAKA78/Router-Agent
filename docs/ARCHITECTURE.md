@@ -1,5 +1,13 @@
 # 路由器远程运维平台架构基线
 
+## 蜂窝模块适配边界（ADR-066/067）
+
+`统一模板（telemetry/details开关/周期） → Probe USB分组与ATI实际身份 → 内置只读命令规则 → Gateway白名单/会话/配置校验 → Device Service字段与物理单位归一化 → 公开API/WS → WPF属性与三图`。
+
+下方ADR-060的通用身份架构继续作为v1。首个扩展规则为FM160-CN，未知模块回退通用身份；同型号路由器不绑定同一模组。Probe每轮重新识别，不实现身份缓存/热更新规则，UART采集仍独立后台运行且不承载控制流。Server不自行打开串口，不把解析逻辑复制到Client/HTTP Adapter。生成器只编辑意图与能力门禁，WPF只消费统一数据。具体契约见PROTOCOL/API，真实支持范围见[FM160验证](FM160_TELEMETRY_VERIFICATION.md)。
+
+详情仍复用同一采集worker及只读快照服务，通过独立details能力/事件保护旧版本。Server的`cellular_fm160_details.go`集中处理小区、PDP、载波、单次温度和锁定配置投影，字段名/分组/来源由Server派生；WPF仅负责展示和有界趋势。锁定配置读取不是设备写控制服务，没有新增数据面或任意AT入口。手册与实机变体边界见[详细验证](FM160_DETAILS_VERIFICATION.md)。
+
 ## 新串口鉴权入口（ADR-063，独立模块已实现，产品调用链未接入）
 
 `internal/serialauth`负责一条映射的外部TCP注册、凭据摘要校验、连接准入/独占和固定loopback后端的双向字节复制。验证入口在`tests/poc/gostv3/registration`，默认loopback且只允许loopback监听，避免PoC自行暴露公网；它不是正式Server启动入口。

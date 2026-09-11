@@ -46,3 +46,32 @@ func TestCellularConfigRoundTrip(t *testing.T) {
 		t.Fatal("persistence", e)
 	}
 }
+
+func TestCellularTelemetryConfig(t *testing.T) {
+	var c CellularProbe
+	for _, raw := range []string{`{"telemetry":null}`, `{"telemetry":"true"}`, `{"telemetry":1}`} {
+		if json.Unmarshal([]byte(raw), &c) == nil {
+			t.Fatal(raw)
+		}
+	}
+	if e := json.Unmarshal([]byte(`{"telemetry":true}`), &c); e != nil || !c.Telemetry || c.Interval != 30 {
+		t.Fatal(c, e)
+	}
+	c.Telemetry = false
+	raw, _ := json.Marshal(c)
+	if string(raw) != `{"interval_seconds":30}` {
+		t.Fatal("legacy shape changed", string(raw))
+	}
+}
+func TestCellularDetailsOptIn(t *testing.T) {
+	for _, raw := range []string{`{"details":true}`, `{"details":null}`, `{"telemetry":true,"details":1}`} {
+		var c CellularProbe
+		if json.Unmarshal([]byte(raw), &c) == nil {
+			t.Fatal("accepted", raw)
+		}
+	}
+	var c CellularProbe
+	if e := json.Unmarshal([]byte(`{"telemetry":true,"details":true}`), &c); e != nil || !c.Details {
+		t.Fatal(c, e)
+	}
+}

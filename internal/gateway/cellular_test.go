@@ -1,6 +1,7 @@
 package gateway
 
 import (
+	"encoding/json"
 	"strings"
 	"testing"
 )
@@ -21,6 +22,58 @@ func TestCellularWireValidation(t *testing.T) {
 		raw := `{"event":"cellular","config_revision":1,"interval_seconds":30,"age_ms":0,"status":"` + state + `","reason":"","limited":false,"ports":[]}`
 		if _, _, e := parseCellular([]byte(raw)); e != nil {
 			t.Fatal(state, e)
+		}
+	}
+}
+
+func TestCellularTelemetryWireValidation(t *testing.T) {
+	var obj map[string]any
+	_ = json.Unmarshal([]byte(cellularWire), &obj)
+	obj["event"] = "cellular_telemetry"
+	port := obj["ports"].([]any)[0].(map[string]any)
+	port["profile"] = "fibocom-fm160-v1"
+	port["ati"].(map[string]any)["value"] = "Manufacturer: Fibocom Wireless Inc.\nModel: FM160-CN"
+	queries := []any{}
+	for _, c := range []string{"AT+CPIN?", "AT+CCID", "AT+CIMI", "AT+COPS?", "AT+CEREG?", "AT+C5GREG?", "AT+CSQ", "AT+CESQ"} {
+		queries = append(queries, map[string]any{"command": c, "status": "not_queried", "value": ""})
+	}
+	port["queries"] = queries
+	raw, _ := json.Marshal(obj)
+	n, _, e := parseCellular(raw)
+	if e != nil || !n.Telemetry {
+		t.Fatal(e)
+	}
+	for _, bad := range [][]byte{[]byte(strings.Replace(string(raw), "AT+CSQ", "ATZ", 1)), []byte(strings.Replace(string(raw), "FM160-CN", "FM650", 1)), []byte(strings.Replace(string(raw), "cellular_telemetry", "cellular", 1))} {
+		if _, _, e := parseCellular(bad); e == nil {
+			t.Fatal("accepted invalid extension")
+		}
+	}
+	port["signals"] = []any{}
+	raw, _ = json.Marshal(obj)
+	if _, _, e := parseCellular(raw); e == nil {
+		t.Fatal("probe injected derived metrics")
+	}
+}
+func TestCellularDetailsWire(t *testing.T) {
+	var obj map[string]any
+	_ = json.Unmarshal([]byte(cellularWire), &obj)
+	obj["event"] = "cellular_details"
+	p := obj["ports"].([]any)[0].(map[string]any)
+	p["profile"] = "fibocom-fm160-details-v1"
+	p["ati"].(map[string]any)["value"] = "Manufacturer: Fibocom Wireless Inc.\nModel: FM160-CN"
+	queries := []any{}
+	for _, cmd := range []string{"AT+CPIN?", "AT+CCID", "AT+CIMI", "AT+COPS?", "AT+CEREG?", "AT+C5GREG?", "AT+CSQ", "AT+CESQ", "AT+CBC", "AT+MTSM?", "AT+MTSM=1", "AT+MTSM=6", "AT+MTSM=7", "AT+CGATT?", "AT+CGACT?", "AT+CGDCONT?", "AT+CGPADDR", "AT+CGCONTRDP", "AT+GTACT?", "AT+GTACT=?", "AT+GTCELLLOCK?", "AT+GTCAINFO?", "AT+GTCELLINFO?", "AT+GTCCINFO?"} {
+		queries = append(queries, map[string]any{"command": cmd, "status": "not_queried", "value": ""})
+	}
+	p["queries"] = queries
+	b, _ := json.Marshal(obj)
+	n, _, e := parseCellular(b)
+	if e != nil || !n.Details || !n.Telemetry {
+		t.Fatal(n, e)
+	}
+	for _, pair := range [][2]string{{"cellular_details", "cellular_telemetry"}, {"AT+GTCELLLOCK?", "AT+GTCELLLOCK=1"}, {"AT+GTACT?", "AT+GTACT=14"}, {"AT+MTSM=1", "AT+MTSM=2"}, {"AT+GTCELLINFO?", "AT+GTCELLINFO=1"}} {
+		if _, _, e := parseCellular([]byte(strings.Replace(string(b), pair[0], pair[1], 1))); e == nil {
+			t.Fatal("accepted write/mismatched version", pair)
 		}
 	}
 }

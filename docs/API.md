@@ -1,5 +1,29 @@
 # Management Server API
 
+## FM160 详细指标与锁定配置（ADR-067）
+
+- `/api/v1/capabilities`增加`cellular_details_v1`；模板`cellular_probe.details`可选布尔，默认false/省略，必须与telemetry=true一起使用。旧配置/旧EVENT保持兼容。生成器拒绝向不支持的Server发布；WPF和Server拒绝向不支持的Probe应用，沿用`unsupported_cellular`。
+- 现有只读蜂窝快照增加可选`details:true`，不新增写入端点。`profile:"fibocom-fm160-details-v1"`、queries包含协议定义的24项；GET刷新仍只取Server快照，不立即发送AT。
+- `fields`保留key/value，增加可选字符串`name`（展示名）、`group`（分组）、`source`（来源指令）。旧字段可省略这三项，Client保留已有名称回退。分组包含温度与供电、网络注册、锁定配置、各CID数据连接、服务小区/邻区、PCC/SCC载波、射频测量。数量由实际回包决定，不能把字段数量当设备支持项数。
+- 稳定锁定键：`lock_band`/`lock_frequency`/`lock_cell`。值为“否”或具体已配置Band/ARFCN/PCI文本；失败/未知保持明确未提供、查询失败或格式不可判定信息，不能按false回退。`allowed_bands`是允许频段集合，`cell_*_band`是驻留频段，两者不能替代锁频段判定。
+- 多PDP上下文按CID，动态地址可按IPv4/IPv6进一步分组；模块侧地址不冒充路由器LAN地址或公网出口。未激活/未分配/未提供分别展示。GTCCINFO保留当前报告，不保证邻区测量新鲜度；报告邻区数不等于主动扫描到的全部基站。
+- `signals`仍采用原结构。详情可补充LTE SINR，手册rssnr量化范围对应固定图轴[-50,50]dB；量化值带≈或边界限定。CESQ与GTCC同制式同指标时优先CESQ，不生成重复点。原LTE/NR RSRP/RSRQ/NR SINR语义保持。
+- GTCELLINFO未启用时Power等显示“未提供（模块详细测量未启用）”；不修改设备开关。CA未知带宽显示未识别编码，未定义的CA RSRP/进制、Power单位保留原始值并标注。原始queries保留供核对，但不堆在用户属性页。
+- 当前仅FM160-CN规则，固件实测与失败边界见[详细验证](FM160_DETAILS_VERIFICATION.md)。本轮没有增加锁定操作API、敏感标识脱敏策略或认证承诺。
+
+## FM160 蜂窝扩展与趋势数据（ADR-066）
+
+本节补充下方AT身份API，不新增控制端点：
+
+- `/api/v1/capabilities`新增`cellular_telemetry_v2`。模板`cellular_probe`新增可选布尔`telemetry`，缺省false且默认不序列化；true表示在支持的实际模块上查询SIM/驻网/信号。生成器向旧Server发布、WPF/Server向旧Probe应用时阻止不支持的扩展，Server沿用`unsupported_cellular`。
+- `GET /api/v1/devices/{id}/cellular`仍只读Server快照，刷新不触发AT。扩展快照增加`telemetry:true`；port可包含`profile`、`queries`、`fields`和`signals`。旧字段、HTTP封装、会话/版本/过期语义不变；空扩展数组可省略，旧客户端可忽略新增字段。
+- `queries`为固定命令的原始`command/status/value`；`fields`为`{key,value}`，已实现厂家/型号/固件/SVN/SIM/ICCID/IMSI/运营商/MCC/MNC/接入制式/EPS与NR注册/RSSI。字段来自当前查询，缺失/失败不能沿用上轮成功值。
+- `signals`项为`{key,rat,value,minimum,maximum,unit,qualifier}`。key为rsrp/sinr/rsrq，rat为LTE/NR；单位dBm或dB。value为当前量化区间中点(`≈`)或饱和边界(`<`/`≥`)；minimum/maximum为固定绘图区间，不声称是物理信号绝对上下界。255/不支持/错误值无signal项，不返回0充数。
+- Client按sampled_at去重并画图；同USB模块以device_key关联，不固化tty序号。图表为客户端会话内最多180点，非服务端历史查询。LTE CESQ没有SINR时该图未提供。
+- 原始IMEI/IMSI/ICCID仍可经API和显式完整值查看；本轮没有新增鉴权/脱敏/TLS承诺，调试记录不得提交凭据和完整用户标识。
+
+精确范围、数据样本及验证见[FM160验证](FM160_TELEMETRY_VERIFICATION.md)。
+
 ## 设备日志（ADR-061）
 
 所有入口通过 Management/Application 层；写请求使用原有 `Idempotency-Key`，重试保留原键、请求字节和已知 task_id。新 Probe 声明 `device_logs_v1`，旧设备不下发新任务。响应仍为 `data` / `error` 信封。

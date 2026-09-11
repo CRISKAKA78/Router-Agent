@@ -15,7 +15,7 @@ wsl -d RouterAgentTest -u root --cd /work
 ```powershell
 $testRunName = 'router-' + [guid]::NewGuid().ToString('N')
 $testArchive = Join-Path $env:TEMP ($testRunName + '.tar')
-tar -cf $testArchive go.mod cmd internal probe tests
+tar -cf $testArchive go.mod go.sum cmd internal probe tests
 if ($LASTEXITCODE -ne 0) { throw 'Source archive failed' }
 wsl -d RouterAgentTest -u root --cd / -- mkdir -p /work-runs
 if ($LASTEXITCODE -ne 0) { throw 'WSL preparation failed' }
@@ -34,7 +34,7 @@ if ($LASTEXITCODE -ne 0) { throw 'Source extraction failed' }
 完整 Release 验证（接上面的 PowerShell 变量）：
 
 ```powershell
-wsl -d RouterAgentTest -u root --cd $testLinuxPath -- unshare -mnpf --mount-proc sh -c 'set -eu; mount --make-rprivate /; ip link set lo up; mount -t devpts devpts /dev/pts -o newinstance,ptmxmode=0666,mode=0620; sh tests/verify-phase5.sh release'
+wsl -d RouterAgentTest -u root --cd $testLinuxPath -- unshare -mnpf --mount-proc sh -c 'set -eu; mount --make-rprivate /; ip link set lo up; mount -t sysfs sysfs /sys; mount -t devpts devpts /dev/pts -o newinstance,ptmxmode=0666,mode=0620; sh tests/verify-phase5.sh release'
 if ($LASTEXITCODE -ne 0) { throw 'Linux verification failed' }
 ```
 
@@ -47,3 +47,5 @@ if ($LASTEXITCODE -ne 0) { throw 'Linux verification failed' }
 - 在 `/work` 的隔离 namespace 内，`ctest --test-dir build/phase5-probe --output-on-failure`：6 项全部通过。
 - 同一隔离环境执行 `RMP_PROBE_BIN=/work/build/phase5-probe/router-probe go test ./tests/integration -run TestProbeTemplate -count=1`：通过。
 - 本次为环境迁移检查，没有重新执行全量产品测试、C++ sanitizers 或厂商固件验收。此前误删数据的未恢复状态仍见 [恢复记录](PROBE_TEMPLATES_VERIFICATION.md)。
+
+2026-09-12补充：依赖归档必须包含go.sum；网络namespace需在其私有mount namespace内重新挂载sysfs，使/sys/class/net与该namespace的测试网桥一致。否则邻居测试可能只读到宿主网卡而错误失败。不得在宿主命名空间替换/sys。

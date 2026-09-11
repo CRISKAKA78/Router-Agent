@@ -215,6 +215,8 @@ public sealed partial class TemplatePublishingService(HttpClient http) : IAsyncD
     public async Task<PublishedTemplate> PublishAsync(RuntimeTemplate template, bool update)
     {
         EnsureWritable();
+        if(template.CellularProbe?.Details==true&&!ServerCapabilities.Contains("cellular_details_v1"))throw new InvalidOperationException("当前Server不支持蜂窝详细采集，请先更新Server。");
+        if(template.CellularProbe?.Telemetry==true&&!ServerCapabilities.Contains("cellular_telemetry_v2"))throw new InvalidOperationException("当前Server不支持 cellular_telemetry_v2，请更新Server后再发布扩展AT配置。");
         if(template.CellularProbe is not null&&!ServerCapabilities.Contains("cellular_identity_v1"))throw new InvalidOperationException("当前Server不支持 cellular_identity_v1；请更新Server后再发布AT自动探测配置。");
         if(template.NeighborProbe is not null&&!SupportsNeighbors)throw new InvalidOperationException(NeighborCompatibility);
         if (update && (Target is null || Target.Origin != Origin))

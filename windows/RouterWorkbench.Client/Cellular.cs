@@ -1,13 +1,15 @@
 namespace RouterWorkbench.Client;
-public sealed record CellularSettings(uint IntervalSeconds=30);
+public sealed record CellularSettings(uint IntervalSeconds=30,[property:System.Text.Json.Serialization.JsonIgnore(Condition=System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingDefault)] bool Telemetry=false,[property:System.Text.Json.Serialization.JsonIgnore(Condition=System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingDefault)] bool Details=false);
 public sealed record AtIdentity(string Command,string Value,string Status);
 public sealed record CellularPort(string Path,string DeviceKey,string Status,string Reason,bool Selected,
- ulong AgeMs,AtIdentity ATI,AtIdentity IMEI,DateTimeOffset? SampledAt)
+ ulong AgeMs,AtIdentity ATI,AtIdentity IMEI,DateTimeOffset? SampledAt, string Profile="", AtIdentity[]? Queries=null, CellularField[]? Fields=null, CellularSignal[]? Signals=null)
 {
  public override string ToString()=>Path+(Selected?" · 已选择":"")+" · "+CellularLabels.Status(Status);
 }
 public sealed record CellularSnapshot(ulong ConfigRevision,uint IntervalSeconds,string Status,string Reason,
- bool Limited,CellularPort[] Ports,DateTimeOffset? SampledAt,bool Stale);
+ bool Limited,CellularPort[] Ports,DateTimeOffset? SampledAt,bool Stale,bool Telemetry=false,bool Details=false);
+public sealed record CellularField(string Key,string Value,string Name="",string Group="",string Source="");
+public sealed record CellularSignal(string Key,string Rat,double Value,double Minimum,double Maximum,string Unit,string Qualifier);
 public static class CellularLabels
 {
  public static string Status(string? status)=>status switch {

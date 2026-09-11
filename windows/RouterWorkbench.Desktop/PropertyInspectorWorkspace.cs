@@ -163,13 +163,13 @@ internal sealed class PropertyInspectorWorkspace : Grid
         var view = CollectionViewSource.GetDefaultView(table.ItemsSource);
         var anchor = TableBehavior.Capture(table);
         var prior = table.SelectedItem;
-        view.Filter = query.Length == 0 ? null : item => item is PropertyRow row &&
+        if(query.Length!=0||view.Filter!=null) view.Filter = query.Length == 0 ? null : item => item is PropertyRow row &&
             (row.Name.Contains(query, StringComparison.OrdinalIgnoreCase) || row.Key.Contains(query, StringComparison.OrdinalIgnoreCase) || row.Value.Contains(query, StringComparison.OrdinalIgnoreCase));
         if (prior != null && view.Contains(prior)) table.SelectedItem = prior;
         else if (prior != null) { table.SelectedItem = null; ClearSelection(); }
         empty.Text = query.Length == 0 ? "此分组暂无显示属性" : "没有匹配的属性，请修改或清空搜索。";
         empty.Visibility = view.IsEmpty ? Visibility.Visible : Visibility.Collapsed;
-        if (query.Length == 0) TableBehavior.Restore(table, anchor);
+        TableBehavior.Restore(table, anchor);
     }
 
     private void SelectionChanged(object sender, SelectionChangedEventArgs e)
@@ -210,7 +210,7 @@ internal sealed class PropertyInspectorWorkspace : Grid
     private void Reflow()
     {
         var scale = (double)FindResource("UiFontSize") / 13;
-        order.Visibility = table != null && ActualWidth >= 950 * scale ? Visibility.Visible : Visibility.Collapsed;
+        order.Visibility = table != null && AutomationProperties.GetName(table)!="蜂窝模块" && ActualWidth >= 950 * scale ? Visibility.Visible : Visibility.Collapsed;
         var side = ActualWidth >= 940 * scale;
         band.Visibility = valueHeading.Visibility = side ? Visibility.Visible : Visibility.Collapsed;
         compactCopy.Visibility = side ? Visibility.Collapsed : Visibility.Visible;

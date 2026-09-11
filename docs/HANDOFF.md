@@ -1,5 +1,12 @@
 # 项目接管手册
 
+## 当前接管：FM160详情与锁定配置
+
+- 工作树`C:/Users/Administrator/Desktop/router-agent-at-module-adaptation` / `codex/at-module-adaptation`；先读[详细验证](FM160_DETAILS_VERIFICATION.md)、ADR-067及[计划](AT_MODULE_ADAPTATION_PLAN.md)。首轮证据另保留于[基础遥测验证](FM160_TELEMETRY_VERIFICATION.md)。
+- 完成details显式开关/能力门禁、24项固定查询和Server字段投影；WPF显示详细中文字段及三锁（否/实际值/未知），不增加设置命令。旧模板仍保持身份或基础遥测，生产模板未应用新开关。
+- 20004当前核心单次查询24项成功，温度和三锁已实测；原Probe/redial PID及启动时间、路由表前后不变，设备helper清理。锁定开启/LTE/CA等采用回归夹具，没有为测试改设备网络。
+- Linux全量与CTest18、专项race、生成器198、WPF243、双架构及Windows发布构建通过。完整WPF剪贴板/ASan环境问题见专项历史记录。用户真实页面及持续采样部署验收待授权；不自动合入、推送、部署或处理其他工作树变更。
+
 ## 本次交付：双架构构建与目录修复提交
 
 - 用户明确授权将主工作区保留的23个文件（双架构Probe构建、FTV300目录兼容及配套文档）提交并推送GitHub `CRISKAKA78/Router-Agent` 的main，同时同步本地此前已合入但未推送的AT/邻居/日志/GOST/EasyTier提交。
