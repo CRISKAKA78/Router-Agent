@@ -52,7 +52,7 @@ internal static partial class Program
             try {
                 await ComponentChecks();
                 if (args.FirstOrDefault() == "--component-checks") { Console.WriteLine($"PASS {checks} component checks; screenshots: {output}"); exit = 0; return; }
-                SummaryAllocationChecks(); await TelemetryChecks(); await ClientChecks(); await SourceSummaryChecks(); await FileExchangeRetryChecks(); await IntegrationChecks(args[0]);
+                await NetworkChecks(); SummaryAllocationChecks(); await TelemetryChecks(); await ClientChecks(); await SourceSummaryChecks(); await FileExchangeRetryChecks(); await IntegrationChecks(args[0]);
                 Console.WriteLine($"PASS {checks} checks; screenshots: {output}"); exit = 0;
             } catch (Exception e) { Console.Error.WriteLine(e); }
             finally { app.Shutdown(); }
@@ -171,10 +171,11 @@ internal static partial class Program
             await Eventually(() => Task.FromResult(connection.Synchronized && connection.Snapshot.Devices.Length == 8), "native window HTTP/WS snapshot with eight test peers");
             await Task.Delay(150);
             var pages = ((TabControl)window.FindName("WorkspaceTabs")).Items.Cast<TabItem>().Select(t => (string)t.Tag).ToArray();
-            Check(pages.SequenceEqual(new[] { "overview", "maintenance", "files", "config", "logs", "tools" }), "customer navigation exposes file exchange, device logs and read-only repository tools");
+            Check(pages.SequenceEqual(new[] { "overview", "maintenance", "files", "config", "logs", "tools", "networks" }), "customer navigation exposes file exchange, device logs and read-only repository tools and overlay networks");
             Check(window.GetType().Assembly.GetReferencedAssemblies().All(a => !a.Name!.Contains("WebView2")), "native customer executable has no WebView2 dependency");
             Check(connection.Snapshot.Tools.Length == 0, "customer snapshot no longer loads tool management");
             Check(((DataGrid)window.FindName("DevicesGrid")).Items.Count == 8, "native device table bound to server inventory");
+            await IntegratedNetworkChecks(window, connection);
             await VerifyConnectionDisplay(window, connection);
             var devices = (DataGrid)window.FindName("DevicesGrid"); devices.SelectedIndex = 1; await Task.Delay(100);
             Check(Field<string>(window, "selectedDevice") == "desktop-router-02", "device selection updates current scope");

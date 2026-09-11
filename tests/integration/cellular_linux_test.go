@@ -210,7 +210,7 @@ exec "$@"`
 	})
 	// The merged Probe must expose and serve logs on the same control session
 	// while AT telemetry remains active, without dropping neighbor capabilities.
-	for _, capability := range []string{"neighbors_v1", "neighbors_inspect_v1", "cellular_identity_v1", "device_logs_v1"} {
+	for _, capability := range []string{"neighbors_v1", "neighbors_inspect_v1", "cellular_identity_v1", "device_logs_v1", "network_agent_v1"} {
 		if !slices.Contains(first.Registration.Capabilities, capability) {
 			t.Fatalf("merged Probe missing %s", capability)
 		}

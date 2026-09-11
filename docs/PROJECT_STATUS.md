@@ -1,6 +1,14 @@
 # 项目状态
 
-## 当前：三工作树联合集成
+## 当前：异地组网已合入本地main
+
+- 在既有三工作树合并基线上接入 EasyTier 三层首轮代码：Server 编排/API、Probe 仓库安装/独立进程引导、WPF 全局“异地组网”与观测拓扑。用户已授权本地审核与合并；当前提交结果及证据见[专项记录](OVERLAY_INTEGRATION.md)。
+- 本次验证：Windows Go/vet、自包含发布、WPF617项/81份布局通过；Linux18项CTest、完整真实Probe集成、五包race及最终AT/组网真实Probe定向race/vet通过。详细命令和剪贴板复跑记录见专项文档。
+- 原分支ADR-059统一为ADR-064，原智能邻居/AT/日志/GOST编号与默认服务器、原GCC5.2及独立GCC5.4入口均保持。
+- 已修复回查确认后成员配置版本未更新、已确认停止成员仍不能移除，以及 network_agent ACK 误带“不支持任务”消息；未改变不确定操作不重放规则。
+- 新桌面包：`build/windows-desktop-overlaymerged/win-x64/RouterWorkbench.exe`。配套厂商Probe构建、上游配置服务/账号与ELF包、两台设备三层互通/恢复/MTU仍待完成；二层尚未实现。未推送、未生产部署、未替换用户程序。
+
+## 前次基线：三工作树联合集成
 
 - 用户已授权 AT（含前置智能邻居）、设备日志、GOST PoC 全部合入本地 main；已在 `codex/integrate-at-logs-gost` 完成冲突整合与联合验证，并合回本地 main。不推送、不部署。
 - 保留 main 默认服务器47.119.168.150、8888/9000/9001端口、原GCC5.2构建入口、独立GCC5.4入口与现有维护行为。Probe同版声明邻居检测、AT、日志能力，Gateway并列处理事件；API字段错误与日志自定义消息并存。
@@ -9,6 +17,7 @@
 - MIPS/厂商设备、物理DPI及Phase6最终验收未追加完成；生成器真实浏览器启动被执行策略拒绝，不能把单元或WPF测试视作该项通过。
 
 ## 此前主分支记录（历史事实，非本次验证）
+2026-09-12 异地组网首轮改造位于 `codex/overlay-network-research` 独立 worktree（ADR-064）：EasyTier 本机 Web API、持久网络操作、Probe 仓库安装/独立启动、WPF 第六工作区与真实观测拓扑已接入；不是生产/厂商互通验收。Windows 567 项检查、自包含发布及 Linux 16 项 CTest、完整 Go/integration、五包 race/vet 已通过，证据与限制见[专项记录](OVERLAY_NETWORK.md)。当前缺上游运行配置服务/账号、仓库兼容ELF包及本轮厂商构建，未替换生产Server/Probe；二层在三层实机通过后继续。无提交/推送。
 
 2026-09-11 迁移运行状态：已实测 47.119.168.150 上 Server 常驻运行、FNR100 Probe 在线；维护故障定位为 Probe 到 Server 9001/TCP 数据连接不可达，用户随后确认已解决，解决后的端到端连接未由 Agent 复测。本轮按用户授权整理既有 ADR-057/058 迁移改动并合入本地 main、删除迁移分支；实际提交与分支状态以 Git 为准，不推送远端。仅进行差异、凭据排除及合并完整性检查，不重跑产品测试；下文未常驻/未提交为历史记录。
 

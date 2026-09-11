@@ -446,3 +446,9 @@ Device/Session 生命周期、历史保留、进程内存储与 Gateway 边界�
 - `internal/filetransfer` 只增加可选 Expected 内容校验及 Released 句柄释放事实；Gateway 只增加可选 Session 前置条件。没有第二套文件传输、Repository wire 字段或 Probe 变化。下载按 Committed + Released 导入，Task RESULT 单独呈现，ACK 丢失不回滚已完整提交文件。
 - 归档保留全部元数据与 blob，阻止新引用/投放而不取消已派发任务；版本标签不重用。崩溃遗留暂存、未引用 blob 和元数据临时文件只报告，不自动 GC。当前进程可以清理自己已释放的下载暂存，已提交文件须先导入。停服后备份整个目录；在线备份和迁移工具未实现。
 - Repository 是进程内目录索引加单写者 JSON 快照，面向小规模仓库；内容流式处理，但元数据整体读写，资产/工具/版本数量和磁盘使用无自动淘汰。Operation/Task/transfer/Device/Session 仍为进程内状态，重启不恢复或自动重发任务。当前平台适配只实现 Linux/Windows；Phase 5通过Adapter复用以上仓库行为。
+
+## EasyTier 异地组网边界（ADR-064）
+
+`internal/overlay` 管理网络定义、成员身份、持久操作、上游 Web 配置 API 与归一化观测；由 Management 组合原 Repository/File/Gateway 能力。HTTP/WS 与 WPF 仅访问公开 Application API，不直接操作上游账号或 Probe 连接表。EasyTier 是可选独立数据面，不是基础 Server 启动必需服务；同主机 Web API 与远端 core 配置接入分离。
+
+管理连接失效不拆除网络，显式停用与 Maintenance 租约完全独立；上游写结果不确定不得自动重放。三层首轮实现、部署限制与二层后续门槛见 [OVERLAY_NETWORK](OVERLAY_NETWORK.md)。其他架构边界保持。

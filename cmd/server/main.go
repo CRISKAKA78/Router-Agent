@@ -13,6 +13,7 @@ import (
 	"routerprobe/internal/api"
 	"routerprobe/internal/gateway"
 	"routerprobe/internal/management"
+	"routerprobe/internal/overlay"
 	"routerprobe/internal/repository"
 	"routerprobe/internal/tunnel"
 )
@@ -48,7 +49,13 @@ func main() {
 	flag.DurationVar(&tunnelConfig.HandshakeTimeout, "tunnel-handshake-timeout", 5*time.Second, "unpaired data handshake timeout")
 	flag.DurationVar(&tunnelConfig.PortReuseDelay, "tunnel-port-reuse-delay", 24*time.Hour, "port quarantine after local release")
 	flag.DurationVar(&tunnelConfig.IdleTimeout, "tunnel-idle-timeout", 24*time.Hour, "whole-stream I/O idle timeout")
+	easyTierConfigFile := flag.String("easytier-config", "", "local EasyTier Web API credential/bootstrap configuration file; optional")
 	flag.Parse()
+	easyTierConfig, configErr := overlay.LoadConfig(*easyTierConfigFile)
+	if configErr != nil {
+		fmt.Fprintln(os.Stderr, "invalid EasyTier local configuration")
+		os.Exit(2)
+	}
 
 	if *maxControlPayload > uint(^uint32(0)) || *fileChunkSize > uint(^uint32(0)) {
 		fmt.Fprintln(os.Stderr, "payload sizes must fit uint32")
@@ -59,7 +66,7 @@ func main() {
 	defer stop()
 
 	logger := log.New(os.Stdout, "server ", log.LstdFlags|log.Lmicroseconds)
-	err := api.Run(ctx, *listenAddress, *httpAddress, management.Config{TemplateFile: *templateFile, RepositoryDirectory: *repositoryDirectory, Tunnel: &tunnelConfig, Gateway: gateway.Config{
+	err := api.Run(ctx, *listenAddress, *httpAddress, management.Config{EasyTier: easyTierConfig, TemplateFile: *templateFile, RepositoryDirectory: *repositoryDirectory, Tunnel: &tunnelConfig, Gateway: gateway.Config{
 		HeartbeatInterval: time.Duration(*heartbeatSeconds) * time.Second,
 		MaxControlPayload: uint32(*maxControlPayload),
 		FileChunkSize:     uint32(*fileChunkSize),

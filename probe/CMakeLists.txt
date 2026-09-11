@@ -30,6 +30,7 @@ add_library(rmp_probe_core STATIC
     src/tunnel.cpp
     src/frame.cpp
     src/json.cpp
+    src/network_agent.cpp
     src/task.cpp
     src/router_config.cpp
     src/file_wire.cpp
@@ -117,3 +118,10 @@ add_executable(neighbor_tests tests/neighbor_tests.cpp)
 target_link_libraries(neighbor_tests rmp_probe_core)
 add_test(NAME neighbor_tests COMMAND neighbor_tests)
 set_tests_properties(neighbor_tests PROPERTIES TIMEOUT 15)
+
+if(BUILD_TESTING)
+    add_executable(network_agent_tests tests/network_agent_tests.cpp)
+    target_link_libraries(network_agent_tests PRIVATE rmp_probe_core)
+    add_test(NAME network_agent_tests COMMAND network_agent_tests)
+    set_tests_properties(network_agent_tests PROPERTIES TIMEOUT 30)
+endif()

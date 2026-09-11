@@ -9,6 +9,7 @@
 #include <map>
 #include <mutex>
 #include <string>
+#include <vector>
 
 namespace rmp {
 
@@ -28,6 +29,8 @@ enum class TaskState {
 };
 
 struct ExecTask {
+    // Internal-only argv: never deserialized from an exec request.
+    std::vector<std::string> arguments;
     RouterConfigParams config;
     FileParams file;
     std::string task_id;

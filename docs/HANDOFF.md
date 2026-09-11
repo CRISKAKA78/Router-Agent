@@ -1,6 +1,15 @@
 # 项目接管手册
 
-## 当前接管：AT、智能邻居、日志与 GOST 集成
+## 当前接管：异地组网已合入本地main
+
+- 本次用户明确授权审核并合入 `router-agent-overlay-network`，来源提交 `da6c560`，目标为包含 AT、智能邻居、日志及 GOST PoC 的 `main`；不推送、不部署、不替换运行实例。
+- 本次验证：Windows Go/vet、自包含发布、WPF617项/81份布局通过；Linux18项CTest、完整真实Probe集成、五包race及最终AT/组网真实Probe定向race/vet通过。详细命令和剪贴板复跑记录见专项文档。
+- 入口：[异地组网集成审核](OVERLAY_INTEGRATION.md)、[使用与部署接线](OVERLAY_NETWORK.md)。EasyTier ADR 原分支059统一为064；既有059～063含义不变。
+- WPF 增加全局“异地组网”（合并日志后为第七工作区），入口不依赖设备上报；添加设备要求 `network_agent_v1`、在线、已纳管及 Server 配置服务接线。新包位于 `build/windows-desktop-overlaymerged/win-x64/RouterWorkbench.exe`。
+- 回查确认配置版本及移除已确认停止成员的审核缺陷已修复；保留原操作ID/任务ID，不重新执行不确定操作。验证结果以专项记录为准。
+- 真实设备三层互通、引擎仓库包/服务账号接线及二层仍未完成；GOST仍是PoC，不能混为本轮EasyTier产品功能。
+
+## 前次接管：AT、智能邻居、日志与 GOST 集成
 
 1. 用户已明确授权三工作树和 AT 前置智能邻居合入本地 main，旧“只读/不提交/不写原目录”属于历史任务边界。本次不推送、不部署、不改产品功能语义；联合验证已通过，集成结果已合回本地main；三个来源工作树与集成分支保留。
 2. 先读[本次集成验证](WORKTREE_INTEGRATION.md)。入口为[智能邻居](NEIGHBOR_SMART_CONFIGURATION.md)、[AT](CELLULAR_AT.md)、[日志](DEVICE_LOGS_VERIFICATION.md)、[GOST](GOST_V3_POC.md)；原工作树与其忽略的运行证据保留，发布目录不迁移、不提交。
@@ -9,6 +18,7 @@
 5. GOST源码/补丁全部保留但不接入既有Maintenance/RMT1；用户另行测试，不能因合入main标记完整准入或产品功能上线。其压力/预算/硬件缺口仍以专项报告为准。
 
 ## 此前主分支记录（历史事实，非本次验证）
+2026-09-12 异地组网首轮改造位于 `codex/overlay-network-research` 独立 worktree（ADR-064）：EasyTier 本机 Web API、持久网络操作、Probe 仓库安装/独立启动、WPF 第六工作区与真实观测拓扑已接入；不是生产/厂商互通验收。Windows 567 项检查、自包含发布及 Linux 16 项 CTest、完整 Go/integration、五包 race/vet 已通过，证据与限制见[专项记录](OVERLAY_NETWORK.md)。当前缺上游运行配置服务/账号、仓库兼容ELF包及本轮厂商构建，未替换生产Server/Probe；二层在三层实机通过后继续。无提交/推送。
 
 2026-09-11 接管更新：用户确认迁移后的维护连接问题已解决；排查证据为 Probe 到 47.119.168.150:9001 的 SYN 未到达服务器网卡，未确认具体网络规则及修复方式。Server 已实际常驻、Probe 在线；不要将下文短时部署记录当成当前运行状态。本轮将既有迁移改动整理进本地 main 并删除迁移分支，不推送远端，提交和分支结果以 Git 为准；凭据、构建包和运行数据仍留本机。
 

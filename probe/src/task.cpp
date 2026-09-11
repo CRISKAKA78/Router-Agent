@@ -1,4 +1,5 @@
 #include "rmp/device_logs.h"
+#include "rmp/network_agent.h"
 #include "rmp/task.h"
 #include "rmp/neighbors.h"
 
@@ -275,6 +276,7 @@ bool ParseTask(const std::string& input, ExecTask* task, std::string* error) {
         return ParseFileParams(value->raw_value,task->type,&task->file,error);
     }
     if(task->type=="neighbor_inspect"){return task->timeout==30&&ParseNeighborInspect(value->raw_value,&task->config);}
+    if(task->type=="network_agent") return task->timeout==30 && ParseNetworkAgent(value->raw_value,&task->config,error);
     if(task->type=="neighbor_scan"||task->type=="neighbor_cancel"){return task->timeout==30&&ParseNeighborTask(value->raw_value,task->type=="neighbor_cancel",&task->config);}
     if (task->type == "device_logs") { return task->timeout==30 && ParseDeviceLogTask(value->raw_value,&task->config,error); }
     if (task->type == "router_config") {
@@ -381,7 +383,9 @@ ExecResult ExecuteExec(const ExecTask& task, const std::atomic<bool>* stop_reque
     // Prepare argv and PATH candidates before fork: the multithreaded child
     // performs only async-signal-safe operations and never invokes a shell.
     std::vector<std::string> arguments_storage, executable_paths;
-    if (task.type == "router_config") {
+    if (!task.arguments.empty()) {
+        arguments_storage=task.arguments; executable_paths.push_back(task.arguments[0]);
+    } else if (task.type == "router_config") {
         std::string error;
         if (!RouterConfigArguments(task.config, &arguments_storage, &error)) {
             result.status="failed"; result.stderr_text=error;

@@ -351,6 +351,12 @@ func (s *Server) dispatchChecked(active *session, spec task.Spec, requireCurrent
 		}
 		requireCurrent = true
 	}
+	if spec.Type == "network_agent" {
+		if !slices.Contains(active.capabilities, "network_agent_v1") {
+			return 0, routerconfig.ErrUnsupported
+		}
+		requireCurrent = true
+	}
 	if spec.Type == "neighbor_scan" || spec.Type == "neighbor_cancel" {
 		if !slices.Contains(active.capabilities, "neighbors_v1") {
 			return 0, routerconfig.ErrUnsupported

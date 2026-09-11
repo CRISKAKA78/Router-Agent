@@ -48,7 +48,13 @@ public partial class MainWindow : Window
         BuildViews();
         WorkspaceTabs.SizeChanged += (_, _) => {
             var compact = WorkspaceTabs.ActualWidth < 760 * (double)FindResource("UiFontSize") / 13;
-            foreach (var tab in tabs.Values) tab.Padding = new(compact ? 8 : 22, 12, compact ? 8 : 22, 12);
+            foreach (var tab in tabs.Values) {
+                tab.Padding = new(compact ? 8 : 22, 12, compact ? 8 : 22, 12);
+                // Seven workspaces must keep their text labels on a single row at
+                // the minimum window width; restore icons when space permits.
+                if (tab.Header is StackPanel header && header.Children[0] is WorkbenchIcon icon)
+                    icon.Visibility = compact ? Visibility.Collapsed : Visibility.Visible;
+            }
         };
         foreach(var column in DevicesGrid.Columns.OfType<DataGridTextColumn>().Where(c=>c.Header?.ToString()!="状态"))column.ElementStyle=Ui.CellTextStyle();
         ApplySnapshot();
@@ -57,10 +63,12 @@ public partial class MainWindow : Window
         clock.Tick += (_, _) => { UpdateMaintenanceClock(); UpdateConnectionHistoryClock(); }; clock.Start();
         SystemEvents.UserPreferenceChanged += SystemThemeChanged;
     }
+    private NetworkWorkspace networkWorkspace=null!;
     private void BuildViews()
     {
         AddPage("overview", "设备详情", BuildOverview()); DiscoveryTab.Content=BuildDiscoveries(); ConfigureDeviceMenu(); AddPage("maintenance", "远程维护", BuildMaintenance());
         AddPage("files", "文件管理", BuildFiles()); AddPage("config", "配置管理", BuildConfig()); logWorkspace=new(()=>connection,()=>Device); AddPage("logs", "日志", logWorkspace); settingsContent = BuildSettings(); AddPage("tools", "仓库工具", BuildTools());
+ networkWorkspace=new NetworkWorkspace(()=>connection); AddPage("networks","异地组网",networkWorkspace);
     }
     private void AddPage(string key, string title, UIElement view) {
         // TabItem owns the content logically, so reset inherited header typography at its root.
@@ -162,7 +170,7 @@ public partial class MainWindow : Window
             SyncText.Text = snapshot.FetchedAt is { } fetched ? "同步 " + fetched.ToLocalTime().ToString("HH:mm:ss") : "";
             PendingBanner.Visibility = connection?.Pending != null && !connection.Busy ? Visibility.Visible : Visibility.Collapsed;
             PendingText.Text = $"{connection?.Pending?.Label} 响应不确定。原请求已保留，新写入已暂停。";
-            UpdateDiscoveries(); UpdateOverview(); UpdateMaintenance(); UpdateTasks(); UpdateFiles(); UpdateTools(); UpdateConfig(); UpdateEnabled();
+            UpdateDiscoveries(); UpdateOverview(); UpdateMaintenance(); UpdateTasks(); UpdateFiles(); UpdateTools(); UpdateConfig(); UpdateEnabled(); networkWorkspace?.Update();
         } finally { refreshing = false; }
         _ = RefreshDetails();
         EnsureFileScope();
@@ -191,6 +199,7 @@ public partial class MainWindow : Window
         logWorkspace?.Update(Page=="logs");
         _ = RefreshDetails();
         if(Page=="tools") _ = RefreshToolVersions();
+ if(Page=="networks") networkWorkspace?.Update();
     }
     private void UpdateEnabled()
     {

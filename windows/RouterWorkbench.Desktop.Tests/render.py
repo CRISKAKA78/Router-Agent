@@ -26,6 +26,14 @@ for path in files:
         elif path.stem.startswith("network-chart-"):
             assert "B/s" in text and "接收" in text and "发送" in text, f"Missing chart units or legend: {path}"
             assert len(re.findall(r"\d{2}:\d{2}", text)) >= 6 and len(doc[0].get_drawings()) >= 8, f"Missing chart axes or curves: {path}"
+        elif path.stem.startswith("networks-empty-"):
+            assert all(label in text for label in ["新建网络", "添加设备", "应用 / 启动", "停止组网", "回查不确定操作", "成员", "拓扑", "链路", "操作记录"]), f"Incomplete overlay workspace: {path}"
+        elif path.stem == "networks-topology-dark":
+            assert all(label in text for label in ["观测连接", "厂区 A", "厂区 B", "引擎运行", "未知 / 已过期"]), f"Incomplete observed topology: {path}"
+            assert len(doc[0].get_drawings()) >= 7, f"Missing observed nodes/edge: {path}"
+        elif path.stem == "networks-logical-light":
+            assert all(label in text for label in ["逻辑成员关系", "不表示实际直连", "Peer 1", "Peer 2"]), f"Incomplete logical topology: {path}"
+            assert len(doc[0].get_drawings()) >= 6, f"Missing logical nodes: {path}"
         else:
             assert len(text) > 150, f"Empty WPF vector output: {path}"
         pixmap = doc[0].get_pixmap(matrix=fitz.Matrix(4/3, 4/3), alpha=False)
