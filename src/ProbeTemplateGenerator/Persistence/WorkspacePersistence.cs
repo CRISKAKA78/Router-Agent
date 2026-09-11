@@ -16,7 +16,7 @@ public sealed class WorkspaceDraft
     [JsonPropertyName("target")] public PublishingTarget? Target { get; set; }
     [JsonPropertyName("pending")] public PendingTemplateMutation? Pending { get; set; }
     [JsonPropertyName("savedAt")] public long SavedAt { get; set; }
-    [JsonPropertyName("serverUrl")] public string ServerUrl { get; set; } = "http://127.0.0.1:8080";
+    [JsonPropertyName("serverUrl")] public string ServerUrl { get; set; } = "http://47.119.168.150:8888";
     [JsonPropertyName("theme")] public string Theme { get; set; } = "Default";
 }
 

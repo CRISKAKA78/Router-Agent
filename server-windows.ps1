@@ -62,19 +62,19 @@ try {
     }
 
     $serverArguments = @(
-        '-listen', '0.0.0.0:9000',
-        '-http-listen', '0.0.0.0:8888',
+        '-listen', ':9000',
+        '-http-listen', ':8888',
         '-repository-dir', $repositoryDirectory,
-        '-tunnel-bind', '0.0.0.0',
-        '-tunnel-host', 'pcv6.criskaka.com',
-        '-tunnel-data-listen', '0.0.0.0:9001',
-        '-tunnel-data-host', 'pcv6.criskaka.com',
+        '-tunnel-bind', '::',
+        '-tunnel-host', '47.119.168.150',
+        '-tunnel-data-listen', ':9001',
+        '-tunnel-data-host', '47.119.168.150',
         '-tunnel-port-first', '20000',
         '-tunnel-port-last', '20199'
     )
     Write-Host "Persistent data: $repositoryDirectory"
-    Write-Host 'Client API: http://pcv6.criskaka.com:8888'
-    Write-Host 'Probe: pcv6.criskaka.com:9000; press Ctrl+C to stop before rebuilding.'
+    Write-Host 'Client API: http://47.119.168.150:8888'
+    Write-Host 'Probe: 47.119.168.150:9000; press Ctrl+C to stop before rebuilding.'
     & $serverExecutable @serverArguments
     exit $LASTEXITCODE
 }

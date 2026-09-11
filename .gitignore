@@ -1,5 +1,7 @@
 /build/
 /data/
+/id_rsa
+/password.txt
 /probe.zip
 **/bin/
 **/obj/

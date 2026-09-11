@@ -1,9 +1,8 @@
 using System.Diagnostics;
-using System.Text.RegularExpressions;
 
 namespace RouterWorkbench.Core;
 
-public static partial class EndpointLauncher
+public static class EndpointLauncher
 {
     public static ProcessStartInfo Build(Endpoint endpoint, ServerProfile profile)
     {
@@ -35,11 +34,6 @@ public static partial class EndpointLauncher
             info.ArgumentList.Add("-P"); info.ArgumentList.Add(endpoint.Port.ToString(System.Globalization.CultureInfo.InvariantCulture));
         }
         else if (ssh) { info.ArgumentList.Add("-p"); info.ArgumentList.Add(endpoint.Port.ToString(System.Globalization.CultureInfo.InvariantCulture)); }
-        if (ssh)
-        {
-            if (!UserName().IsMatch(profile.SshUser)) throw new ArgumentException("SSH 用户名只能包含字母、数字、点、下划线和连字符，且不能以连字符开头。");
-            info.ArgumentList.Add("-l"); info.ArgumentList.Add(profile.SshUser);
-        }
         info.ArgumentList.Add(endpoint.Host);
         if (!putty && !ssh) info.ArgumentList.Add(endpoint.Port.ToString(System.Globalization.CultureInfo.InvariantCulture));
         return info;
@@ -48,6 +42,4 @@ public static partial class EndpointLauncher
     {
         using var process = Process.Start(Build(endpoint, profile));
     }
-    [GeneratedRegex(@"^[A-Za-z0-9_][A-Za-z0-9_.-]{0,63}$")]
-    private static partial Regex UserName();
 }

@@ -151,6 +151,8 @@ try {
   await tab('导出与发布');
   const runtime = await download(() => page.getByRole('button',{name:'导出运行模板',exact:true}).click());
   if (Object.keys(runtime.properties).length!==2 || !runtime.properties.wan_type.command.includes('awk')) throw Error('Runtime export mismatch');
+  await expect(page.getByLabel('管理服务器地址',{exact:true})).toHaveValue('http://47.119.168.150:8888');
+  check('fresh generator retains the requested default server until explicitly changed');
   await page.getByLabel('管理服务器地址',{exact:true}).fill(apiOrigin);
   await page.getByRole('button',{name:'保存并连接',exact:true}).click();
   await expect(page.getByRole('button',{name:'发布为新模板',exact:true})).toBeEnabled();

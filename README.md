@@ -1,5 +1,7 @@
 # 路由器远程运维平台
 
+Linux AMD64 服务端：双击 [server-linux-amd64.cmd](server-linux-amd64.cmd)，本机构建后默认使用根目录 `id_rsa` / `password.txt` 经 SFTP 上传至 `47.119.168.150:/root/agent-server`，运行远端 `start.sh` 启动；`-BuildOnly` 仅构建。客户端与模板生成器新配置默认 `http://47.119.168.150:8888`。[部署和验证](docs/SERVER_DEFAULTS_VERIFICATION.md)。
+
 当前改造（ADR-044）：属性展示开关、整行分组、连续像素滚动与文字行高；删除接口映射及旧版兼容。仅工程8/草稿3及当前配套Server/Probe，使用与验证见 [改造交付](docs/UI_REFINEMENT_VERIFICATION.md)。
 
 当前服务端纳管、动态采集、模板分组与交换机物理口功能的使用入口及升级规则见 [服务端纳管与动态探针配置](docs/MANAGED_PROBES_DESIGN.md)，验证范围见 [本轮验证](docs/MANAGED_PROBES_VERIFICATION.md)。
@@ -16,7 +18,7 @@ Phase 0～5 已验收。当前提供原生 C# / WPF Windows 工作台和 C# / Bl
 
 ## 系统关系
 
-Probe 一键交叉编译：双击 [probe-build.cmd](probe-build.cmd)，输入 SSH 密码后自动上传当前源码到 10.1.1.128 并使用已有 GCC 5.2 编译。成品留在远端专用目录，见 [部署说明 §5.3](docs/DEPLOYMENT.md#53-mipsel--arm--arm64-交叉编译)。
+Probe 一键交叉编译：双击 [probe-build.cmd](probe-build.cmd)，默认采集 `br0,eth0,eth1,usb0`，默认在 `root@10.1.1.128` 使用原 GCC 5.2 编译，从根目录 `password.txt` 自动读取 SSH 登录密码。成品为 `/root/router-agent/router-agent`，见 [部署说明 §5.3](docs/DEPLOYMENT.md#53-mipsel--arm--arm64-交叉编译)。
 
 Windows Server 一键重建并运行：双击 [server-windows.cmd](server-windows.cmd)。专用构建目录每次清空，运行数据独立保留；监听及 IPv6 域名配置见 [部署说明](docs/DEPLOYMENT.md)。
 
@@ -56,16 +58,16 @@ Server 与 Probe 之间使用 Probe 主动发起的 TCP 长连接。该连接负
 - 内部 CreateUpload/CreateDownload 实现二进制分块文件传输与 size/SHA-256 校验；同目录临时文件完成校验后才发布。一个 active transfer 加有界 FIFO，控制消息优先，重复 task_id 不重复文件副作用。
 
 
-默认HTTP监听 `127.0.0.1:8080`，可用 `-http-listen` 指定地址。所有创建/修改HTTP请求带 `Idempotency-Key`，JSON Content-Type为application/json。例：
+默认HTTP监听 `:8888`，可用 `-http-listen` 指定地址。所有创建/修改HTTP请求带 `Idempotency-Key`，JSON Content-Type为application/json。例：
 
 ~~~sh
-curl http://127.0.0.1:8080/api/v1/devices
-curl -X POST http://127.0.0.1:8080/api/v1/tasks \
+curl http://47.119.168.150:8888/api/v1/devices
+curl -X POST http://47.119.168.150:8888/api/v1/tasks \
   -H 'Content-Type: application/json' -H 'Idempotency-Key: example-exec-1' \
   -d '{"device_id":"my-router","command":"uname -a","timeout_seconds":10}'
 ~~~
 
-任务返回202与task_id，再GET `/api/v1/tasks/{task_id}` 查询。Maintenance通过POST `/api/v1/maintenance`提交device_id（可选lease_ms），返回Web/SSH/Telnet三入口。实时地址 `ws://127.0.0.1:8080/api/v1/events`；连接后按resync_required查询HTTP，收到resource_changed刷新。完整错误、分页、幂等/容量、文件上传、关闭与部署边界见[API](docs/API.md)。
+任务返回202与task_id，再GET `/api/v1/tasks/{task_id}` 查询。Maintenance通过POST `/api/v1/maintenance`提交device_id（可选lease_ms），返回Web/SSH/Telnet三入口。实时地址 `ws://47.119.168.150:8888/api/v1/events`；连接后按resync_required查询HTTP，收到resource_changed刷新。完整错误、分页、幂等/容量、文件上传、关闭与部署边界见[API](docs/API.md)。
 
 ## 当前不能做什么
 

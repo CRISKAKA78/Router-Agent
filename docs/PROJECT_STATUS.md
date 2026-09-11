@@ -1,5 +1,11 @@
 # 项目状态
 
+2026-09-11 迁移运行状态：已实测 47.119.168.150 上 Server 常驻运行、FNR100 Probe 在线；维护故障定位为 Probe 到 Server 9001/TCP 数据连接不可达，用户随后确认已解决，解决后的端到端连接未由 Agent 复测。本轮按用户授权整理既有 ADR-057/058 迁移改动并合入本地 main、删除迁移分支；实际提交与分支状态以 Git 为准，不推送远端。仅进行差异、凭据排除及合并完整性检查，不重跑产品测试；下文未常驻/未提交为历史记录。
+
+2026-09-11 **ADR-058 Probe构建纠正已完成**：默认root@10.1.1.128，password.txt自动密码认证，经SFTP上传源码并使用原/root/gcc-5.2。真实构建产物 `/root/router-agent/router-agent`，785556字节、ARMv7/EABI5/uClibc；默认接口及管理地址保持ADR-057。记录和验证见[部署§5.3](DEPLOYMENT.md#53-mipsel--arm--arm64-交叉编译)。厂商运行验收仍未完成，无Git提交/推送。
+
+2026-09-11 **ADR-057已实现**：默认Server/API为47.119.168.150:8888，监听所有本机IP；Linux AMD64静态Server与start.sh已真实SFTP上传/root/agent-server，并通过远端IPv4/IPv6短时启动验证，未常驻启动。Probe默认采集br0,eth0,eth1,usb0；WPF移除SSH凭据、关闭维护隐藏链接、文件默认/tmp/root，精简邻居说明。560项WPF、67份布局、176项生成器、15组浏览器、15项CTest及Windows相关Go/Linux完整真实Probe集成验证通过；命令、产物与实机范围见[专项验证](SERVER_DEFAULTS_VERIFICATION.md)。原已保存连接地址保留，本轮未Git提交/推送。
+
 2026-09-10 用户已明确授权将当前累计源码、测试和文档提交并推送到 GitHub `CRISKAKA78/Router-Agent` 的 `main`。本次仅整理提交：核对远端基线、文件范围和 `git diff --check`，不重跑全量产品测试；构建包、运行数据和本地配置留在本机。下文各轮“未提交/推送”为当时记录，当前提交号与推送结果以 Git 为准；ARM、sanitizer 和实机验收缺口保持。
 
 2026-09-10 **ADR-056邻居发现已实现**：LAN下接与本机广播域两份清单允许重叠，已按用户纠正取消上级分类；Probe被动读取/限速ARP扫描及取消、Server公开API、WPF两页、生成器配置/发布闭环已接通。Windows/Linux Go、真实Linux Probe完整回归/race、15项CTest、生成器176项/浏览器14组、WPF557项/67份布局及独立发布通过记录见[邻居发现](NEIGHBOR_DISCOVERY.md)。成品为 `build/neighbors/router-server.exe` 和 `build/windows-desktop-neighbors/win-x64/RouterWorkbench.exe`。ARM交互认证后的首轮GCC5.2构建在`std::snprintf`处失败；一键构建的远端副本适配已补为`::snprintf`并通过脚本语法、转换结果、适配后核心编译及原始Probe 15项CTest，真实GCC5.2复跑仍需交互密码。C++sanitizer仍缺库；FNR100未部署新Probe，保留用户生产进程/数据，无Git提交/推送。下方“最新”为历史轮次。

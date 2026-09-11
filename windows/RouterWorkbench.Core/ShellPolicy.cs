@@ -3,7 +3,7 @@ public static class ShellPolicy
 {
  public static void ValidateProfile(ServerProfile next, ServerProfile previous) {
   next.BaseUri();
-  if (next.SchemaVersion != 1 || next.Theme is not ("Default" or "Light" or "Dark") || next.SshUser.Length is < 1 or > 64 || next.SshUser.StartsWith('-') || next.SshUser.Any(c => !char.IsAsciiLetterOrDigit(c) && c is not ('_' or '.' or '-'))) throw new ArgumentException("配置无效。");
+  if (next.SchemaVersion != 1 || next.Theme is not ("Default" or "Light" or "Dark")) throw new ArgumentException("配置无效。");
   if (next.SshExecutable != previous.SshExecutable || next.TelnetExecutable != previous.TelnetExecutable || next.SshUsePutty != previous.SshUsePutty || next.TelnetUsePutty != previous.TelnetUsePutty) throw new ArgumentException("客户端路径必须通过 Windows 文件选择器修改。");
  }
  public static void ValidateEndpoint(Endpoint e) {

@@ -40,7 +40,7 @@ ADR-037 之后只维护新版 WPF 主工作台与 Blazor 模板生成器，旧 R
 | --- | --- | --- |
 | Windows 页面、列表、表单与生命周期 | [RouterWorkbench.Desktop](../windows/RouterWorkbench.Desktop)，DeviceViews/DeviceProperties、MaintenanceViews、FileTransfers、RepositoryViews、SettingsView、MainWindow 与 Themes | 原生 WPF，中文浅深/系统主题；[WINDOWS_DESKTOP_MIGRATION](WINDOWS_DESKTOP_MIGRATION.md) |
 | HTTP/WS、快照、幂等与取消 | [RouterWorkbench.Client](../windows/RouterWorkbench.Client)，ApiClient、Models、WorkspaceConnection | 只使用公开 API；首连/重连回查 HTTP，原请求键与字节，切换/退出取消并等待 |
-| 本机偏好、外部 SSH/Telnet、文件选择 | [RouterWorkbench.Core](../windows/RouterWorkbench.Core)、Desktop 的 SettingsView/RepositoryViews/SshPasswordStore | 无 WebView2 Bridge 或内置终端；端点复核，密码独立 DPAPI 保存，外部客户端由用户管理 |
+| 本机偏好、外部 SSH/Telnet、文件选择 | [RouterWorkbench.Core](../windows/RouterWorkbench.Core)、Desktop 的 SettingsView/RepositoryViews | 无 WebView2 Bridge 或内置终端；端点复核，不保存 SSH 凭据，外部客户端由用户管理 |
 | 生成器编辑、公式、规则、导入导出与发布 | [ProbeTemplateGenerator](../src/ProbeTemplateGenerator)，Features、Models、Services、Persistence | 强类型 C#，原模板 API，版本 1/2 与旧草稿兼容；[TEMPLATE_GENERATOR_MIGRATION](TEMPLATE_GENERATOR_MIGRATION.md) |
 | 服务端用例和公开接口 | [internal/api](../internal/api)、[internal/management](../internal/management) 及对应服务 | Adapter 只调用 Application/Service；各包测试与 [tests/integration](../tests/integration) |
 | Probe、控制/文件链路与维护 | [probe](../probe)、[gateway](../internal/gateway)、[protocol](../internal/protocol) | C++11、既有幂等、固定三入口、独立数据 TCP；PROTOCOL 与 Phase 1～5 验证 |

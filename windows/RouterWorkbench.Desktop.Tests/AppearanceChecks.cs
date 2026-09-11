@@ -24,7 +24,9 @@ internal static partial class Program
         var legacyPath = Path.Combine(output, "legacy-font-profile.json");
         await File.WriteAllTextAsync(legacyPath, "{\"schema_version\":1,\"server_url\":\"http://127.0.0.1:8080\",\"ssh_user\":\"operator\"}");
         var legacy = ServerProfile.Load(legacyPath);
-        Check(legacy.UiFontFamily == ServerProfile.DefaultUiFontFamily && legacy.UiFontSize == 13 && legacy.SshUser == "operator", "old profiles retain connection preferences and receive default typography");
+        Check(legacy.UiFontFamily == ServerProfile.DefaultUiFontFamily && legacy.UiFontSize == 13 && legacy.ServerUrl == "http://127.0.0.1:8080", "old profiles discard SSH account and retain connection and typography");
+        await legacy.SaveAsync(legacyPath);
+        Check(!File.ReadAllText(legacyPath).Contains("ssh_user"), "saving legacy profile removes retired SSH account");
         await File.WriteAllTextAsync(legacyPath, JsonSerializer.Serialize(legacy with { UiFontSize = 999, UiFontFamily = "" }, Wire.Json));
         Check(ServerProfile.Load(legacyPath).UiFontSize == 13 && ServerProfile.Load(legacyPath).UiFontFamily == ServerProfile.DefaultUiFontFamily, "invalid stored typography falls back without discarding the profile");
 

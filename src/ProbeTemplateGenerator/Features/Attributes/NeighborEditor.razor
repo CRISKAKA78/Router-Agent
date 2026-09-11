@@ -1,6 +1,5 @@
 <section class="editor-section config-section">
  <h3>LAN 与本机广播域邻居发现</h3>
- <p>自动读取已有记录；主动发现由工作台手动触发。缓存和租约不表示当前在线。发布后须显式应用到设备。</p>
  <label class="inline-check"><input type="checkbox" checked="@(State.Project.NeighborProbe is not null)" disabled="@State.Locked" @onchange="Toggle" />启用邻居采集</label>
  @if(State.Project.NeighborProbe is {} n){
  <fieldset disabled="@State.Locked">
@@ -12,13 +11,12 @@
     <label>三层接口<input aria-label="邻居三层接口" placeholder="例如 br0 或 eth0.10" @bind="d.Interface" @bind:after="State.Touch" /></label>
     </div>
     <label>本机LAN转发端口（LAN清单必填，逗号分隔）<input aria-label="邻居转发端口" disabled="@(d.Scope!="lan")" value="@string.Join(',',d.Ports??[])" @onchange="e=>SetPorts(d,e.Value?.ToString()??string.Empty)" /></label>
-    <p>LAN清单填写内核FDB端口名或厂商命令输出的端口名称。本机广播域清单展示全部记录，两类可共用接口，允许记录重叠。</p>
     <label>dnsmasq 租约文件（可选）<input aria-label="邻居租约文件" placeholder="例如 /tmp/dhcp.leases" @bind="d.LeaseFile" @bind:after="State.Touch" /></label>
    </section>
   }
   <button disabled="@(n.Domains.Count>=8)" @onclick="Add">添加广播域</button>
   <label>厂商 MAC 转发表命令（可选）<textarea aria-label="MAC转发表命令" rows="5" @bind="n.FdbCommand" @bind:after="State.Touch"></textarea></label>
-  <p>只读输出：广播域标识、MAC、端口名称，以Tab分隔。最多5秒及32KiB；无厂商命令时使用内核FDB，未知端口不推断。</p>
+  <p>输出格式：广播域标识、MAC、端口名称，以 Tab 分隔。</p>
  </fieldset>
  }
 </section>

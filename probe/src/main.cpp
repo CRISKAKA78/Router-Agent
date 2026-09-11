@@ -2,7 +2,7 @@
 #include "rmp/identity.h"
 #include "rmp/collection.h"
 #ifndef RMP_NETWORK_INTERFACES
-#define RMP_NETWORK_INTERFACES ""
+#define RMP_NETWORK_INTERFACES "br0,eth0,eth1,usb0"
 #endif
 #include "rmp/system_info.h"
 
@@ -72,13 +72,13 @@ bool NextValue(int argc, char** argv, int* index, std::string* value) {
 }  // namespace
 
 int main(int argc, char** argv) {
-    std::string server_address = "127.0.0.1:9000";
+    std::string server_address = "47.119.168.150:9000";
     rmp::ClientConfig config;
     bool explicit_device_id = false;
-    config.default_network_interfaces=config.network_interfaces;
     std::string tunnel_connections="8";
     config.probe_version = "0.2.0";
     if(!rmp::ParseNetworkInterfaces(RMP_NETWORK_INTERFACES,&config.network_interfaces))return 2;
+    config.default_network_interfaces=config.network_interfaces;
     config.hostname = Hostname();
     const rmp::SystemInfo system_info = rmp::ReadSystemInfo();
     config.arch = system_info.arch;

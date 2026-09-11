@@ -31,11 +31,10 @@ internal sealed class NeighborView : UserControl
   scan=Ui.Button("主动发现",()=>_=StartScan());cancel=Ui.Button("停止发现",()=>_=CancelScan());refresh=Ui.Button("刷新记录",()=>{connection()?.Invalidate();Render();});
   var controls=new WrapPanel();foreach(var child in new UIElement[]{Ui.Text("广播域"),domains,Ui.Text("IPv4范围"),cidr,scan,cancel,refresh,Ui.Text("搜索"),search}){if(child is FrameworkElement f)f.Margin=new(0,3,8,3);controls.Children.Add(child);}
   status.TextWrapping=operation.TextWrapping=TextWrapping.Wrap;status.Margin=new(0,8,0,4);operation.Margin=new(0,0,0,8);
-  unknown=new Expander{Header="未匹配LAN端口的记录（不计入LAN清单）",Content=unmatched,Visibility=Visibility.Collapsed};unmatched.MaxHeight=200;
+  unknown=new Expander{Header="未匹配端口",Content=unmatched,Visibility=Visibility.Collapsed};unmatched.MaxHeight=200;
   var bottom=new StackPanel{Children={unknown}};
   var body=new DockPanel();DockPanel.SetDock(bottom,Dock.Bottom);body.Children.Add(bottom);body.Children.Add(Entries);
-  var note=Ui.Text(scope=="lan"?"依据本机LAN转发端口归类；端口表示到达路径，不能证明终端直接插线。":"所选本地接口广播域中的已发现记录；与LAN清单允许重叠。缓存和租约不表示当前在线。",true);note.TextWrapping=TextWrapping.Wrap;
-  Content=new Border{Padding=new(16,10,16,16),Child=Ui.Page(new StackPanel{Children={note,controls,status,operation}},body)};
+  Content=new Border{Padding=new(16,10,16,16),Child=Ui.Page(new StackPanel{Children={controls,status,operation}},body)};
   Loaded+=(_,_)=>Update();
  }
  public void Update()

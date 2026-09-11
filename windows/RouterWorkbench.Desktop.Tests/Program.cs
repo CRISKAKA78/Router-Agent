@@ -108,10 +108,7 @@ internal static partial class Program
         var slow = new WorkspaceConnection(new Uri("http://localhost"), new DelegateHandler(async (_, token) => { started.TrySetResult(); try { await Task.Delay(30000, token); } catch (OperationCanceledException) { canceled = true; throw; } return Json("{}"); }));
         var pending = slow.TrackAsync(() => slow.Api.GetAsync<JsonElement>("devices")); await started.Task;
         await slow.DisposeAsync(); Check(canceled && pending.IsCompleted, "connection disposal cancels and awaits active request");
-        var credentialProfile = Path.Combine(output, "test-credentials-" + Guid.NewGuid().ToString("N") + ".json");
-        Check(SshPasswordStore.Load(credentialProfile) == "admin", "default SSH password is admin");
-        await SshPasswordStore.SaveAsync(credentialProfile, "test-secret-中文");
-        Check(SshPasswordStore.Load(credentialProfile) == "test-secret-中文" && !Encoding.UTF8.GetString(await File.ReadAllBytesAsync(credentialProfile + ".ssh-password")).Contains("test-secret"), "SSH password DPAPI roundtrip without plaintext storage");
+        Check(new ServerProfile().ServerUrl == "http://47.119.168.150:8888", "new client defaults to requested server");
         var template = JsonSerializer.Deserialize<TemplateReference>("{\"template_id\":\"a\",\"name\":\"b\",\"version\":18446744073709551615}", ApiJson.Options);
         Check(template!.Version == ulong.MaxValue, "template version accepts protocol uint64");
     }
@@ -147,7 +144,7 @@ internal static partial class Program
         var info = new ProcessStartInfo(Path.GetFullPath(serverPath)) { UseShellExecute = false, CreateNoWindow = true, RedirectStandardOutput = true, RedirectStandardError = true };
         foreach (var arg in new[] { "-http-listen", $"127.0.0.1:{httpPort}", "-listen", $"127.0.0.1:{controlPort}", "-repository-dir", repository, "-tunnel-data-listen", "127.0.0.1:0", "-tunnel-port-first", "34200", "-tunnel-port-last", "34259", "-tunnel-port-reuse-delay", "1ms" }) info.ArgumentList.Add(arg);
         using var server = Process.Start(info)!; var serverOut = server.StandardOutput.ReadToEndAsync(); var serverError = server.StandardError.ReadToEndAsync();
-        var profile = new ServerProfile { ServerUrl = $"http://127.0.0.1:{httpPort}", Theme = "Light", SshUser = "admin" }; var profileFile = Path.Combine(output, "profile.json"); await profile.SaveAsync(profileFile);
+        var profile = new ServerProfile { ServerUrl = $"http://127.0.0.1:{httpPort}", Theme = "Light" }; var profileFile = Path.Combine(output, "profile.json"); await profile.SaveAsync(profileFile);
         using var api = new ApiClient(profile.BaseUri(), default); var peers = new List<TestProbe>(); MainWindow? window = null;
         try {
             await Eventually(async () => { try { await api.ListAsync<Device>("devices"); return true; } catch { return false; } }, "isolated current Go server ready");
@@ -227,9 +224,9 @@ internal static partial class Program
             var resolved = (Task<(Maintenance, Endpoint)>)Invoke(window,"ResolveEndpoint","ssh")!;
             var (_, endpoint) = await resolved;
             var launch = EndpointLauncher.Build(endpoint, profile);
-            Check(launch.ArgumentList.Contains("admin") && !launch.ArgumentList.Contains("-pw"), "external SSH launch uses configured account without password command argument");
+            Check(launch.ArgumentList.SequenceEqual(new[]{"-p", endpoint.Port.ToString(), endpoint.Host}), "external SSH launch contains only the endpoint host and port");
             var ipv6 = (string)Invoke(window,"EndpointLink", new Endpoint("ssh","::1",2222,"[::1]:2222","ready",null))!;
-            Check(ipv6 == "ssh://admin@[::1]:2222/", "IPv6 SSH link encodes public endpoint and account");
+            Check(ipv6 == "ssh://[::1]:2222/", "IPv6 SSH link contains the public endpoint without an account");
             try { await api.ExecuteAsync(new("config", "devices/desktop-router-02/config-tasks", new { backend = "nvram", operation = "get", key = "SN" })); throw new Exception("missing capability accepted"); }
             catch (ApiException e) { Check(e.Code == "unsupported_capability", "config capability error preserved"); }
             devices.SelectedItem = devices.Items.Cast<Device>().Single(d => d.DeviceId == "desktop-router-08"); Invoke(window,"Navigate","config");
@@ -282,15 +279,12 @@ internal static partial class Program
             await InvokeAsync(window,"SaveAndConnect");
             var reconnected = Field<WorkspaceConnection>(window,"connection");
             await Eventually(() => Task.FromResult(reconnected.Synchronized), "settings save reconnects and replaces disposed connection");
-            Field<TextBox>(window,"sshUser").Text = "operator"; Field<PasswordBox>(window,"sshPassword").Password = "edited-test-password";
-            await InvokeAsync(window,"SaveSshSettings");
-            Check(ServerProfile.Load(profileFile).SshUser == "operator" && SshPasswordStore.Load(profileFile) == "edited-test-password" && !File.ReadAllText(profileFile).Contains("edited-test-password"), "editable SSH account and protected password survive save");
+            Check(!Visuals<PasswordBox>(Field<UIElement>(window,"settingsContent")).Any() && !File.ReadAllText(profileFile).Contains("ssh_user"), "settings and saved profile contain no SSH credentials");
             Field<ComboBox>(window,"uiFontSize").Text = "16"; await InvokeAsync(window,"SaveTypography",false);
             await InvokeAsync(window,"Disconnect"); window.Close(); await Task.Delay(250); window = null;
             Typography.Apply(ServerProfile.DefaultUiFontFamily, 13);
             window = new MainWindow(profileFile); window.Show();
             await Eventually(() => Task.FromResult(Field<WorkspaceConnection?>(window,"connection")?.Synchronized == true), "reopened window connects last saved server without toolbar input");
-            Check(Field<TextBox>(window,"sshUser").Text == "operator" && Field<PasswordBox>(window,"sshPassword").Password == "edited-test-password", "reopened settings restore user-edited SSH credentials");
             Check(window.FontSize == 16 && Field<ComboBox>(window,"uiFontSize").Text == "16", "reopened window restores saved typography before use");
             await InvokeAsync(window,"Disconnect"); window.Close(); await Task.Delay(250); window = null;
         } finally {
@@ -360,6 +354,7 @@ internal static partial class Program
             Check(Field<DataGrid>(window, "maintenanceGrid").Items.Cast<Maintenance>().Single(m => m.MaintenanceId == current.MaintenanceId).Released, "late pre-close snapshot cannot resurrect released maintenance");
             Check(!Field<Button>(window, "closeMaintenanceButton").IsEnabled, "released response immediately disables closing historical maintenance");
             Check(Field<DataGrid>(window,"endpointGrid").Items.Cast<object>().All(r=>r.GetType().GetProperty("CanOpen")!.GetValue(r) is false),"closed history has no launchable channel buttons or hyperlinks");
+            Check(Field<DataGrid>(window,"endpointGrid").Items.Cast<object>().All(r=>string.IsNullOrEmpty((string?)r.GetType().GetProperty("Link")!.GetValue(r))), "closed history exposes no address to cells, tooltips or clipboard");
             Check((await api.GetAsync<Maintenance>($"maintenance/{current.MaintenanceId}")).Released, "close releases the current maintenance before reopen");
             connection.Invalidate();
             await Eventually(() => Task.FromResult(connection.Snapshot.Maintenance.Any(m => m.MaintenanceId == current.MaintenanceId && m.Released)), "repeated open-close cycle synchronizes released state");

@@ -28,6 +28,7 @@ internal static partial class Program
         var browser=Field<FrameworkElement>(window,"fileBrowser");
         var entries=(DataGrid)browser.GetType().GetProperty("Entries")!.GetValue(browser)!;
         await Eventually(()=>Task.FromResult(browser.GetType().GetProperty("Ready")!.GetValue(browser) is true),"compact file browser loads the current device through the existing API");
+        Check((string?)browser.GetType().GetProperty("CurrentPath")!.GetValue(browser)=="/tmp/root", "file workspace initially opens tmp/root");
         var history=Field<Expander>(window,"transferHistory");
         Check(!history.IsExpanded,"file history initially yields its space to directory browsing");
         entries.SelectedItem=entries.Items.OfType<RemoteEntry>().First(e=>e.Kind=="f");

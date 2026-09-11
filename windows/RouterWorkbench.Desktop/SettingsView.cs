@@ -22,8 +22,7 @@ public partial class MainWindow
         dialog.Closed+=(_,_)=>{dialog.Content=null;settingsWindow=null;};
         dialog.ShowDialog();
     }
-    private TextBox sshUser = null!, ServerBox = null!;
-    private PasswordBox sshPassword = null!;
+    private TextBox ServerBox = null!;
     private Button ConnectButton = null!;
     private TextBlock sshClient = null!, telnetClient = null!;
     private UIElement BuildSettings()
@@ -31,10 +30,6 @@ public partial class MainWindow
         var appearance = Ui.Combo(["跟随系统", "浅色", "深色"], profile.Theme == "Light" ? 1 : profile.Theme == "Dark" ? 2 : 0, 170);
         appearance.HorizontalAlignment = HorizontalAlignment.Left;
         appearance.SelectionChanged += (_, _) => _ = Run("切换主题", () => SetTheme(new[] { "Default", "Light", "Dark" }[appearance.SelectedIndex]));
-        sshUser = Ui.Input(profile.SshUser); sshUser.HorizontalAlignment = HorizontalAlignment.Stretch;
-        sshPassword = new PasswordBox { HorizontalAlignment = HorizontalAlignment.Stretch };
-        sshPassword.SetResourceReference(Control.BackgroundProperty, "Surface"); sshPassword.SetResourceReference(Control.ForegroundProperty, "Text"); sshPassword.SetResourceReference(Control.BorderBrushProperty, "Line");
-        try { sshPassword.Password = SshPasswordStore.Load(profilePath); } catch (Exception e) { Log("错误", e.Message); }
         ServerBox = Ui.Input(profile.ServerUrl); ServerBox.HorizontalAlignment = HorizontalAlignment.Stretch;
         ServerBox.KeyDown += ServerKeyDown;
         sshClient = Ui.Text("", true); telnetClient = Ui.Text("", true); sshClient.TextWrapping = telnetClient.TextWrapping = TextWrapping.Wrap;
@@ -45,14 +40,11 @@ public partial class MainWindow
         panel.Children.Add(Ui.FormActions(ConnectButton, Ui.Button("断开连接", () => DisconnectClick(this, new RoutedEventArgs())), Ui.Button("重新连接", () => _ = Run("连接", Connect))));
         panel.Children.Add(Section("外观")); panel.Children.Add(Ui.Labeled("主题", appearance));
         BuildFontSettings(panel);
-        panel.Children.Add(Section("终端客户端")); panel.Children.Add(Ui.Labeled("SSH 用户名", sshUser));
-        panel.Children.Add(Ui.Labeled("SSH 密码", sshPassword));
+        panel.Children.Add(Section("终端客户端"));
         panel.Children.Add(Ui.Labeled("SSH 客户端", sshClient));
         panel.Children.Add(Ui.FormActions(Ui.Button("选择 SSH 客户端…", () => _ = Run("选择 SSH", () => ChooseClient("ssh"))), Ui.Button("使用系统 SSH", () => _ = Run("恢复 SSH", () => ResetClient("ssh")))));
         panel.Children.Add(Ui.Labeled("Telnet 客户端", telnetClient));
         panel.Children.Add(Ui.FormActions(Ui.Button("选择 Telnet 客户端…", () => _ = Run("选择 Telnet", () => ChooseClient("telnet"))), Ui.Button("使用系统 Telnet", () => _ = Run("恢复 Telnet", () => ResetClient("telnet")))));
-        panel.Children.Add(Ui.Note("密码在本机加密保存，可在维护页复制。修改此处不会修改路由器账号。"));
-        var save = Ui.Button("保存 SSH 设置", () => _ = Run("保存 SSH 设置", SaveSshSettings), true); save.HorizontalAlignment = HorizontalAlignment.Left; save.Margin = new(164,8,0,8); panel.Children.Add(save);
         UpdateClientLabels(); return new ScrollViewer { Content = panel, VerticalScrollBarVisibility = ScrollBarVisibility.Auto };
     }
     private sealed record FontChoice(string Family, string Label) { public override string ToString() => Label; }
@@ -112,13 +104,6 @@ public partial class MainWindow
         if (connection?.Pending != null) connection.Abandon();
         await Connect();
     }
-    private async Task SaveSshSettings()
-    {
-        var next = profile with { SshUser = sshUser.Text.Trim() }; ShellPolicy.ValidateProfile(next, profile);
-        await SshPasswordStore.SaveAsync(profilePath, sshPassword.Password); await next.SaveAsync(profilePath); profile = next;
-        UpdateEndpoints(); Log("设置", "SSH 账号与密码已保存。");
-    }
-    private Task CopySshPassword() { Clipboard.SetText(SshPasswordStore.Load(profilePath)); Log("维护", "已复制 SSH 密码。"); return Task.CompletedTask; }
     private void UpdateClientLabels() {
         sshClient.Text = profile.SshExecutable == "" ? "Windows OpenSSH（系统默认）" : profile.SshExecutable;
         telnetClient.Text = profile.TelnetExecutable == "" ? "Windows Telnet（系统默认）" : profile.TelnetExecutable;

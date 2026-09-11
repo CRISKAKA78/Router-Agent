@@ -14,7 +14,7 @@ namespace RouterWorkbench.Desktop;
 
 public partial class MainWindow : Window
 {
-    private ServerProfile profile = new() { SshUser = "admin" };
+    private ServerProfile profile = new();
     private readonly string profilePath;
     private WorkspaceConnection? connection;
     private Snapshot snapshot = Snapshot.Empty;
@@ -34,7 +34,7 @@ public partial class MainWindow : Window
     {
         locations = locationService;
         profilePath = settingsPath; SetResourceReference(StyleProperty, typeof(Window)); InitializeComponent();
-        try { profile = File.Exists(profilePath) ? ServerProfile.Load(profilePath) : new() { SshUser = "admin" }; } catch (Exception e) { Log("错误", "读取配置失败：" + e.Message); }
+        try { profile = File.Exists(profilePath) ? ServerProfile.Load(profilePath) : new(); } catch (Exception e) { Log("错误", "读取配置失败：" + e.Message); }
         Theme.Apply(profile.Theme); ApplyTypography(profile.UiFontFamily, profile.UiFontSize); ActivityGrid.ItemsSource = activity; Summary.TemplateButton.Click += QuickTemplateClick;
         for (var index = 0; index < ActivityGrid.Columns.Count; index++) {
             var column = (DataGridTextColumn)ActivityGrid.Columns[index];

@@ -15,7 +15,7 @@ public sealed partial class EditorWorkspace(TemplateCompiler compiler, ProjectFi
     public string SelectedId { get; private set; } = "";
     public string Search { get; set; } = "";
     public string Theme { get; private set; } = "Default";
-    public string ServerUrl { get; set; } = "http://127.0.0.1:8080";
+    public string ServerUrl { get; set; } = "http://47.119.168.150:8888";
     public int Stage { get; private set; }
     public bool Ready { get; private set; }
     public bool Saving { get; private set; }

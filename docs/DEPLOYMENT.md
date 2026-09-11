@@ -1,5 +1,26 @@
 # 真机测试部署与启动指南
 
+## 当前默认部署（2026-09-11，ADR-057）
+
+双击根目录 [server-linux-amd64.cmd](../server-linux-amd64.cmd)，在 Windows 本机交叉编译静态 Linux AMD64 Server，并默认通过 SFTP 上传至 `root@47.119.168.150:22` 的 `/root/agent-server`。本机需要 Go、Windows OpenSSH 与系统 .NET Framework 编译器；使用项目根目录 `id_rsa` 和 `password.txt`（私钥口令），文件不上传、不进入 Git。`-BuildOnly` 只构建，产物保存在 `build/server-linux-amd64`。
+
+远端运行 `/root/agent-server/start.sh`，持久目录为 `/root/agent-server/data/repository`；末尾可追加原有 CLI 参数。上传不会自动启动或重启。2026-09-11 已核对远端 CentOS Stream 9 x86_64，构建上传及双栈短时启动验证通过，见[证据](SERVER_DEFAULTS_VERIFICATION.md)。
+
+| 默认值 | 地址 |
+| --- | --- |
+| HTTP API / WebSocket | `:8888` |
+| Probe 控制连接 | `:9000` |
+| 独立维护数据 | `:9001` |
+| 维护入口监听 | `::`，端口池 20000～20199 |
+| 对外维护 / data 地址 | `47.119.168.150` |
+| WPF / 生成器新配置 | `http://47.119.168.150:8888` |
+| Probe 默认目的地址 | `47.119.168.150:9000` |
+
+`:端口` 与 `::` 监听全部本机 IPv4/IPv6；`47.119.168.150` 是对外公布地址，适用于云主机公网映射。旧客户端/生成器显式保存地址保留，可在设置改为新地址。下文局域网 IP 和旧验证日期是手动部署示例与历史记录。
+
+Probe 构建默认接口为 `br0,eth0,eth1,usb0`，不再询问；可显式传 `-NetworkInterfaces` 或 CMake `-DRMP_NETWORK_INTERFACES`，运行时可用原 `--network-interfaces` 覆盖。按ADR-058，ARM构建默认在 `root@10.1.1.128` 使用原 `/root/gcc-5.2`，从本地 `password.txt` 自动读取SSH登录密码，产物为 `/root/router-agent/router-agent`。Linux Server构建不依赖远端Go或ARM工具链。
+
+
 适用版本：2026-09-08，原生 C# / WPF 工作台和 C# / Blazor 模板生成器（ADR-037/036/035/034）。本指南按当前代码整理；客户端由你自行编译。先走同一局域网测试，再考虑跨网络部署。
 
 ## 1. 先弄清楚三样程序放在哪里
@@ -37,7 +58,7 @@
 
 | Server 端口 | 谁连接它 | 用途 |
 | --- | --- | --- |
-| 8080 | Windows 客户端 | HTTP API 和 WebSocket，客户端设置填这个端口 |
+| 8888 | Windows 客户端 | HTTP API 和 WebSocket，客户端设置填这个端口 |
 | 9000 | 路由器 Probe | 注册、心跳、Exec、文件传输 |
 | 9001 | 路由器 Probe | Web/SSH/Telnet 的独立维护数据连接 |
 | 20000～20199 | 电脑上的浏览器、SSH/Telnet 客户端 | 创建维护后临时分配的三个公共入口 |
@@ -64,14 +85,14 @@
 
 | 参数 | 值 |
 | --- | --- |
-| `-listen` | `0.0.0.0:9000` |
-| `-http-listen` | `0.0.0.0:8080` |
-| `-tunnel-bind` | `0.0.0.0` |
-| `-tunnel-data-listen` | `0.0.0.0:9001` |
-| `-tunnel-host` / `-tunnel-data-host` | `pcv6.criskaka.com` |
+| `-listen` | `:9000` |
+| `-http-listen` | `:8888` |
+| `-tunnel-bind` | `::` |
+| `-tunnel-data-listen` | `:9001` |
+| `-tunnel-host` / `-tunnel-data-host` | `47.119.168.150` |
 | 维护端口池 | `20000`～`20199` |
 
-域名是对外访问地址，不是要绑定到网卡上的 IP。客户端设置填 `http://pcv6.criskaka.com:8080`；Probe 使用 `--server pcv6.criskaka.com:9000`。域名不加 IPv6 方括号；使用数值 IPv6 加端口时才写成 `[IPv6]:端口`。
+对外访问地址为 `47.119.168.150`，客户端设置填 `http://47.119.168.150:8888`；Probe 默认使用 `47.119.168.150:9000`。
 
 2026-09-07 本机 DNS 查询获得 AAAA `2408:8256:3286:d12:13e:1401:aee9:267`，未获得 A 记录，该 IPv6 当时在本机网卡上。当前 Server 使用 Go `net.Listen("tcp", ...)`；本次 Windows 实测，以上 `0.0.0.0` 通配配置同时接受 IPv4/IPv6：8080/9000/9001 通过 `127.0.0.1`、`::1` 和该域名连接成功，API 返回 200；协议测试对端创建三个维护入口，逐个验证 IPv4/IPv6 接入，并检查下发数值 IPv6。此结果不表示所有平台的 `0.0.0.0` 都是双栈；仅 IPv6 监听也可显式配置 `[::]:端口` 和 `-tunnel-bind ::`。
 
@@ -266,16 +287,18 @@ ldd build/probe/router-probe
 
 ### 5.3 mipsel / ARM / ARM64 交叉编译
 
-**已配置的 GCC 5.2 一键入口：** 在 Windows 双击仓库根目录 [probe-build.cmd](../probe-build.cmd)，按提示输入 SSH 密码；已配置 SSH 密钥时直接使用密钥。首次连接按 OpenSSH 提示核对主机身份，脚本不保存密码。Windows 需要系统 `ssh.exe`、`tar.exe` 和 Windows PowerShell；远端使用已有 CMake、make、Python 3、binutils 及 `/root/gcc-5.2`。
+**已配置的 GCC 5.2 一键入口（ADR-058）：** 在 Windows 双击仓库根目录 [probe-build.cmd](../probe-build.cmd)，使用 `root@10.1.1.128:22` 账号密码认证，密码从根目录 `password.txt` 自动读取，不使用私钥、不交互询问。Windows 需要 `ssh.exe`、`sftp.exe`、`tar.exe`、Windows PowerShell及系统.NET Framework编译器；远端使用已有 CMake、make、Python 3、binutils 及 `/root/gcc-5.2`。
 
-脚本通过一次 SSH 登录将当前工作区 `probe` 源码（包含尚未提交的更新）上传到 `root@10.1.1.128`，先将上传的 Bash 脚本从 CRLF 规范化为 LF，再自动应用该 SDK 所需的整数转字符串、strtoull 和声明头兼容处理，执行 Release 交叉编译及 ELF 检查。兼容处理仅作用于远端副本，仓库产品代码不改动。Windows 不生成源码压缩包或构建产物。
+脚本将当前工作区 `probe` 源码（包含尚未提交的更新）压缩后经SFTP上传到 `root@10.1.1.128`，再通过SSH解包，先将上传的 Bash 脚本从 CRLF 规范化为 LF，再自动应用该 SDK 所需的整数转字符串、strtoull 和声明头兼容处理，执行 Release 交叉编译及 ELF 检查。兼容处理仅作用于远端副本，仓库产品代码不改动。Windows临时源码压缩包与无凭据的AskPass辅助程序在结束时清理，不复制或上传password.txt。
 
-- 固定成品：`/root/codex-probe-20260908-2123/output/router-probe`。
+- 固定成品：`/root/router-agent/router-agent`（785556字节，本轮实际产物）；第三方许可随成品放在同目录。
 - 每次输入源码、兼容副本、补丁、临时文件、构建和日志：专用目录下 `runs/<时间-随机标识>/`；`build.log` 是构建日志，`verification.log` 是 ELF/依赖记录。
 - `latest-build.txt` 指向最近成功构建目录。上传、配置或编译失败返回非零状态，保留上一份成功成品；窗口会保留结果。各次记录不自动清理。
 - 输出为 ARMv7 小端 / EABI5 / uClibc 动态链接程序。目标需要兼容的 `/lib/ld-uClibc.so.0`、libpthread/libstdc++/libm/libgcc_s/libc，以及线程库依赖的 libdl；编译通过不代表目标固件运行验收。
 
-高级调用为 `powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\probe-build.ps1`；可传 `-SshTarget root@10.1.1.128 -RemoteRoot /root/codex-probe-20260908-2123 -Toolchain /root/gcc-5.2` 调整构建主机或目录，仍要求对应 GCC 5.2 ARM/uClibc SDK。此入口不是通用的其他架构构建器。
+高级调用为 `powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\probe-build.ps1`；可传 `-SshTarget root@10.1.1.128 -RemoteRoot /root/router-agent -Toolchain /root/gcc-5.2` 调整构建主机或目录，仍要求对应 GCC 5.2 ARM/uClibc SDK。此入口不是通用的其他架构构建器。
+
+2026-09-11 本轮验证：`powershell.exe -NoProfile -ExecutionPolicy Bypass -File probe-build.ps1` 完成密码认证、SFTP源码上传、GCC5.2 Release编译、strip及ELF验证；产物 `/root/router-agent/router-agent`，ARMv7小端/EABI5/uClibc，785556字节。成功记录 `/root/router-agent/runs/20260911-182649-f30c50be`，本地日志 `build/probe-router-agent-build.log`。本轮首次旧标准输入流上传报gzip错误，改为完整压缩包上传后通过。默认接口仍为br0,eth0,eth1,usb0，运行连接47.119.168.150:9000；原collection.cpp的seconds警告保留，未安装或运行到厂商路由器。脚本AST、真实远端Bash执行与差异检查通过；本轮仅改构建入口，没有重跑产品全量测试。
 
 2026-09-08 验证：Windows PowerShell 5.1 → SSH 真实主机全流程成功，CMake 3.28.3 / GCC 5.2.0 生成 280908 字节成品；记录在 `runs/20260908-213026-e3687d14`。传入不存在的工具链时，远端与 Windows 入口均返回 1，记录在 `runs/20260908-213159-94e0a6cc`；`cmp` 确认固定成品仍与成功版本一致，latest-build 指向保持。PowerShell 语法解析、远端 `bash -n` 和 `git diff --check` 通过。GCC 5.2 仍报告原 `collection.cpp` 的 `seconds` 可能未初始化警告；本次未改业务代码，未执行厂商固件测试。
 
@@ -506,7 +529,7 @@ WPF设备页有全部属性、存储空间、网口速率及连接历史。公�
 
 新增能力需使用本次Server及Probe 0.2.0；旧ARM成品不包含本次修改。WPF产物与验证见 [MONITORING_V2_VERIFICATION](MONITORING_V2_VERIFICATION.md)。
 
-1. 双击 `probe-build.cmd`，输入精确接口名，例如 `eth0,br0,ppp0`，回车采集默认全部接口；也可在有SSH认证的终端运行 `probe-build.cmd -NetworkInterfaces eth0,br0`。只读过滤保存在本次二进制的构建默认值中，构建机和输出位置沿用§5.3；不修改设备网络配置。
+1. 双击 `probe-build.cmd`，默认采集 `br0,eth0,eth1,usb0`，不询问接口或密码；可显式运行 `probe-build.cmd -NetworkInterfaces eth0,br0` 覆盖采集接口。只读过滤保存在本次二进制的构建默认值中，构建机和输出位置沿用§5.3；不修改设备网络配置。
 2. 生成器“内置监控”可设置出口IP周期（默认600秒）和“自定义采集接口”。勾选后填写逗号分隔接口名；空字符串选择默认全部，取消勾选沿用构建值。模板发布后需重启Probe生效。
 3. Probe命令行可覆盖：`--network-interfaces eth0,br0 --network-interval 5 --egress-interval 600`。周期0关闭对应采集。接口最多32个、名称精确匹配，不存在时显示横杠并解释原因，不回退采集全部。
 4. 出口探测需要设备已有curl或wget及相应HTTPS/IPv6能力、DNS和可信证书；使用IPv4/IPv6专用固定ipify服务，每协议请求有超时。归属地查询从Windows向ipwho.is发送上报的公网IP。一个协议或查询失败不会阻塞设备控制，界面悬停横杠查看原因。

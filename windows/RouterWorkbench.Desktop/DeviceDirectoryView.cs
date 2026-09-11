@@ -11,10 +11,10 @@ internal sealed class DeviceDirectoryView : UserControl
     private readonly Func<WorkspaceConnection?> connection;
     private readonly Func<Device?> device;
     private CancellationTokenSource cancel=new();
-    private readonly TextBox path=Ui.Input("/tmp");
+    private readonly TextBox path=Ui.Input("/tmp/root");
     private readonly TextBlock status=Ui.Text("",true);
     public DataGrid Entries {get;}=Ui.Table("设备目录",("名称","Name",-1),("类型","KindText",80),("大小","SizeText",100),("修改时间","ModifiedText",160));
-    public string CurrentPath {get;private set;}="/tmp";
+    public string CurrentPath {get;private set;}="/tmp/root";
     public bool Ready {get;private set;}
     public event Action? StateChanged;
     public DeviceDirectoryView(Func<WorkspaceConnection?> connection,Func<Device?> device)
@@ -46,7 +46,7 @@ internal sealed class DeviceDirectoryView : UserControl
         Content=new Border {Padding=new(16,10,16,16),Child=Ui.Page(top,Entries)};
         Unloaded+=(_,_)=>Stop();
     }
-    public void Reset(){Stop();Ready=false;CurrentPath="/tmp";path.Text="/tmp";Entries.ItemsSource=null;status.Text="请选择在线设备。";StateChanged?.Invoke();}
+    public void Reset(){Stop();Ready=false;CurrentPath="/tmp/root";path.Text="/tmp/root";Entries.ItemsSource=null;status.Text="请选择在线设备。";StateChanged?.Invoke();}
     public void Stop(){cancel.Cancel();cancel.Dispose();cancel=new();}
     public async Task LoadDirectory(string directory)
     {

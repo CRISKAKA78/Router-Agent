@@ -40,7 +40,7 @@ public partial class MainWindow
     {
         if(fileBrowser==null)return;var scope=(connection?.Api.Origin.ToString()??"")+"|"+selectedDevice;
         if(scope!=fileScope){fileCancel.Cancel();fileCancel.Dispose();fileCancel=new();fileBrowser.Reset();fileScope=scope;fileInitialized=false;}
-        if(Page=="files"&&!fileInitialized&&Device is {Online:true,Managed:true}&&connection is {Synchronized:true,Busy:false,Pending:null}){fileInitialized=true;_ = fileBrowser.LoadDirectory("/tmp");}
+        if(Page=="files"&&!fileInitialized&&Device is {Online:true,Managed:true}&&connection is {Synchronized:true,Busy:false,Pending:null}){fileInitialized=true;_ = fileBrowser.LoadDirectory("/tmp/root");}
     }
     private async Task RunExchange(FileExchange operation)
     {
@@ -70,7 +70,7 @@ public partial class MainWindow
         if(picker.ShowDialog(this)!=true)return;
         Dictionary<string,string>? chosen=null;
         Form("上传文件",$"{System.IO.Path.GetFileName(picker.FileName)} → {device.DisplayName}",
-            [new("path","设备目标文件路径",RemoteDirectory.Join(fileBrowser.Ready ? fileBrowser.CurrentPath : "/tmp",System.IO.Path.GetFileName(picker.FileName))),new("overwrite","覆盖已存在文件","否",Choices:["否","是"])],values=>{
+            [new("path","设备目标文件路径",RemoteDirectory.Join(fileBrowser.Ready ? fileBrowser.CurrentPath : "/tmp/root",System.IO.Path.GetFileName(picker.FileName))),new("overwrite","覆盖已存在文件","否",Choices:["否","是"])],values=>{
                 RemoteDirectory.FileName(values["path"]);chosen=values;return Task.CompletedTask;});
         if(chosen!=null){if(owner!=connection||device.DeviceId!=selectedDevice)throw new OperationCanceledException();await StartExchange(picker.FileName,chosen["path"],false,chosen["overwrite"]=="是");}
     }

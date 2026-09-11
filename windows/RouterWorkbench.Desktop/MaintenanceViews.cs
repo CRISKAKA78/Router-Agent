@@ -55,9 +55,6 @@ public partial class MainWindow
         var open=RowButton("打开",(sender,args)=>{if(((Button)sender).DataContext is ChannelRow row)_ = Run("打开维护通道",()=>OpenEndpoint(row.Service));});
         open.SetBinding(ContentControl.ContentProperty,new Binding("OpenLabel"));actions.AppendChild(open);
         actions.AppendChild(RowButton("复制链接",(sender,args)=>{endpointGrid.SelectedItem=((Button)sender).DataContext;_ = Run("复制链接",CopyEndpoint);}));
-        var password=RowButton("复制密码",(_,_)=>_ = Run("复制密码",CopySshPassword),false);
-        var passwordStyle=new Style(typeof(Button),(Style)FindResource("ToolbarButton"));passwordStyle.Setters.Add(new Setter(UIElement.VisibilityProperty,Visibility.Collapsed));
-        var sshOnly=new DataTrigger {Binding=new Binding("Service"),Value="ssh"};sshOnly.Setters.Add(new Setter(UIElement.VisibilityProperty,Visibility.Visible));passwordStyle.Triggers.Add(sshOnly);password.SetValue(FrameworkElement.StyleProperty,passwordStyle);actions.AppendChild(password);
         endpointGrid.Columns.Add(new DataGridTemplateColumn {Header="操作",Width=new(300),MinWidth=170,CellTemplate=new DataTemplate {VisualTree=actions}});
         endpointGrid.SizeChanged+=(_,_)=>endpointGrid.Columns[^1].Width=new(endpointGrid.ActualWidth<850?190:300);
         endpointGrid.MinRowHeight=44;
@@ -67,20 +64,22 @@ public partial class MainWindow
         var channels=new Border {Padding=new(16),Child=Ui.Page(channelContext,endpointGrid)};
         maintenanceHistory=CompactWorkspace.History("维护记录（0）",maintenanceGrid);
         return Ui.Page(CompactWorkspace.Toolbar(Ui.Text("租期（分钟）  ", true),leaseMinutes,createMaintenanceButton,closeMaintenanceButton,leaseStatus,
-            Ui.Button("账号与外部客户端…",OpenSettings)),CompactWorkspace.WithHistory(channels,maintenanceHistory));
+            Ui.Button("外部客户端…",OpenSettings)),CompactWorkspace.WithHistory(channels,maintenanceHistory));
     }
     private sealed class ChannelRow(string service,string state,string link) : System.ComponentModel.INotifyPropertyChanged
     {
         public string Service {get;}=service;
         public string State {get;}=state;
-        public string Link {get;}=link;
+        public string Link => ShowAddress ? link : "";
+        private bool showAddress;
+        public bool ShowAddress {get=>showAddress;set {if(showAddress==value)return;showAddress=value;PropertyChanged?.Invoke(this,new(nameof(Link)));}}
         public string OpenLabel => Service=="web"?"打开 Web":"打开外部 "+(Service=="ssh"?"SSH":"Telnet");
         private bool canOpen;
         public bool CanOpen {get=>canOpen;set {if(canOpen==value)return;canOpen=value;PropertyChanged?.Invoke(this,new(nameof(CanOpen)));}}
         public event System.ComponentModel.PropertyChangedEventHandler? PropertyChanged;
     }
     private string EndpointLink(Endpoint endpoint) => endpoint.Service == "web" ? endpoint.Url ?? "" :
-        new UriBuilder(endpoint.Service, endpoint.Host, endpoint.Port) { UserName = endpoint.Service == "ssh" ? profile.SshUser : "" }.Uri.AbsoluteUri;
+        new UriBuilder(endpoint.Service, endpoint.Host, endpoint.Port).Uri.AbsoluteUri;
     private void UpdateEndpoints() {
         var selected=(endpointGrid.SelectedItem as ChannelRow)?.Service;
         endpointGrid.ItemsSource=ActiveMaintenance?.Endpoints.Select(e=>new ChannelRow(e.Service,Labels.State(e.State),EndpointLink(e))).ToArray();
@@ -101,9 +100,12 @@ public partial class MainWindow
         createMaintenanceButton.Content=live!=null&&live.MaintenanceId!=current?.MaintenanceId?"查看当前维护":"开启维护";
         createMaintenanceButton.IsEnabled=Writable&&Device is {Online:true,Managed:true}&&snapshot.MaintenanceError==""&&(live==null||live.MaintenanceId!=current?.MaintenanceId);
         closeMaintenanceButton.IsEnabled = Writable && current is { Released: false };
-        var available=connection?.Synchronized==true&&!working&&Device is {Online:true}&&current is {Released:false,State:"ready"}&&current.ExpiresAt>DateTimeOffset.UtcNow&&current.SessionId==Device.CurrentSession?.SessionId;
-        foreach(var row in endpointGrid.Items.OfType<ChannelRow>())row.CanOpen=available&&current!.Endpoints.Any(e=>e.Service==row.Service&&e.State=="ready");
-        channelContext.Text=current==null?"开启维护后显示 Web、SSH 和 Telnet 入口。":current.Released?"以下为所选历史记录，入口已关闭。":"所选维护："+current.CreatedText+" · 到期 "+current.ExpiresText;
+        var available=connection?.Synchronized==true&&Device is {Online:true}&&current is {Released:false,State:"ready"}&&current.ExpiresAt>DateTimeOffset.UtcNow&&current.SessionId==Device.CurrentSession?.SessionId;
+        foreach(var row in endpointGrid.Items.OfType<ChannelRow>()) {
+            row.ShowAddress=available&&current!.Endpoints.Any(e=>e.Service==row.Service&&e.State!="closed");
+            row.CanOpen=available&&!working&&current!.Endpoints.Any(e=>e.Service==row.Service&&e.State=="ready");
+        }
+        channelContext.Text=current==null?"尚未开启维护":current.Released?"维护已关闭":"创建 "+current.CreatedText+" · 到期 "+current.ExpiresText;
         if (current == null) { leaseStatus.Text = snapshot.MaintenanceError != "" ? snapshot.MaintenanceError : "尚未开启维护"; return; }
         var remaining = current.ExpiresAt - DateTimeOffset.UtcNow;
         leaseStatus.Text = current.Released ? "已关闭 · " + MaintenanceReasonConverter.Describe(current.Reason) : remaining <= TimeSpan.Zero ? "已到期 · 等待状态确认" : $"{current.StateText} · 剩余 {Math.Max(0,(long)remaining.TotalMinutes)}分 {Math.Max(0,remaining.Seconds)}秒";

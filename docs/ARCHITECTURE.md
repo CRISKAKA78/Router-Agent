@@ -1,5 +1,9 @@
 # 路由器远程运维平台架构基线
 
+## 默认部署与客户端偏好（ADR-057）
+
+Server CLI默认全接口监听，对外地址47.119.168.150，HTTP8888/控制9000/数据9001；内部Service缺省保持测试与嵌入用途。Windows本机交叉编译Linux AMD64，再由独立SFTP脚本上传Server和启动脚本，构建凭据不进入产品。WPF/Core移除SSH账号/密码与DPAPI存储职责，仅保存外部程序偏好，旧账号字段读取时忽略。关闭或失效维护隐藏公共地址，文件初始目录/tmp/root。模块/API/协议边界保持，见[验证与部署](SERVER_DEFAULTS_VERIFICATION.md)。
+
 ## 邻居发现（ADR-056）
 
 Probe的SystemSampler惰性持有进程级Neighbors采集器；其独立有界worker读取内核邻居/FDB、可选租约及厂商只读表，不阻塞控制连接。LiveTelemetry绑定已应用配置修订，TaskManager复用同一采集器执行原生ARP扫描；取消在任务准入时处理。控制会话释放/重配置清空采样并请求停止扫描。无AI逻辑、新数据库或新数据面。
@@ -103,7 +107,7 @@ DeviceProperties按registration与effective_metrics展示；未知值为横杠�
 
 服务器地址在设置保存，启动自动恢复连接。HTTP 首连/重连回查快照，五秒恢复刷新按值更新稳定属性行。设备属性由 `DeviceProperties` 从 registration 快照完整展示，包含标准字段、扩展属性、模板版本和采集失败；不读取当前模板定义重新解释历史值。ADR-038 增加 runtime 开机时长和采样时间，全部属性表在同设备/同字段集合时仅通知变化值，保留选择；时长从最高有效单位连续显示到秒，年=365日、月=30日，离线不累计。
 
-维护页仅展示公共 Web/SSH/Telnet 链接，启动前回查维护及设备 Session。主程序没有 WebView2、内置终端、工具管理或通用任务页。外部进程由用户管理，退出 UI 不撤销 Server 维护；SSH 默认 admin/admin，密码由 `SshPasswordStore` 用当前 Windows 用户 DPAPI 独立加密，显式复制，不写日志、URL 或进程参数。文件/配置结果在各自页面，committed/released 与最终 Task RESULT 分开。
+维护页仅展示公共 Web/SSH/Telnet 链接，启动前回查维护及设备 Session。主程序没有 WebView2、内置终端、工具管理或通用任务页。外部进程由用户管理，退出 UI 不撤销 Server 维护；SSH 账号和认证由外部客户端处理，工作台不保存或复制凭据，启动参数仅包含入口主机和端口。文件/配置结果在各自页面，committed/released 与最终 Task RESULT 分开。
 
 `ui-windows.cmd` → `windows/build-desktop.ps1` 发布自包含 x64 EXE，不依赖 Node/Vite/C++/WebView2 构建。当前实现与验证见 [WINDOWS_DESKTOP_MIGRATION](WINDOWS_DESKTOP_MIGRATION.md)。
 

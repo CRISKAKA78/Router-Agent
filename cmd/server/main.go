@@ -18,7 +18,7 @@ import (
 )
 
 func main() {
-	httpAddress := flag.String("http-listen", "127.0.0.1:8080", "trusted HTTP/WebSocket API listen address")
+	httpAddress := flag.String("http-listen", ":8888", "trusted HTTP/WebSocket API listen address")
 	apiConfig := api.Config{}
 	flag.IntVar(&apiConfig.MaxRequests, "http-max-requests", 32, "maximum concurrent HTTP requests")
 	flag.IntVar(&apiConfig.MaxClients, "http-max-websockets", 64, "maximum WebSocket clients")
@@ -32,10 +32,10 @@ func main() {
 	repositoryDirectory := flag.String("repository-dir", repository.DefaultDirectory, "persistent local file/tool repository directory")
 	templateFile := flag.String("probe-template-file", "", "template catalog path; default repository-dir/probe-templates/catalog.json")
 	tunnelConfig := tunnel.Config{}
-	flag.StringVar(&tunnelConfig.BindHost, "tunnel-bind", "127.0.0.1", "maintenance listeners bind IP")
-	flag.StringVar(&tunnelConfig.AdvertisedHost, "tunnel-host", "127.0.0.1", "maintenance entry advertised host")
-	flag.StringVar(&tunnelConfig.DataListen, "tunnel-data-listen", "127.0.0.1:9001", "independent data listener")
-	flag.StringVar(&tunnelConfig.DataHost, "tunnel-data-host", "127.0.0.1", "data IP or DNS host resolved by Server for Probe")
+	flag.StringVar(&tunnelConfig.BindHost, "tunnel-bind", "::", "maintenance listeners bind IP")
+	flag.StringVar(&tunnelConfig.AdvertisedHost, "tunnel-host", "47.119.168.150", "maintenance entry advertised host")
+	flag.StringVar(&tunnelConfig.DataListen, "tunnel-data-listen", ":9001", "independent data listener")
+	flag.StringVar(&tunnelConfig.DataHost, "tunnel-data-host", "47.119.168.150", "data IP or DNS host resolved by Server for Probe")
 	flag.IntVar(&tunnelConfig.PortFirst, "tunnel-port-first", 20000, "first maintenance pool port")
 	flag.IntVar(&tunnelConfig.PortLast, "tunnel-port-last", 20199, "last maintenance pool port")
 	flag.IntVar(&tunnelConfig.PerMaintenance, "tunnel-session-connections", 8, "pending and active connections per maintenance")

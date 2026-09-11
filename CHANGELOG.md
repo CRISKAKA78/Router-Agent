@@ -1,5 +1,15 @@
 # 变更记录
 
+## 2026-09-11 Probe 构建入口
+
+- Probe构建恢复到root@10.1.1.128，从本地password.txt读取登录密码；源码经SFTP上传后编译，成品为/root/router-agent/router-agent。管理服务器地址与Linux Server构建上传保持原设置。
+
+## 2026-09-11
+
+- 默认Server地址改为47.119.168.150，HTTP API 8888；Server监听所有本机IP，WPF与模板生成器的新配置使用新地址。
+- 新增Linux AMD64一键构建与SFTP上传/root/agent-server，默认读取本地私钥及口令；Probe默认接口br0、eth0、eth1、usb0，无接口询问。
+- Windows移除SSH用户名/密码设置及复制，已关闭/失效维护不显示连接地址，文件管理默认/tmp/root，精简邻居发现等重复说明。
+
 ## 2026-09-10 LAN 与本机广播域邻居发现（ADR-056）
 
 - 设备详情分别显示LAN下接设备与本机广播域设备的IP/MAC、转发端口、主机名及来源；两类允许重叠，端口未知/冲突另列，不查询或推断上级设备。

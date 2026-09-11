@@ -5,7 +5,7 @@ umask 077
 run=${1:?Usage: build-probe-gcc52.sh RUN TOOLCHAIN ROOT}
 toolchain=${2:?Missing toolchain directory}
 root=${3:?Missing workspace root}
-interfaces=${4:--}
+interfaces=${4:-br0,eth0,eth1,usb0}
 [[ "$interfaces" == "-" ]] && interfaces=""
 [[ "$interfaces" =~ ^[A-Za-z0-9_,.-]*$ ]] || exit 2
 [[ "$root" =~ ^/root/[A-Za-z0-9_-]+$ && "$run" == "$root"/runs/* ]] || exit 2
@@ -84,23 +84,22 @@ cmake -S "$run/src/probe" -B "$run/build" \
     -DCMAKE_TOOLCHAIN_FILE="$run/toolchain.cmake" \
     -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=OFF -DRMP_NETWORK_INTERFACES="$interfaces"
 cmake --build "$run/build" --parallel 2
-"$strip" -o "$run/output/router-probe" "$run/build/router-probe"
+"$strip" -o "$run/output/router-agent" "$run/build/router-probe"
 cp "$run/input/probe/third_party/mbedtls/LICENSE" "$run/output/MBEDTLS-LICENSE.txt"
 cp "$run/input/probe/third_party/mbedtls/README.router-agent.md" "$run/output/THIRD-PARTY.md"
 {
-    file "$run/output/router-probe"
-    stat -c 'size=%s bytes' "$run/output/router-probe"
-    readelf -h "$run/output/router-probe"
-    readelf -A "$run/output/router-probe"
-    readelf -l "$run/output/router-probe" | grep interpreter
-    readelf -d "$run/output/router-probe" | grep -E 'NEEDED|RPATH|RUNPATH'
+    file "$run/output/router-agent"
+    stat -c 'size=%s bytes' "$run/output/router-agent"
+    readelf -h "$run/output/router-agent"
+    readelf -A "$run/output/router-agent"
+    readelf -l "$run/output/router-agent" | grep interpreter
+    readelf -d "$run/output/router-agent" | grep -E 'NEEDED|RPATH|RUNPATH'
 } | tee "$run/verification.log"
 
 # Preserve the last successful executable if upload, configuration or compilation fails.
-mkdir -p "$root/output"
-cp "$run/output/MBEDTLS-LICENSE.txt" "$run/output/THIRD-PARTY.md" "$root/output/"
-cp "$run/output/router-probe" "$run/publish-router-probe"
-mv -f "$run/publish-router-probe" "$root/output/router-probe"
+cp "$run/output/MBEDTLS-LICENSE.txt" "$run/output/THIRD-PARTY.md" "$root/"
+cp "$run/output/router-agent" "$run/publish-router-agent"
+mv -f "$run/publish-router-agent" "$root/router-agent"
 printf '%s\n' "$run" > "$run/latest-build.txt"
 mv -f "$run/latest-build.txt" "$root/latest-build.txt"
-printf '\nSUCCESS: %s/output/router-probe\nBuild records: %s\n' "$root" "$run"
+printf '\nSUCCESS: %s/router-agent\nBuild records: %s\n' "$root" "$run"

@@ -43,7 +43,7 @@ endif()
 
 add_executable(router-probe src/main.cpp)
 target_link_libraries(router-probe PRIVATE rmp_probe_core)
-set(RMP_NETWORK_INTERFACES "" CACHE STRING "Default exact network interface names, comma separated")
+set(RMP_NETWORK_INTERFACES "br0,eth0,eth1,usb0" CACHE STRING "Default exact network interface names, comma separated")
 if(NOT RMP_NETWORK_INTERFACES MATCHES "^[A-Za-z0-9_,.-]*$")
     message(FATAL_ERROR "Invalid default interface names")
 endif()

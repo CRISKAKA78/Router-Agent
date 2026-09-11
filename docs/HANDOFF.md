@@ -1,5 +1,11 @@
 # 项目接管手册
 
+2026-09-11 接管更新：用户确认迁移后的维护连接问题已解决；排查证据为 Probe 到 47.119.168.150:9001 的 SYN 未到达服务器网卡，未确认具体网络规则及修复方式。Server 已实际常驻、Probe 在线；不要将下文短时部署记录当成当前运行状态。本轮将既有迁移改动整理进本地 main 并删除迁移分支，不推送远端，提交和分支结果以 Git 为准；凭据、构建包和运行数据仍留本机。
+
+2026-09-11 Probe最新入口为ADR-058：双击probe-build.cmd即可在10.1.1.128通过账号密码构建，password.txt由AskPass本地读取；不要改成47.119.168.150编译或使用私钥。产物/root/router-agent/router-agent；成功run为20260911-182649-f30c50be，构建/ELF通过，未替换设备Probe。完整规则及证据见[部署§5.3](DEPLOYMENT.md#53-mipsel--arm--arm64-交叉编译)。
+
+2026-09-11当前入口为ADR-057与[默认服务器验证](SERVER_DEFAULTS_VERIFICATION.md)。Linux一键构建上传用`server-linux-amd64.cmd`，远端启动`/root/agent-server/start.sh`；当前仅上传并做短时验证，未常驻启动。Windows成品`build/windows-desktop-serverdefaults/win-x64/RouterWorkbench.exe`，新配置默认47.119.168.150:8888，旧保存地址保留；不要恢复SSH凭据配置。Probe构建按ADR-058已恢复默认root@10.1.1.128，password.txt自动登录，成品/root/router-agent/router-agent；接口默认br0,eth0,eth1,usb0。凭据保持本地且Git忽略，无提交推送；下文为历史入口。
+
 2026-09-10 用户已明确授权将当前累计源码、测试和文档提交并推送到 GitHub `CRISKAKA78/Router-Agent` 的 `main`。本次仅整理提交：核对远端基线、文件范围和 `git diff --check`，不重跑全量产品测试；构建包、运行数据和本地配置留在本机。下文各轮“未提交/推送”为当时记录，当前提交号与推送结果以 Git 为准；ARM、sanitizer 和实机验收缺口保持。
 
 2026-09-10 本轮入口为[邻居发现](NEIGHBOR_DISCOVERY.md)与ADR-056：用户明确第二类为本机广播域全部记录，不是上级；不能固化FNR100的LAN1接线。LAN按配置转发端口证据筛选，和broadcast可以重叠。新增各层neighbors模块、Probe Neighbors、WPF NeighborView与生成器NeighborEditor；协议/API使用既有传输与幂等。配套Windows成品、557项WPF/67份布局及其他测试证据、通用模板示例见专项说明。厂商ARM首轮交互认证已进入GCC5.2编译，暴露旧uClibc不导出`std::snprintf`；`scripts/build-probe-gcc52.sh`现仅在远端副本增加`<stdio.h>`并改用`::snprintf`，本地转换/编译/15项CTest通过，真实GCC5.2仍需交互密码复跑。当前生产实例未替换。此前Server重连修复与ADR-053～055展示改动保留，不回退已有工作区，也未提交/推送。

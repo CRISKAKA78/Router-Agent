@@ -175,7 +175,7 @@ properties 为 `{属性key:{name,command,timeout_seconds}}`，兼容增加 `{属
 
 设备与 Session 的 registration 兼容增加 `template`（无模板为 null）、`attributes` 和 `collection_errors`（旧客户端可忽略；旧 Probe 可为 null/空对象）。值及字段定义见 PROTOCOL；六项已有属性仍使用原字段。模板列表在独立生成器挂载、HTTP 快照恢复和定时刷新时重查；未新增 WebSocket topic、业务状态机或遥测。
 
-`cmd/server -http-listen 127.0.0.1:8080` 默认启用独立 HTTP listener。控制 TCP 仍为 `-listen :9000`，Maintenance data 与入口配置保持 Phase 4。HTTP 包括命令执行、文件与设备断开能力，仅用于可信本机或受保护管理网络。非 loopback 绑定由部署者显式配置；远程访问由部署层完成 TLS、认证和网络访问限制。当前没有内置用户、租户、RBAC 或完整审计，不能把 loopback、Origin 校验或 Tunnel 配对 token 当成用户认证。
+`cmd/server` 默认启用 `-http-listen :8888`，控制 TCP 为 `-listen :9000`，data 为 `:9001`，维护绑定 `::`，对外维护及 data 地址为 `47.119.168.150`（ADR-057）。HTTP 包括命令执行、文件与设备断开能力，仅用于可信本机或受保护管理网络。当前 CLI 采用用户确认的全接口监听；远程访问由部署层完成 TLS、认证和网络访问限制。当前没有内置用户、租户、RBAC 或完整审计，不能把 loopback、Origin 校验或 Tunnel 配对 token 当成用户认证。
 
 API 拒绝携带不同 Host 的浏览器 Origin；无 CORS 放行配置。无 Origin 的 CLI 可以访问。HTTP/WebSocket 共用一监听，WebSocket不接收业务命令。Server shutdown 停止 API 准入、取消创建准备、关闭 HTTP 与 WebSocket socket、等待已准入工作退出，然后关闭 Maintenance/Gateway/Repository。已成功创建的对象只因其自身租期、Session或Server生命周期结束，不因创建请求断开而撤销。
 
@@ -405,7 +405,7 @@ Snapshot为ID、DeviceID、SessionID、State、Reason、CreatedAt、ExpiresAt、
 
 Close先撤监听，再reset data TCP并关闭外部流，Released是Server本地资源回收事实，没有Probe释放ACK。CLOSE通过Gateway每Session一个worker、64项有界队列尽力发送，本地释放不等待控制网络。Session失效后准入和配对同步拒绝，watcher发起关闭；新Session不继承。Released后端口默认隔离24小时；隔离记录独立于关闭历史，池满返回ErrCapacity，不提前复用。闭合历史地址不能继续使用；超出隔离期或Server重启后，旧客户端与新客户端无法由原始TCP区分。需永久隔离时部署不重叠的池/地址，见ADR-022。
 
-配置默认值：BindHost/AdvertisedHost/DataHost均127.0.0.1；DataListen=127.0.0.1:9001；PortFirst/PortLast=20000/20199；MaxMaintenance=64；PerMaintenance=8、PerDevice=8、TotalConnections=512；Handshakes=64；History=128；PendingTimeout=10s、HandshakeTimeout=5s、IdleTimeout=24h、PortReuseDelay=24h。数值0选择默认；IdleTimeout范围1ms～24h，PortReuseDelay至少1ms，非法范围启动报错。默认200个端口在隔离窗口内最多支持66次三入口分配，按维护频率配置更大池。各限制不提供无界关闭选项。
+内部 Service 配置零值（CLI 按 ADR-057 显式覆盖）：BindHost/AdvertisedHost/DataHost均127.0.0.1；DataListen=127.0.0.1:9001；PortFirst/PortLast=20000/20199；MaxMaintenance=64；PerMaintenance=8、PerDevice=8、TotalConnections=512；Handshakes=64；History=128；PendingTimeout=10s、HandshakeTimeout=5s、IdleTimeout=24h、PortReuseDelay=24h。数值0选择默认；IdleTimeout范围1ms～24h，PortReuseDelay至少1ms，非法范围启动报错。默认200个端口在隔离窗口内最多支持66次三入口分配，按维护频率配置更大池。各限制不提供无界关闭选项。
 
 DataHost接受IP或DNS主机名；Create在Server解析（最多5s、受ctx取消），优先IPv4，本次维护固定所得IP，下次Create更新；并行Create最多MaxMaintenance个，超额ErrCapacity。解析失败无入口，解析不阻塞Close；绑定失效在发布前复核。Probe不做DNS，仍收到数值IP。部署者保证Server解析所得地址从Probe可达；不自动判断split-horizon或逐地址故障切换。AdvertisedHost可为域名，由外部客户端解析。
 
