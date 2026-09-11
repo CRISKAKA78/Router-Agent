@@ -23,6 +23,12 @@ internal sealed class TestProbe : IAsyncDisposable
     private MemoryStream? uploading;
     public string SessionId { get; private set; } = "";
     public ulong ConfigurationRevision{get;private set;}
+    public int LogEnables {get;private set;}
+    public int LogCommits {get;private set;}
+    public int LogReads {get;private set;}
+    public int LogSnapshots {get;private set;}
+    public int LogReleases {get;private set;}
+    private readonly Dictionary<string,string> logSettings=new(){["debuglog_enable"]="0",["syslogd_enable"]="0",["log_save_en"]="0",["log_save_itv"]="300"};
     public int Executions { get; private set; }
     public int NeighborScans {get;private set;}
     public int NeighborInspections {get;private set;}
@@ -57,6 +63,14 @@ internal sealed class TestProbe : IAsyncDisposable
                 }
                 using var doc = JsonDocument.Parse(payload); var value = doc.RootElement;
                 if(type==0x07){ConfigurationRevision=value.GetProperty("revision").GetUInt64();await SendAsync(0x08,new{reply_to=message,revision=ConfigurationRevision,success=true,error=""},1);}
+                else if(type==0x20&&value.GetProperty("event").GetString()=="device_log_query"){
+                    EnsureLogFiles();object data;
+                    var op=value.GetProperty("operation").GetString();
+                    if(op=="status")data=logSettings;
+                    else if(op=="history")data=new{files=new[]{new{name="FF_BKDATA_2025-09-25.txt.gz",path="/jffs/FF_BKDATA_2025-09-25.txt.gz",size=files["/jffs/FF_BKDATA_2025-09-25.txt.gz"].Length,modified=1758800000,cached=false}},directories=new[]{new{path="/tmp/third_party/data",state="ok"},new{path="/jffs",state="alias"},new{path="/tmp/root",state="ok"}},limited=false};
+                    else{LogReads++;var bytes="2025-09-25 12:00:00: AT+CSQ\n+CSQ: 20,99\n中文\n"u8.ToArray();var at=(int)Math.Min(value.GetProperty("offset").GetUInt64(),(ulong)bytes.Length);data=new{state="ok",generation="fixture:1",start=at,offset=bytes.Length,gap=false,data_hex=Convert.ToHexStringLower(bytes.AsSpan(at))};}
+                    await SendAsync(0x20,new{@event="device_log_reply",request_id=value.GetProperty("request_id").GetString(),data,error=""});
+                }
                 else if (type == 0x10)
                 {
                     var id = value.GetProperty("task_id").GetString()!;
@@ -73,6 +87,15 @@ internal sealed class TestProbe : IAsyncDisposable
                         await Task.Delay(1000,stop.Token);
                         var rows=new[]{new{ip="192.0.2.2",mac="02:00:00:00:00:02",port="",hostname="fixture",source="active_arp",state="responded",active_age_ms=0}};
                         await ResultAsync(value,JsonSerializer.Serialize(new{requests=253,responses=1,rows}),"",new{});
+                    }
+                    else if(taskType=="device_logs"){
+                        EnsureLogFiles();var p=value.GetProperty("params");var a=p.GetProperty("action").GetString();object result=logSettings;
+                        if(a=="enable_live"){LogEnables++;LogCommits++;logSettings["debuglog_enable"]="1";logSettings["syslogd_enable"]="3";}
+                        else if(a=="history_settings"){logSettings["log_save_en"]=p.GetProperty("enabled").GetString()!;logSettings["log_save_itv"]=p.GetProperty("interval").GetString()!;if(logSettings["log_save_en"]=="1")logSettings["debuglog_enable"]="1";if(p.GetProperty("persist").GetString()=="1")LogCommits++;}
+                        else if(a=="release"){LogReleases++;files.Remove(p.GetProperty("path").GetString()!);}
+                        else if(a=="snapshot"){LogSnapshots++;var source=p.GetProperty("path").GetString()!;var path="/tmp/router-agent-log-fixture/"+Path.GetFileName(source);files[path]=files[source].ToArray();result=new{remote_path=path,name=Path.GetFileName(source),size=files[path].Length,expires_in_seconds=3600};}
+                        else result=new{};
+                        await ResultAsync(value,JsonSerializer.Serialize(result),"",new{});
                     }
                     else if (taskType == "router_config") { Executions++; await ResultAsync(value, "fixture configuration result", "", new { }); }
                     else
@@ -116,6 +139,10 @@ internal sealed class TestProbe : IAsyncDisposable
             }
         }
         catch (Exception e) when (e is IOException or OperationCanceledException or ObjectDisposedException) { }
+    }
+    private void EnsureLogFiles(){
+        const string path="/jffs/FF_BKDATA_2025-09-25.txt.gz";if(files.ContainsKey(path))return;
+        using var raw=new MemoryStream();foreach(var text in new[]{"first AT+CSQ\n","second 中文\n"}){using var gz=new System.IO.Compression.GZipStream(raw,System.IO.Compression.CompressionLevel.Fastest,true);gz.Write(Encoding.UTF8.GetBytes(text));}files[path]=raw.ToArray();
     }
     public Task ReportUptimeAsync(long? seconds) {
         heartbeatPayload = new { uptime = seconds ?? 0, uptime_valid = seconds.HasValue, running_tasks = 0 };

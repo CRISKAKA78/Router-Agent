@@ -1,3 +1,4 @@
+#include "rmp/device_logs.h"
 #include "rmp/file_manager.h"
 #include "rmp/tunnel.h"
 #include "rmp/priority_gate.h"
@@ -131,7 +132,7 @@ std::string RegisterPayload(const ClientConfig& config) {
         output<<','<<EscapeJsonString(i->first)<<':'<<EscapeJsonString(i->second);
     output << ",\"arch\":" << EscapeJsonString(config.arch)
            << ",\"boot_id\":" << EscapeJsonString(config.boot_id)
-           << ",\"capabilities\":[\"exec\",\"file\",\"tunnel\",\"router_config\",\"telemetry_v2\",\"managed_config_v1\",\"port_counters_v1\",\"neighbors_v1\",\"neighbors_inspect_v1\",\"cellular_identity_v1\"]}";
+           << ",\"capabilities\":[\"exec\",\"file\",\"tunnel\",\"router_config\",\"telemetry_v2\",\"managed_config_v1\",\"port_counters_v1\",\"neighbors_v1\",\"neighbors_inspect_v1\",\"cellular_identity_v1\",\"device_logs_v1\"]}";
     return output.str();
 }
 
@@ -284,7 +285,7 @@ bool HandleOnlineFrames(const std::vector<Frame>& frames,
                         TaskManager* task_worker,
                         FileManager* files,
                         TunnelManager* tunnels,
- LiveTelemetry* telemetry,
+ DeviceLogReader* logs, LiveTelemetry* telemetry,
                         std::uint32_t file_chunk_size,
                         std::uint32_t max_payload,
                         SteadyClock::time_point* last_seen,
@@ -297,6 +298,10 @@ bool HandleOnlineFrames(const std::vector<Frame>& frames,
         }
         if (!ValidateIncomingMessageID(*frame, expected_server_message_id, error)) {
             return false;
+        }
+        if(frame->header.type==0x20){
+            if(frame->header.flags!=0||!logs->Submit(std::string(frame->payload.begin(),frame->payload.end()),error))return false;
+            *last_seen=SteadyClock::now();continue;
         }
         if(frame->header.type==0x07){if(frame->header.flags!=0||!telemetry->Apply(std::string(frame->payload.begin(),frame->payload.end()),frame->header.message_id,error))return false;*last_seen=SteadyClock::now();continue;}
  if (frame->header.type==kTypeTunnelConnect || frame->header.type==kTypeTunnelClose) {
@@ -350,7 +355,7 @@ bool HandleOnlineFrames(const std::vector<Frame>& frames,
                 const bool accepted = state != "rejected";
                 std::string reason;
                 if (!parsed) reason = "invalid task payload";
-                else if (task.type != "exec" && task.type != "router_config" && task.type != "neighbor_scan" && task.type != "neighbor_cancel" && task.type != "neighbor_inspect" && !file) reason = "unsupported task type";
+                else if (task.type != "exec" && task.type != "router_config" && task.type != "device_logs" && task.type != "neighbor_scan" && task.type != "neighbor_cancel" && task.type != "neighbor_inspect" && !file) reason = "unsupported task type";
                 else if (!accepted) reason = "task capacity exhausted";
                 std::string ack = TaskAckPayload(frame->header.message_id, task.task_id, accepted, reason, state);
                 if (!writer->Send(kTypeTaskAck, kFlagResponse, ack, &outgoing_id)) return false;
@@ -454,10 +459,11 @@ SessionResult RunSession(int socket_fd, const ClientConfig& config, TaskManager&
     SteadyClock::time_point last_seen = SteadyClock::now();
     SteadyClock::time_point next_heartbeat = last_seen;
 
+    DeviceLogReader logs;
     while (true) {
         if (!frames.empty()) {
             if (!HandleOnlineFrames(frames, &expected_server_message_id, &pending_heartbeats,
-                                    &writer, &task_worker, &files, &tunnels, &telemetry, register_ack.file_chunk_size, register_ack.max_control_payload, &last_seen, &validation_error)) {
+                                    &writer, &task_worker, &files, &tunnels, &logs, &telemetry, register_ack.file_chunk_size, register_ack.max_control_payload, &last_seen, &validation_error)) {
                 std::cerr << "state=PROTOCOL_ERROR detail=" << validation_error << std::endl;
                 return result;
             }
@@ -503,7 +509,7 @@ SessionResult RunSession(int socket_fd, const ClientConfig& config, TaskManager&
                 }
                 if (!frames.empty() &&
                     !HandleOnlineFrames(frames, &expected_server_message_id, &pending_heartbeats,
-                                        &writer, &task_worker, &files, &tunnels, &telemetry, register_ack.file_chunk_size, register_ack.max_control_payload, &last_seen, &validation_error)) {
+                                        &writer, &task_worker, &files, &tunnels, &logs, &telemetry, register_ack.file_chunk_size, register_ack.max_control_payload, &last_seen, &validation_error)) {
                     std::cerr << "state=PROTOCOL_ERROR detail=" << validation_error << std::endl;
                     return result;
                 }
@@ -514,6 +520,7 @@ SessionResult RunSession(int socket_fd, const ClientConfig& config, TaskManager&
         std::string observation;
  if(telemetry.NextAck(&observation)){std::uint64_t id;if(!writer.Send(0x08,kFlagResponse,observation,&id))return result;}
         if(telemetry.Next(register_ack.max_control_payload,&observation)){std::uint64_t id;if(!writer.Send(0x20,0,observation,&id))return result;}
+        if(logs.Next(&observation)){std::uint64_t id;if(!writer.Send(0x20,0,observation,&id))return result;}
         files.Tick();
         if(!tunnels.Tick())return result;
         std::string result_payload;

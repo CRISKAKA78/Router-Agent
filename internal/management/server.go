@@ -5,6 +5,7 @@ import (
 	"errors"
 	"net"
 	"path/filepath"
+	"routerprobe/internal/devicelog"
 	"routerprobe/internal/enrollment"
 	"routerprobe/internal/gateway"
 	"routerprobe/internal/probetemplate"
@@ -20,6 +21,7 @@ type Config struct {
 	Gateway             gateway.Config
 }
 type Server struct {
+	logs         *devicelog.Service
 	enrollment   *enrollment.Service
 	enrollmentMu sync.Mutex
 	templates    *probetemplate.Service
@@ -95,7 +97,7 @@ func New(config Config) (*Server, error) {
 		}
 		g.SetTunnelStatus(maintenance.Report)
 	}
-	return &Server{enrollment: catalog, Service: NewService(r, g.Devices(), g), gateway: g, repo: r, maintenance: maintenance, templates: templates}, nil
+	return &Server{logs: devicelog.New(g), enrollment: catalog, Service: NewService(r, g.Devices(), g), gateway: g, repo: r, maintenance: maintenance, templates: templates}, nil
 }
 func (s *Server) ProbeTemplates() *probetemplate.Service { return s.templates }
 func (s *Server) Maintenance() *tunnel.Service           { return s.maintenance }

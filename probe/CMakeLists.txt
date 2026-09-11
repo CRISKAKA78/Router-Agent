@@ -14,6 +14,7 @@ target_include_directories(rmp_tls PUBLIC third_party/mbedtls/include include)
 target_compile_definitions(rmp_tls PUBLIC MBEDTLS_CONFIG_FILE="rmp/tls_config.h")
 
 add_library(rmp_probe_core STATIC
+    src/device_logs.cpp
     src/client.cpp
     src/system_info.cpp
     src/telemetry.cpp
@@ -56,6 +57,10 @@ if(BUILD_TESTING)
     add_executable(cellular_tests tests/cellular_tests.cpp)
     target_link_libraries(cellular_tests PRIVATE rmp_probe_core)
     add_test(NAME cellular_tests COMMAND cellular_tests)
+    add_executable(device_logs_tests tests/device_logs_tests.cpp)
+    target_link_libraries(device_logs_tests PRIVATE rmp_probe_core)
+    add_test(NAME device_logs_tests COMMAND device_logs_tests)
+    set_tests_properties(device_logs_tests PROPERTIES TIMEOUT 35)
     add_executable(egress_tests tests/egress_tests.cpp)
     target_link_libraries(egress_tests PRIVATE rmp_probe_core)
     add_test(NAME egress_tests COMMAND egress_tests)

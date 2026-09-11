@@ -1,5 +1,12 @@
 # 变更记录
 
+## 2026-09-11 设备日志
+
+- Windows新增日志工作区：实时查看、关键词过滤、暂停显示、停止采集、导出已采集文本；打开实时页由新Probe开启debuglog_enable=1、syslogd_enable=3并自动commit，离开不恢复配置。
+- 历史日志优先发现/tmp/third_party/data和/jffs，区分RAM缓存、支持自定义目录；独立设置历史保存及秒级间隔，未开启不阻止导出已有文件。
+- 支持单选/批量原始日志和TXT导出，复用文件传输并校验拼接gzip全部数据段；提供本地导入/原文预览。厂商AT与基站分析待样本，不提前实现。
+- 新增device_logs_v1能力、公开日志API、有界EVENT读取及幂等日志TASK；旧Probe不支持时明确提示升级。
+
 ## 2026-09-11 GCC5.4/MIPS免交互构建入口
 
 - 新增probe-build-gcc54.cmd，从同目录password.txt读取编译机密码；首次自动安装桌面gcc-5.4.tar.gz，之后复用缓存，在/root/router-probe-gcc54保留独立构建记录与最近成功产物。

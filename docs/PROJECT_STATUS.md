@@ -1,5 +1,7 @@
 # 项目状态
 
+2026-09-11 **ADR-061 日志源码及本地调用链已实现**：实时打开自动设置两个NVRAM开关并commit；历史自动发现/自定义目录、独立保存设置、原始gzip与TXT导出、原文预览已接通。独立 `codex/device-logs` worktree；Go全量、Linux Go race/vet与WPF580项检查通过，独立发布完成；验证与产物见[设备日志验证](DEVICE_LOGS_VERIFICATION.md)。用户已取消开关实验，Probe的MIPS编译及设备功能验收由用户执行，本轮未编译Probe或部署设备。厂商AT/基站/覆盖时间解析等待样本；未提交/推送。
+
 ## 当前：ADR-060已完成GCC5.4/MIPS实机ATI/IMEI测试
 
 2026-09-11，工作仍在独立worktree `router-agent-at-discovery` / `codex/at-discovery`。用户追加授权后，已用桌面gcc-5.4.tar.gz在10.1.1.128编译，最新产物 `/root/router-probe-gcc54/output/router-probe`（1131344字节）。新增根目录probe-build-gcc54.cmd，默认读取同目录password.txt，无密码提示；密码不写入脚本，测试临时密码文件已删除。

@@ -23,6 +23,7 @@ public partial class MainWindow : Window
     private WorkspaceConnection? reportedConnection;
     private string reportedConnectionStatus = "未连接";
     private readonly Dictionary<string, TabItem> tabs = [];
+    private LogWorkspace logWorkspace=null!;
     private bool refreshing, working, closing, closed;
     private double outputHeight = 112;
     private readonly DispatcherTimer clock = new() { Interval = TimeSpan.FromSeconds(1) };
@@ -59,7 +60,7 @@ public partial class MainWindow : Window
     private void BuildViews()
     {
         AddPage("overview", "设备详情", BuildOverview()); DiscoveryTab.Content=BuildDiscoveries(); ConfigureDeviceMenu(); AddPage("maintenance", "远程维护", BuildMaintenance());
-        AddPage("files", "文件管理", BuildFiles()); AddPage("config", "配置管理", BuildConfig()); settingsContent = BuildSettings(); AddPage("tools", "仓库工具", BuildTools());
+        AddPage("files", "文件管理", BuildFiles()); AddPage("config", "配置管理", BuildConfig()); logWorkspace=new(()=>connection,()=>Device); AddPage("logs", "日志", logWorkspace); settingsContent = BuildSettings(); AddPage("tools", "仓库工具", BuildTools());
     }
     private void AddPage(string key, string title, UIElement view) {
         // TabItem owns the content logically, so reset inherited header typography at its root.
@@ -142,6 +143,7 @@ public partial class MainWindow : Window
     }
     private async Task Disconnect()
     {
+        if(logWorkspace!=null)await logWorkspace.StopAsync();
         ResetFileWorkspace();
         var old = connection; connection = null; CancelDetails(); await CancelLocation();
         taskId = ""; task = null; transfer = null; operation = null; maintenanceId = ""; maintenanceResult = null; ResetConfig();
@@ -164,6 +166,7 @@ public partial class MainWindow : Window
         } finally { refreshing = false; }
         _ = RefreshDetails();
         EnsureFileScope();
+        logWorkspace?.Update(Page=="logs");
     }
     private void ApplyDeviceFilter()
     {
@@ -185,6 +188,7 @@ public partial class MainWindow : Window
         if (e.Source != WorkspaceTabs || tabs.Count < 5) return;
         CancelDetails();
         EnsureFileScope();
+        logWorkspace?.Update(Page=="logs");
         _ = RefreshDetails();
         if(Page=="tools") _ = RefreshToolVersions();
     }

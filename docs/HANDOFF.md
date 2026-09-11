@@ -1,5 +1,7 @@
 # 项目接管手册
 
+2026-09-11 日志入口：先读[设备日志验证与使用](DEVICE_LOGS_VERIFICATION.md)、ADR-061及API/PROTOCOL新增章节。工作树 `C:/Users/Administrator/Desktop/router-agent-device-logs`，分支 `codex/device-logs`，基线f331ffb。实时持久开启规则已确认，不恢复开关、不再寻找其他开关；历史目录为/tmp/third_party/data和/jffs。Server/WPF本地闭环已接通（Go全量与Linux race/vet、WPF580项及独立发布通过），MIPS Probe编译与实机测试由用户负责，不沿用旧ARM包或自动运行远程构建/部署脚本。原始样本语义解析仍未实施；无Git提交/推送。
+
 ## 当前接管：GCC5.4实机验证与免输入密码构建
 
 2026-09-11用户追加授权编译/上传测试已执行。先读[GCC54实机说明](GCC54_AT_DEVICE_VERIFICATION.md)，通用AT架构仍见[CELLULAR_AT](CELLULAR_AT.md)/ADR-060。分支 `codex/at-discovery` 在 `C:\Users\Administrator\Desktop\router-agent-at-discovery`；未合并其他worktree变化、未提交或推送。

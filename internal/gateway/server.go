@@ -71,6 +71,7 @@ type SessionEvent struct {
 }
 
 type session struct {
+	logs          logRequests
 	configDone    chan struct{}
 	appliedConfig uint64
 	sentConfig    enrollment.Configuration
@@ -352,6 +353,12 @@ func (s *Server) dispatchChecked(active *session, spec task.Spec, requireCurrent
 	}
 	if spec.Type == "neighbor_scan" || spec.Type == "neighbor_cancel" {
 		if !slices.Contains(active.capabilities, "neighbors_v1") {
+			return 0, routerconfig.ErrUnsupported
+		}
+		requireCurrent = true
+	}
+	if spec.Type == "device_logs" {
+		if !slices.Contains(active.capabilities, "device_logs_v1") {
 			return 0, routerconfig.ErrUnsupported
 		}
 		requireCurrent = true
@@ -658,6 +665,13 @@ func (s *Server) handleConnection(conn net.Conn) {
 							return
 						}
 						s.devices.ObserveCellular(active.deviceID, active.sessionID, n, time.Now(), age)
+						lastSeen = s.recordActivity(active)
+						continue
+					}
+					if eventName.Event == "device_log_reply" {
+						if frame.Header.Flags != 0 || acceptLogReply(active, frame.Payload) != nil {
+							return
+						}
 						lastSeen = s.recordActivity(active)
 						continue
 					}

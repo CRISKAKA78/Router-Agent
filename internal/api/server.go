@@ -35,6 +35,7 @@ type Config struct {
 type response struct {
 	field    string
 	details  string
+	message  string
 	status   int
 	data     any
 	location string
@@ -185,7 +186,11 @@ func write(w http.ResponseWriter, v response) {
 		return
 	}
 	if v.code != "" {
-		err := object{"code": v.code, "message": strings.ReplaceAll(v.code, "_", " ")}
+		message := v.message
+		if message == "" {
+			message = strings.ReplaceAll(v.code, "_", " ")
+		}
+		err := object{"code": v.code, "message": message}
 		if v.field != "" {
 			err["field"] = v.field
 			err["details"] = v.details
