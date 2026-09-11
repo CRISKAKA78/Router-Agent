@@ -11,14 +11,17 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"routerprobe/internal/api"
 	"routerprobe/internal/device"
+	"routerprobe/internal/devicelog"
 	"routerprobe/internal/gateway"
 	"routerprobe/internal/management"
 	"routerprobe/internal/probetemplate"
+	"slices"
 	"strings"
 	"sync"
 	"syscall"
@@ -205,6 +208,34 @@ exec "$@"`
 		c := v.LatestSession.Cellular
 		return c != nil && c.Status == "ok" && len(c.Ports) == 2
 	})
+	// The merged Probe must expose and serve logs on the same control session
+	// while AT telemetry remains active, without dropping neighbor capabilities.
+	for _, capability := range []string{"neighbors_v1", "neighbors_inspect_v1", "cellular_identity_v1", "device_logs_v1"} {
+		if !slices.Contains(first.Registration.Capabilities, capability) {
+			t.Fatalf("merged Probe missing %s", capability)
+		}
+	}
+	logDirectory := t.TempDir()
+	logName := "FF_BKDATA_2026-09-11.txt"
+	if err := os.WriteFile(filepath.Join(logDirectory, logName), []byte("integration log\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	query := url.Values{"session_id": {first.LatestSession.ID}, "directory": {logDirectory}}
+	logResponse, err := http.Get(server.URL + "/api/v1/devices/cellular-integration/logs/history?" + query.Encode())
+	if err != nil {
+		t.Fatal(err)
+	}
+	var logBody struct {
+		Data struct {
+			SessionID string            `json:"session_id"`
+			Value     devicelog.History `json:"value"`
+		} `json:"data"`
+	}
+	err = json.NewDecoder(logResponse.Body).Decode(&logBody)
+	logResponse.Body.Close()
+	if err != nil || logResponse.StatusCode != 200 || logBody.Data.SessionID != first.LatestSession.ID || len(logBody.Data.Value.Files) != 1 || logBody.Data.Value.Files[0].Name != logName {
+		t.Fatalf("log EVENT alongside AT telemetry: status=%d body=%+v error=%v", logResponse.StatusCode, logBody, err)
+	}
 	var chosen device.CellularPort
 	for _, p := range first.LatestSession.Cellular.Ports {
 		if p.Selected {

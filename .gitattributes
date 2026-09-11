@@ -1,2 +1,5 @@
 /tests/verify-phase5.sh text eol=lf
 /scripts/build-probe-gcc52.sh text eol=lf
+
+# Unified-diff context contains intentional leading/trailing spaces; retain LF bytes.
+/tests/poc/gostv3/patches/*.patch text eol=lf -whitespace

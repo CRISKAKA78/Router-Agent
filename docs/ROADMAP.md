@@ -1,44 +1,15 @@
 # 项目路线图
 
-- [x] 2026-09-11 SSH入口更新为20007；修复API UDP缓冲数值类型及Linux串口关闭阻塞，完成实机注册/PTY重接，WSL和ARM关闭回归各10轮通过。run06为45项44通过，详见[GOST报告§4.5](GOST_V3_POC.md#45-ssh20007设备续测与串口回收修复2026-09-11最新)。
-- [ ] 剩余准入：8来源32000字节UDP突发2路超时的定位、RSS17.0～23.3MiB与16MiB候选预算、真实UART/不同网关LAN/1小时长稳及监管。不将PTY通过当作硬件验收，不削减LAN UDP。
+## 当前里程碑：三工作树合入（不新增阶段）
 
-- [x] 2026-09-11 ADR-063确认Windows无额外依赖的TCP首包注册；实现独立鉴权/独占/撤销模块与PoC入口，Windows重复回归和Linux race通过。
-- [x] 2026-09-11 GOST固定版最小补丁及回归可复现，Windows/ARM交叉构建成功，本机注册集成20项和Relay回归14项通过；LAN UDP完整/空报文与并发保留。
-- [x] 2026-09-11 20001入口历史阻塞已由用户改20007解决；ARM对齐及PTY注册/重开已实机验证，剩余准入以上方最新条目为准。
-- [ ] 后续产品Service/API/Probe/WPF与完整生命周期接入尚未实现；按ADR-063新授权及依赖推进，不重复索取已确认的客户端选择。
+- [x] 保存AT、日志和GOST各自未提交源码为独立提交，包含AT前置智能邻居；在集成分支解决代码/文档冲突，保留main默认值与原有功能。
+- [x] 统一ADR编号与引用，不改变各决定内容；新增错误信封和真实Probe AT/日志同Session共存回归。
+- [x] Windows Go/vet、WPF605项/77份布局、生成器196项（0跳过）及构建、GCC5.4脚本4项、Probe17项CTest。
+- [x] Linux真实Probe完整Release（291.801秒）、完整Go race（293.660秒）、vet/构建及最终检查通过，集成提交已合回本地main；未推送。
+- [ ] MIPS设备新组合产物、物理DPI及生成器浏览器交互验收（浏览器启动被策略拒绝）。
+- [-] GOST后续由用户单独测试；维持既有PoC状态，不补做产品接入、不推送或部署，不将合入视为Phase6最终验收。
 
-- [x] 2026-09-11 创建 `codex/lan-serial-tunnel-plan`，完成[内网穿透/串口透传方案调研与计划](LAN_SERIAL_TUNNEL_PLAN.md)，记录Proposed ADR-062；无业务实现、部署或Git提交/推送。
-- [x] 2026-09-11 用户批准A、GOST v3优先；完成固定v3.3.0的Linux/Windows有限PoC、PTY和配置级TCP串口独占验证，保留失败与资源证据，见[GOST_V3_POC](GOST_V3_POC.md)。
-- [x] 2026-09-11 按用户要求新建独立worktree `codex/gostv3-device-poc`，经47.119.168.150:20001完成真实ARM启动、TCP/8并发/20轮开关、独立PTY两档双向及资源采样；保留climiter ARM panic与UDP失败证据，原工作目录不写入。
-- [x] 2026-09-11 用户明确串口仅TCP并新增连接后鉴权；完成本机Relay固定目标认证/防污染验证，发现独占bridge下一拥有者重接收失败；当前串口UDP测试移除，LAN TCP/UDP测试保留。
-- [ ] A完整准入仍未通过：客户端首包方案、climiter及PTY重开已有新证据；剩余UDP压力/资源/硬件/长期监管见顶部，不用历史A-only语句覆盖ADR-063授权。
-
-## 设备日志（ADR-061，不新建阶段）
-
-- [x] 独立worktree、前期只读探测与审核；用户确认实时开关即时生效且自动commit，取消设备开关实验。
-- [x] 日志TASK/EVENT与API、WPF实时/历史/原文、历史开关和导出源码已接通；本地Server/WPF回归见[验证](DEVICE_LOGS_VERIFICATION.md)。
-- [ ] 用户执行本次新MIPS设备Probe编译和实机功能验收；不使用此前ARMv7产物代替。
-- [-] 厂商样本到位后确认AT解析、覆盖时间、基站汇总与其他分析；当前只提供原文。
-
-## 当前产品迭代：ADR-060（不新增Phase）
-
-- [x] 新worktree隔离；通用USB串口自动发现/占用跳过/编号变化重识别，固定ATI与IMEI查询及有界取消。
-- [x] 模板启用与能力协商、Probe EVENT、Server最新快照/API、WPF蜂窝模块属性页闭环；不含任意AT或厂商专用查询。
-- [x] WindowsGo/vet、生成器196项、WPF582项/72份布局与发布；Linux16项CTest、真实Probe全量/vet/build及AT/相关采集定向race通过。[证据](CELLULAR_AT.md)。
-- [x] 用户追加授权后完成GCC5.4/MIPS小端/uClibc真实编译，FM160-CN自动ttyUSB1身份、占用跳过/释放恢复、周期/API/关闭采集；4项脚本回归、同目录password.txt免输入密码入口通过。[实机记录](GCC54_AT_DEVICE_VERIFICATION.md)。
-- [ ] ARM/GCC5.2及其他厂家，真实拨号/模组重启、USB热插拔重编号和长期业务共存验收；本次保留原实例，仅临时运行新Probe。
-- [ ] 生成器AT新用例真实浏览器交互（启动被策略拒绝）、物理WPF输入/DPI；ASan/UBSan当前缺库未通过。
-- [-] SIM/驻网/信号、厂家适配留待下一次明确范围；新Phase/AI/MCP/TLS/RBAC/数据库/Tunnel维持原未决，不提交/推送；部署范围仅上项用户追加授权的隔离实机测试，不自动替换原实例。
-
-## 此前产品迭代：ADR-059（历史事实）
-
-- [x] 智能/高级邻居配置、公开只读检测与能力协商、显式FNR100预设、直连扫描范围和Server有界近期记录实现；保留ADR-056两域重叠/不推断上级。
-- [x] Windows Go/vet、生成器189项（0跳过）、WPF572项/69份布局、自包含构建；最终Linux15项CTest、真实Probe全量/vet/build及核心包/邻居集成race通过。证据详见[专项记录](NEIGHBOR_SMART_CONFIGURATION.md)。
-- [ ] 本轮Blazor真实浏览器宽窄/主题/键盘交互、物理WPF输入/DPI、ARM/uClibc/GCC5.2及新版Probe的FNR100实机验收；执行策略/认证/部署授权和sanitizer缺库限制见专项记录。不将代码交付当作Phase6产品验收。
-- [-] 新阶段、认证/TLS/RBAC、数据库、AI/MCP、新Tunnel保持暂缓；本轮不提交、不推送、不部署、不替换用户运行实例。
-
-## 主分支既有记录
+## 此前主分支记录（历史事实，非本次验证）
 
 - [x] 2026-09-11 服务器迁移连接故障已排查，用户确认解决；Agent 未复测解决后的端到端连接。本轮依授权整理既有迁移源码/测试/文档到本地 main 并删除迁移分支，实际合并结果以 Git 为准，不推送远端；不改变 Phase 6 最终产品验收状态。
 

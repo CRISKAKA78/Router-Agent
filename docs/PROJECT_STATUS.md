@@ -1,24 +1,14 @@
 # 项目状态
 
-2026-09-11 **SSH20007实机续测完成，run06为45项44通过，仍非完整准入。** FNR100补丁版TCP、单路0～65000字节UDP、PTY两档双向、注册首包剥离/认证前零写入/独占/断线及5轮快速重接通过；新增8来源32000字节UDP压力仅6/8成功。修复API缓冲数值类型配置及Linux串口Close阻塞，原版回归失败、修复后WSL/ARM各10轮通过；补丁重现及ARM vet通过。RSS约17.0～23.3MiB超候选16MiB，真实UART/不同网关LAN/长稳及API/Probe/WPF尚未完成。详见[GOST报告§4.5](GOST_V3_POC.md#45-ssh20007设备续测与串口回收修复2026-09-11最新)；自有进程退出，Probe PID32540和路由保持，原worktree不写、未提交/推送/部署。
+## 当前：三工作树联合集成
 
-2026-09-11 **ADR-061 日志源码及本地调用链已实现**：实时打开自动设置两个NVRAM开关并commit；历史自动发现/自定义目录、独立保存设置、原始gzip与TXT导出、原文预览已接通。独立 `codex/device-logs` worktree；Go全量、Linux Go race/vet与WPF580项检查通过，独立发布完成；验证与产物见[设备日志验证](DEVICE_LOGS_VERIFICATION.md)。用户已取消开关实验，Probe的MIPS编译及设备功能验收由用户执行，本轮未编译Probe或部署设备。厂商AT/基站/覆盖时间解析等待样本；未提交/推送。
+- 用户已授权 AT（含前置智能邻居）、设备日志、GOST PoC 全部合入本地 main；已在 `codex/integrate-at-logs-gost` 完成冲突整合与联合验证，并合回本地 main。不推送、不部署。
+- 保留 main 默认服务器47.119.168.150、8888/9000/9001端口、原GCC5.2构建入口、独立GCC5.4入口与现有维护行为。Probe同版声明邻居检测、AT、日志能力，Gateway并列处理事件；API字段错误与日志自定义消息并存。
+- 已通过 Windows Go/vet、WPF605项/77份离屏布局、生成器196项（0跳过）及构建、Probe17项CTest；Linux真实Probe完整Release（291.801秒）、完整Go race（293.660秒）、vet及构建均通过。最新结果与命令见[集成验证](WORKTREE_INTEGRATION.md)。
+- 新Windows成品：`build/windows-desktop-integrated/win-x64/RouterWorkbench.exe`。GOST原45项44通过及资源/实机缺口不变，产品API/Probe监管/WPF尚未接入，后续由用户单独测试；本次不运行新GOST实机验证。
+- MIPS/厂商设备、物理DPI及Phase6最终验收未追加完成；生成器真实浏览器启动被执行策略拒绝，不能把单元或WPF测试视作该项通过。
 
-## 当前：ADR-060已完成GCC5.4/MIPS实机ATI/IMEI测试
-
-2026-09-11，工作仍在独立worktree `router-agent-at-discovery` / `codex/at-discovery`。用户追加授权后，已用桌面gcc-5.4.tar.gz在10.1.1.128编译，最新产物 `/root/router-probe-gcc54/output/router-probe`（1131344字节）。新增根目录probe-build-gcc54.cmd，默认读取同目录password.txt，无密码提示；密码不写入脚本，测试临时密码文件已删除。
-
-MT7621/Linux4.4/uClibc实机自动选择ttyUSB1，ATI识别Fibocom FM160-CN，AT+CGSN有效IMEI、周期上报/HTTP快照、真实占用跳过/释放恢复、关闭模板清空通过。原redial与Probe PID及启动时间不变，临时Probe/Server/SSH转发已停止；没有覆盖生产实例或Git提交/推送。4项脚本回归与远端bash/ELF检查通过，详见[GCC54实机证据及产物](GCC54_AT_DEVICE_VERIFICATION.md)。
-
-物理模块重启/USB热插拔重编号、长期业务共存、其他厂家与ARM/mipsel以外工具链仍需分别验收。首轮Windows/Go、生成器196项、WPF582项/72份布局、Linux16项CTest/全量与定向race是既有验证，本轮未改产品逻辑、不冒称重跑；浏览器策略与sanitizer缺库限制见[CELLULAR_AT](CELLULAR_AT.md)。SIM/驻网/信号未实现，不新增Phase。
-
-## 此前：ADR-059智能邻居配置（历史事实）
-
-工作分支核对为 `GPT6API-TEST`。生成器智能/高级配置、公开能力协商与只读网络检测、显式FNR100预设、WPF默认直连扫描和Server1024条/24小时近期视图已接通；主动响应60秒后转近期，不推断上级、不把历史说成在线。仅邻居配置模板的应用校验遗漏已修复。没有新阶段、数据库或Tunnel改造。
-
-本轮Windows Go/vet、生成器189项（0跳过）、WPF572项/69份布局与独立构建通过；最终Linux15项CTest、真实Probe Phase1～5全量/vet/build及核心包/邻居集成race通过。浏览器完整交互、物理DPI、ARM/uClibc/FNR100实机及缺库sanitizer未验收，不沿用旧测试冒充。详见[实施、验证、产物与限制](NEIGHBOR_SMART_CONFIGURATION.md)。未提交/推送/部署，用户Server/Probe进程和数据未替换。
-
-## 主分支既有记录
+## 此前主分支记录（历史事实，非本次验证）
 
 2026-09-11 迁移运行状态：已实测 47.119.168.150 上 Server 常驻运行、FNR100 Probe 在线；维护故障定位为 Probe 到 Server 9001/TCP 数据连接不可达，用户随后确认已解决，解决后的端到端连接未由 Agent 复测。本轮按用户授权整理既有 ADR-057/058 迁移改动并合入本地 main、删除迁移分支；实际提交与分支状态以 Git 为准，不推送远端。仅进行差异、凭据排除及合并完整性检查，不重跑产品测试；下文未常驻/未提交为历史记录。
 

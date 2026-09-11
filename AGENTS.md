@@ -63,6 +63,8 @@ Phase 0 完成后，仓库内 Markdown 文档成为项目持续维护的当前�
 
 ## 持续适用的已确认约束
 
+- 三工作树合入已获明确授权，包含 AT 前置智能邻居；功能逻辑和 main 既有默认值均保留。ADR 编号统一为：059 智能邻居、060 AT 身份、061 设备日志、062 GOST 提案、063 注册鉴权；原分支编号映射见 DECISIONS。GOST 以现有 PoC/独立模块合入，用户后续单独测试，不因此视为产品 API/Probe 监管/WPF 已接入或允许生产部署。当前集成证据见 docs/WORKTREE_INTEGRATION.md。
+
 - ADR-058：Probe构建在root@10.1.1.128，password.txt作为SSH登录密码自动读取，使用原/root/gcc-5.2；最终产物/root/router-agent/router-agent，逐轮记录在该目录runs下。47.119.168.150仍是管理服务器和Linux Server上传目标，不是Probe编译机。
 
 - ADR-057：默认Server为47.119.168.150，API8888、控制9000、数据9001，监听所有本机地址；WPF/生成器保留已保存地址。Linux AMD64构建默认SFTP上传/root/agent-server，私钥及口令仅本地读取，不自动重启。Probe默认采集br0,eth0,eth1,usb0。Windows移除SSH用户名/密码配置，关闭或失效维护隐藏地址，文件页默认/tmp/root；局部取代下方ADR-036/047/055的对应旧要求。

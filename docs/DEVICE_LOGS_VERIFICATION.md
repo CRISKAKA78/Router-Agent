@@ -1,5 +1,7 @@
 # 设备日志：使用、实现与验证
 
+> 合入更新：用户已授权本工作树（含 AT 前置智能邻居）并入本地 main；当前进度、统一 ADR 编号及联合验证见 [WORKTREE_INTEGRATION](WORKTREE_INTEGRATION.md)。下文独立工作树、未提交或原目录不写入等语句记录当时事实，不限制本次授权；原始测试证据仍在对应工作树的忽略目录，不能当作本次联合测试结果。
+
 依据ADR-061。工作树 `C:/Users/Administrator/Desktop/router-agent-device-logs`，分支 `codex/device-logs`，基线f331ffb；没有提交、推送或远程部署。原始SSH只读调查属于前一轮，不能当作新功能实机验证。
 
 ## 使用
