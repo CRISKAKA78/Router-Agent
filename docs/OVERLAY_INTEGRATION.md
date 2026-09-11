@@ -1,5 +1,7 @@
 # 异地组网工作树审核与主分支集成
 
+> 新增修复的合入见[第二轮](#第二轮实机修复更新合入)。下方首轮部署/实机缺口为当时事实；后续实机证据见[ARM—Server联调](OVERLAY_LIVE_VERIFICATION.md)。
+
 ## 完成结论
 
 审核发现已作必要局部修复，合并后验证通过；本地main已形成包含原主分支及来源分支两个父提交的合并提交（确切ID以Git为准）。工作区干净，未推送或部署。
@@ -40,3 +42,19 @@
 - 本轮不执行GCC5.2/GCC5.4厂商构建或两台路由器VPN安装/互通、直连/中继/恢复/MTU测试，不自动启用接口、改LAN桥接或默认路由。
 - 二层VXLAN/GRETAP/EoIP尚未实现，必须按已接受顺序先完成三层实机；真实物理DPI和sanitizer本轮未追加。
 - 生成器代码/构建入口未改，本轮不重跑其全套测试；GOST仍保持原PoC状态与原压力/预算缺口，不借本次EasyTier接入扩充。
+
+## 第二轮：实机修复更新合入
+
+- 用户新授权仅将组网工作树新增成果合入本地main。来源 `f723973` 基于 `bab2325`，新增11个文件变更；本次保留其产品实现，不调整上游配置、不重复设备联调、不推送或部署。
+- 新增行为：上传成功的已校验TASK_RESULT之后等待Released，不误用下载Committed；异步启动最多20秒只读观察，错误/超时继续uncertain，不重放save/enable；上游空手动路由丢失开关的负面回归保留。
+- 新增ARM—Server实机报告及接线说明是来源工作树既有证据，本次未再次远端核实；原uncertain操作不能据此强制改成功。当前安全待办与未验收范围以该报告为准。
+- 主工作区原有23个已修改/未跟踪文件属于双架构构建与远程目录修复。本次仅暂存保护其已跟踪改动以完成合并，再恢复；它们不进入组网合并提交。文档相遇处保留两侧内容，源码/脚本和未跟踪文件保留原字节。恢复证据位于主目录忽略的build/overlay-update-integration。
+
+### 本轮验证
+
+证据目录：主工作区 `build/overlay-update-integration/`。
+
+- Windows：来源快照执行 `go test ./cmd/... ./internal/... ./tests/... -count=1`、`go vet ./cmd/... ./internal/... ./tests/...` 及 `go build ./cmd/server` 全部通过（source-go.log、source-vet.log、router-server.exe）。
+- Linux RouterAgentTest隔离network/mount/PID/devpts/sysfs：overlay、management、gateway、task、api、filetransfer六包完整 `go test -race ... -count=1` 通过；文件往返/故障提交ACK丢失、真实仓库兼容投放/中断、network_agent重复任务/Probe退出独立进程存活定向race通过（9.678秒，无跳过），完整vet及Linux Server build通过。完整命令及副本见run.sh、linux-path.txt、linux.log。
+- 本次未修改Probe或WPF代码。真实Probe用例复用上轮与bab2325源码对应的Linux二进制；未重跑C++全构建或桌面全量，不以此前617/631项作为本次结果。
+- 没有新增依赖、协议消息或公开DTO变更。主分支已有AT、日志、智能邻居和GOST边界保持。

@@ -468,6 +468,7 @@ Server flags：`-tunnel-bind`、`-tunnel-host`、`-tunnel-data-listen`、`-tunne
 固定目标为Probe的127.0.0.1:80/22/23。Maintenance/connection/token不持久化；无跨进程恢复、续租、任意端口、UDP/SOCKS/VPN/P2P、HTTP反向代理、TLS终止或通用映射管理；Phase 5增加HTTP/WebSocket，不增加UI/MCP或操作CLI。
 
 ## 异地组网 API（ADR-064，首轮实现）
+实机修正：启用后最多只读观察20秒，不重复配置写请求。上传成功依赖已校验的TASK_RESULT与Released；Committed仅表示Server接收下载的本地提交。官方2.6.4对开启但为空的手动路由回读可能丢失开关，原uncertain操作不能据此强制确认；见[实机边界](OVERLAY_LIVE_VERIFICATION.md)。公开DTO/路径和幂等契约不变。
 
 新增 `/api/v1/network-settings`、`/networks`、网络成员/操作/拓扑、`/network-operations/{id}/reconcile` 及 WS `networks` topic；方法、DTO含义、错误码与部署状态见 [OVERLAY_NETWORK §API](OVERLAY_NETWORK.md#api--probe--ui)。写操作遵循既有幂等、JSON `{}` 空对象与 envelope；接受组网返回202只表示持久操作入队，不表示已互通。账号、密码、网络密钥和配置接入URL不属于公开DTO。
 

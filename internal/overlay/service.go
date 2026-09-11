@@ -442,12 +442,7 @@ func (s *Service) run(op Operation, n Network, m Member, secret string) {
 		e = report("verify_runtime", "")
 		if e == nil {
 			var r Running
-			r, e = s.controller.Collect(ctx, m.MachineID, m.InstanceID)
-			if op.Action == "stop" && errors.Is(e, ErrNotFound) {
-				e = nil
-			} else if e == nil && (r.Running != (op.Action == "start") || (r.ErrorMessage != nil && *r.ErrorMessage != "")) {
-				e = ErrUncertain
-			}
+			r, e = s.waitRuntime(ctx, m.MachineID, m.InstanceID, op.Action == "start")
 			if e == nil {
 				s.setObservation(n.ID, m.DeviceID, r, nil)
 			} else {
@@ -686,4 +681,33 @@ func (s *Service) Close() error {
 		w.Close()
 	}
 	return s.lock.Close()
+}
+
+// Enabling an EasyTier instance is asynchronous. Poll only observations, never
+// repeat the save/enable mutation because the first runtime snapshot is empty.
+func (s *Service) waitRuntime(parent context.Context, machine, instance string, running bool) (Running, error) {
+	ctx, cancel := context.WithTimeout(parent, 20*time.Second)
+	defer cancel()
+	for {
+		if ctx.Err() != nil {
+			return Running{}, ErrUncertain
+		}
+		r, err := s.controller.Collect(ctx, machine, instance)
+		if !running && errors.Is(err, ErrNotFound) {
+			return Running{}, nil
+		}
+		if err == nil {
+			if r.ErrorMessage != nil && *r.ErrorMessage != "" {
+				return r, ErrUncertain
+			}
+			if r.Running == running {
+				return r, nil
+			}
+		}
+		select {
+		case <-ctx.Done():
+			return Running{}, ErrUncertain
+		case <-time.After(200 * time.Millisecond):
+		}
+	}
 }
