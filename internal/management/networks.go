@@ -6,6 +6,7 @@ import (
 	"errors"
 	"routerprobe/internal/device"
 	"routerprobe/internal/enrollment"
+	"routerprobe/internal/filetransfer"
 	"routerprobe/internal/gateway"
 	"routerprobe/internal/overlay"
 	"routerprobe/internal/routerconfig"
@@ -123,9 +124,8 @@ func (d *overlayDriver) Bootstrap(ctx context.Context, m overlay.Member, report 
 		if result.Status != "success" {
 			return errors.New("engine_package_transfer_failed")
 		}
-		transfer, e := d.s.FileSnapshot(op.TaskID)
-		if e != nil || !transfer.Committed || !transfer.Released || transfer.Error != "" {
-			return overlay.ErrUncertain
+		if e = waitNetworkPackageRelease(ctx, func() (filetransfer.Snapshot, error) { return d.s.FileSnapshot(op.TaskID) }); e != nil {
+			return e
 		}
 		if _, e = d.run(ctx, m, "install", report); e != nil {
 			return e
@@ -162,4 +162,26 @@ func (d *overlayDriver) TasksSettled(ids []string) bool {
 		}
 	}
 	return true
+}
+
+// Upload success is validated by Gateway against the expected transfer ID, size
+// and SHA-256. Committed/Size/SHA256 in the local snapshot describe downloads,
+// not uploads. Wait for the sender to release its handles before installation.
+func waitNetworkPackageRelease(ctx context.Context, snapshot func() (filetransfer.Snapshot, error)) error {
+	ticker := time.NewTicker(25 * time.Millisecond)
+	defer ticker.Stop()
+	for {
+		f, err := snapshot()
+		if err != nil || f.Error != "" {
+			return overlay.ErrUncertain
+		}
+		if f.Released {
+			return nil
+		}
+		select {
+		case <-ctx.Done():
+			return overlay.ErrUncertain
+		case <-ticker.C:
+		}
+	}
 }

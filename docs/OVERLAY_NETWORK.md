@@ -1,5 +1,7 @@
 # 异地组网：EasyTier 三层首轮实现（ADR-064）
 
+> 最新：用户另行授权仓库上传、ARM—Server联调和Management重启，实际接线/互通及遗留见[实机记录](OVERLAY_LIVE_VERIFICATION.md)。下文未部署/未互通是首轮历史，不覆盖新证据。
+
 > 本次用户已授权审核并合入本地main，源提交da6c560；原分支ADR-059统一为ADR-064。下文独立工作树/未提交与旧验证数量保留为来源历史，不代替[本次集成审核](OVERLAY_INTEGRATION.md)。合并后的WPF为第七工作区（保留新增日志），不推送、不部署。
 
 ## 状态与范围
@@ -61,7 +63,7 @@ Server 新增 `-easytier-config <本机JSON文件>`。该文件不要放入版�
 {
   "api_url": "http://127.0.0.1:11211",
   "username": "专用账号",
-  "password": "本机填写真实密码，不上传或提交",
+  "password": "官方登录接口密码表示（前端使用密码MD5十六进制），按凭据保护",
   "config_server_url": "tcp://配置服务主机:22020/专用账号",
   "tool_id": "仓库中实际工具ID",
   "tool_version": "2.6.4",

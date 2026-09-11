@@ -1,6 +1,14 @@
 # 项目状态
 
-## 当前：异地组网已合入本地main
+## 当前：EasyTier ARM—Server 数据面实测通过，配置回查仍有缺口
+
+- worktree同步至main `bab2325`，保留主目录其他任务改动；本轮代码/文档未提交、合回或推送。
+- 按用户新授权导入ARM/MIPS/mipsel core为包集合 `2.6.4-r1`，备份更新Management并连接本机Web API；未升级Probe。
+- ARM `FE7140555489`（用户更新SSH入口20001）与Server的10.144.144.2 ↔ 10.144.144.1双向ICMP、TCP/UDP echo、管理停机30/30 ping、MTU1360复测通过。20004不再测试。
+- 上传Released判断及异步运行轮询修复经定向回归、构建和Linux五包race；原uncertain加入记录保留，上游空路由回读缺陷未掩盖，不能宣称UI完整闭环。
+- [证据与限制](OVERLAY_LIVE_VERIFICATION.md)：安全收口待确认，未测二层/中继/双路由器/设备重启恢复/长期稳定性；当前网络保留运行。
+
+## 前次：异地组网已合入本地main（历史记录）
 
 - 在既有三工作树合并基线上接入 EasyTier 三层首轮代码：Server 编排/API、Probe 仓库安装/独立进程引导、WPF 全局“异地组网”与观测拓扑。用户已授权本地审核与合并；当前提交结果及证据见[专项记录](OVERLAY_INTEGRATION.md)。
 - 本次验证：Windows Go/vet、自包含发布、WPF617项/81份布局通过；Linux18项CTest、完整真实Probe集成、五包race及最终AT/组网真实Probe定向race/vet通过。详细命令和剪贴板复跑记录见专项文档。

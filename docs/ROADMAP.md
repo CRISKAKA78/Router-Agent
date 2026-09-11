@@ -1,6 +1,15 @@
 # 项目路线图
 
-## 当前里程碑：异地组网本地审核与合入
+## 当前里程碑：EasyTier ARM—Server 实机联调
+
+- [x] 同步main `bab2325`；ARM/MIPS/mipsel core入库为包集合 `2.6.4-r1`，按用户授权接入Web并备份更新Management。
+- [x] ARM真实Repository安装、配置下发、双向ICMP、TCP/UDP echo、管理停机保网及MTU样本验证；见[实机记录](OVERLAY_LIVE_VERIFICATION.md)。
+- [x] 上传完成判断、异步启动只读等待修复；Windows定向回归/vet/build与Linux五包race通过。
+- [ ] 解决官方API空路由回读丢失开关、原uncertain操作可信回查及WPF完整交互验收。
+- [ ] Web回环绑定/默认密码更换待用户确认；中继、长期稳定性、设备重启恢复与完整MTU验收。
+- [-] 本轮用户要求不测试20004、不升级其Probe，不实施二层或桥接LAN。
+
+## 前次里程碑：异地组网本地审核与合入（历史记录）
 
 - [x] 保存 `codex/overlay-network-research` 源码快照 `da6c560`，整合既有AT/邻居/日志/GOST基线，统一EasyTier ADR为064。
 - [x] 审核修复回查后的配置代次/停止成员移除，以及Probe ACK错误消息；新增跨模块能力和真实Server/WPF接线回归。
