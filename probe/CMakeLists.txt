@@ -27,6 +27,7 @@ add_library(rmp_probe_core STATIC
     src/port_counters.cpp
     src/identity.cpp
     src/collection.cpp
+    src/forwarding.cpp
     src/tunnel.cpp
     src/frame.cpp
     src/json.cpp

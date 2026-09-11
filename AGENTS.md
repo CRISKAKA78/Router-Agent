@@ -63,6 +63,8 @@ Phase 0 完成后，仓库内 Markdown 文档成为项目持续维护的当前�
 
 ## 持续适用的已确认约束
 
+- 2026-09-12 用户明确授权全部现有工作树改动提交、冲突解决、合入 main 并推送 GitHub。ADR-066 保留组网改造；AT 原066/067统一为067/068；GOST产品接入补充统一为ADR-069。已接受的IPv4直连LAN TCP/UDP与串口TCP注册、Forwarding Service/API、Probe侧车监管和WPF纳入本次整合，不再仅为PoC；不扩大为任意路由目标、二层或全平台TLS/RBAC，不授权生产部署/重启。来源、验证及遗留见docs/ALL_WORKTREES_INTEGRATION.md。下方此前“不推送/不接入”仅描述历史轮次，不覆盖本次授权。
+
 - 异地组网工作树审核与本地合入已获授权；EasyTier原分支ADR-059统一为ADR-064，仅解除其已接受三层组网范围的暂缓。主分支保留原AT/邻居/日志/GOST与默认配置，不因此推送、生产部署或实现尚未完成的二层；集成记录见docs/OVERLAY_INTEGRATION.md。
 
 - 三工作树合入已获明确授权，包含 AT 前置智能邻居；功能逻辑和 main 既有默认值均保留。ADR 编号统一为：059 智能邻居、060 AT 身份、061 设备日志、062 GOST 提案、063 注册鉴权；原分支编号映射见 DECISIONS。GOST 以现有 PoC/独立模块合入，用户后续单独测试，不因此视为产品 API/Probe 监管/WPF 已接入或允许生产部署。当前集成证据见 docs/WORKTREE_INTEGRATION.md。

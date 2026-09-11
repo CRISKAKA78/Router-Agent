@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"routerprobe/internal/devicelog"
 	"routerprobe/internal/enrollment"
+	"routerprobe/internal/forwarding"
 	"routerprobe/internal/gateway"
 	"routerprobe/internal/overlay"
 	"routerprobe/internal/probetemplate"
@@ -17,6 +18,7 @@ import (
 
 type Config struct {
 	EasyTier            overlay.Config
+	Forwarding          *forwarding.Config
 	TemplateFile        string
 	Tunnel              *tunnel.Config // nil disables the optional data listener
 	RepositoryDirectory string
@@ -25,6 +27,7 @@ type Config struct {
 type Server struct {
 	logs         *devicelog.Service
 	networks     *overlay.Service
+	forwarding   *forwarding.Service
 	enrollment   *enrollment.Service
 	enrollmentMu sync.Mutex
 	templates    *probetemplate.Service
@@ -110,8 +113,21 @@ func New(config Config) (*Server, error) {
 		server.Close()
 		return nil, e
 	}
+	if config.Forwarding != nil {
+		fc := *config.Forwarding
+		if fc.StateFile == "" {
+			fc.StateFile = filepath.Join(r.Directory(), "forwarding-ports.json")
+		}
+		server.forwarding, e = forwarding.New(fc, g)
+		if e != nil {
+			server.Close()
+			return nil, e
+		}
+		g.SetForwardingStatus(server.forwarding.Report)
+	}
 	return server, nil
 }
+func (s *Server) Forwarding() *forwarding.Service        { return s.forwarding }
 func (s *Server) ProbeTemplates() *probetemplate.Service { return s.templates }
 func (s *Server) Maintenance() *tunnel.Service           { return s.maintenance }
 func (s *Server) Serve(l net.Listener) error             { return s.gateway.Serve(l) }
@@ -119,6 +135,10 @@ func (s *Server) Close() error {
 	s.once.Do(func() {
 		if s.networks != nil {
 			s.networks.Close()
+
+		}
+		if s.forwarding != nil {
+			s.forwarding.Close()
 		}
 		if s.maintenance != nil {
 			s.maintenance.Close()

@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"routerprobe/internal/api"
+	"routerprobe/internal/forwarding"
 	"routerprobe/internal/gateway"
 	"routerprobe/internal/management"
 	"routerprobe/internal/overlay"
@@ -50,6 +51,12 @@ func main() {
 	flag.DurationVar(&tunnelConfig.PortReuseDelay, "tunnel-port-reuse-delay", 24*time.Hour, "port quarantine after local release")
 	flag.DurationVar(&tunnelConfig.IdleTimeout, "tunnel-idle-timeout", 24*time.Hour, "whole-stream I/O idle timeout")
 	easyTierConfigFile := flag.String("easytier-config", "", "local EasyTier Web API credential/bootstrap configuration file; optional")
+	fc := forwarding.Config{}
+	flag.StringVar(&fc.Binary, "forwarding-gost", "gost", "patched GOST executable; missing binary disables creation, not base Server")
+	flag.StringVar(&fc.BindHost, "forwarding-bind", "0.0.0.0", "forwarding bind IPv4")
+	flag.StringVar(&fc.Host, "forwarding-host", "47.119.168.150", "reachable relay and public endpoint host")
+	flag.IntVar(&fc.PortFirst, "forwarding-port-first", 22000, "first forwarding endpoint/relay port")
+	flag.IntVar(&fc.PortLast, "forwarding-port-last", 22399, "last forwarding endpoint/relay port")
 	flag.Parse()
 	easyTierConfig, configErr := overlay.LoadConfig(*easyTierConfigFile)
 	if configErr != nil {
@@ -66,7 +73,7 @@ func main() {
 	defer stop()
 
 	logger := log.New(os.Stdout, "server ", log.LstdFlags|log.Lmicroseconds)
-	err := api.Run(ctx, *listenAddress, *httpAddress, management.Config{EasyTier: easyTierConfig, TemplateFile: *templateFile, RepositoryDirectory: *repositoryDirectory, Tunnel: &tunnelConfig, Gateway: gateway.Config{
+	err := api.Run(ctx, *listenAddress, *httpAddress, management.Config{EasyTier: easyTierConfig, Forwarding: &fc, TemplateFile: *templateFile, RepositoryDirectory: *repositoryDirectory, Tunnel: &tunnelConfig, Gateway: gateway.Config{
 		HeartbeatInterval: time.Duration(*heartbeatSeconds) * time.Second,
 		MaxControlPayload: uint32(*maxControlPayload),
 		FileChunkSize:     uint32(*fileChunkSize),

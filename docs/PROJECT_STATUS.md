@@ -1,5 +1,21 @@
 # 项目状态
 
+## 当前：全工作树源码集成与 GitHub 同步
+
+- 用户已授权全部现有工作树改动提交、解决冲突、合入 main 并推送 GitHub。三批来源：组网改造 `c1a1127`、FM160适配 `963a8b3`、GOST产品接入 `54907b4`；其余分支原有提交已包含在main。
+- 整合保留九个WPF工作区、全部Probe注册能力、日志与蜂窝共存，以及networks/forwardings双WS主题。ADR-066为组网，067/068为FM160，069为GOST产品接入；默认地址、双架构构建及旧Maintenance不变。
+- Windows Go test/vet/build、WPF669项与自包含发布、生成器198项、Linux CTest18项、Go并发/真实Probe定向与官方EasyTier检查已通过；Linux完整回归最终复测、完整vet及Server构建通过。证据与首次失败说明见[集成记录](ALL_WORKTREES_INTEGRATION.md)。
+- 不替换生产进程/设备/运行数据，不提交凭据或build。C++ ASan/UBSan因WSL缺库未运行；设备新版本、物理UART、UDP旧问题及长稳仍按专项文档保留，不将合入视为产品验收。
+- Git提交/远端一致性以最终main与GitHub分支核对为准。下方为来源轮次和历史证据；其中“不提交/不合入/不推送”不覆盖本次明确授权。
+
+## 2026-09-12 当前增量：穿透功能/UI完成，生产实机验收待执行
+
+- 最新授权放行UDP问题与RSS门槛后，完成Forwarding Service/API→Probe侧车监管→GOST与WPF两页。LAN直连IPv4源地址代理TCP/UDP；串口只TCP首包鉴权；240分钟默认/0不限时/Session撤销与端口隔离。
+- Windows定向测试/vet、Linux既有release、15项CTest及7包race、真实Probe+GOST+PTY和实际1分钟到期通过；WPF574项、自包含与Windows/Linux/ARM后端发布通过；厂商GCC5.2 Probe编译成功。[证据与交付包](FORWARDING_IMPLEMENTATION.md)。
+- 未部署生产、未提交推送/合main；UDP旧问题仍在，物理UART/真实不同默认网关LAN/长期稳定性未验收。独立worktree工作；下方PoC-only为历史状态。
+
+2026-09-12 **SSH20001已恢复登录，UDP压力超时已取得迟到证据；RSS不再作为当前准入阻塞。** 本轮只增强隔离PoC计数/逐包定位：实机5轮×8来源×32000字节共40个全部原样返回，其中27个在3秒内、13个3秒后返回，最慢4.821秒；目标socket drops=0，每轮双向16条Relay事件。原3秒失败判定不变，未据此宣布完整准入。Windows回环20轮157/160，仍需定位其未到报文及分离SSH承载影响。fixture Linux两项测试各10轮通过，Linux AMD64/ARM build/vet与Python语法检查通过。详见[GOST报告§4.6](GOST_V3_POC.md#46-udp突发定位与ssh20001恢复2026-09-12)。此前run06首包鉴权/PTY快速重开证据保持，真实UART/不同网关LAN/长稳及产品API/Probe/WPF未完成。隔离进程清理确认，Probe PID32540/路由保持；独立worktree续作，原工作目录不写。
+
 ## 当前：组网成员独立配置与自动核实（ADR-066）
 
 - 已按最新授权本地实现：新建网络/密码查询/新版默认、批量成员与固定地址成员、成员独立配置和实例重建、稳定身份/临时引擎恢复、成员范围的停止/移除及自动只读核实。旧网络与已有UUID不静默改写。

@@ -1,5 +1,19 @@
 # 项目接管手册
 
+## 当前接管：全部工作树集成
+
+- 本次明确授权为源码提交、合入main与推送GitHub，不含生产部署。先看[全工作树集成](ALL_WORKTREES_INTEGRATION.md)：来源提交、冲突解决、测试和本机产物集中在此。
+- 保留各来源分支/worktree，不删除、不重写历史；FM160原066/067映射为067/068，组网066不变，GOST产品接入为069。旧GOST仅PoC的范围已被其后用户授权取代，其他暂缓方向保持。
+- 重点接管：`internal/api/events.go`同时保留组网/穿透主题；Management同时组合日志/组网/穿透；Probe注册/控制同时保留蜂窝、邻居、日志、组网与可选侧车；WPF有九个工作区。
+- 本机整合版WPF为`build/windows-desktop-allmerged/win-x64/RouterWorkbench.exe`；验证日志为`build/integration-all-worktrees`。Linux最终全套复测/vet/build通过；ASan/UBSan缺库、生产与厂商实机验收未完成，不自动部署。
+- 下方为来源工作树/历史接管记录，不代表本次联合验证，也不限制已经确认的提交推送授权。
+
+## 2026-09-12 最新：穿透产品与WPF完成，未部署
+
+用户暂停UDP丢包定位及RSS门槛并授权完成产品。独立codex/gostv3-device-poc工作树已接通LAN TCP/UDP、TCP串口首包鉴权、Forwarding Service/API、0x50/0x51 Probe监管和WPF两页。默认240分钟、0不限时但Session撤销。WPF574项、15项CTest、7包Go race、真实Probe/GOST/PTY链路及1分钟到期回归通过，厂商ARM/uClibc构建成功。成品/安装参数/日志/限制见[产品接入](FORWARDING_IMPLEMENTATION.md)。UDP未修复；未替换生产；物理UART/不同网关/长稳待实机验收；未提交推送或合main。下方A-only/未接入为历史事实，不再是当前停止条件。
+
+上一轮PoC诊断记录（下述停止/下一步语句已被顶部产品进度取代）：2026-09-12 继续使用独立 `C:/Users/Administrator/Desktop/router-agent-gostv3-poc` / `codex/gostv3-device-poc`，不写原工作目录/main。用户最新SSH入口改回 `admin@47.119.168.150:20001`，已成功登录同一FNR100；20007不是当前入口。用户明确暂不以GOST RSS作准入限制，仍记录资源，不放开队列/租期等安全边界。先读[GOST报告§4.6](GOST_V3_POC.md#46-udp突发定位与ssh20001恢复2026-09-12)：5轮40个32000字节UDP最终全部原样返回，27个≤3秒、13个迟到（最慢4.821秒），设备目标socket drops=0；原3秒压力检查仍失败，不误报全通过。Windows本机另有157/160结果，未到包问题未完全定位。下一步分离SSH测试承载的延迟与GOST直接Relay性能；实际UART/不同网关LAN/长期监管及产品调用链仍待验证/接入。a7～a9测试进程均已退出，Probe PID32540/路由保持，/tmp余31284KiB。本轮仅改诊断与文档，无新GOST业务补丁、提交、推送或生产部署。GOST历史分支ADR-059/060在main统一为062/063，本轮不另占ADR编号。
+
 ## 当前接管：组网改造源码与本地验证
 
 - 用户最新“按照上述新方案开始改造”已执行，设计为ADR-066；先看[改造行为、验证与部署边界](OVERLAY_REDESIGN_VERIFICATION.md)，再看API的新批量/成员配置/密码端点。
@@ -8,7 +22,7 @@
 - 不把本轮源码改造当作生产修复完成：未上传、未重启、未改现网。下一步须获得部署授权，再备份现有目录、核实历史操作并进行两台实际设备验收；不要自动重放未知请求。
 ## 当前接管：FM160详情与锁定配置
 
-- 工作树`C:/Users/Administrator/Desktop/router-agent-at-module-adaptation` / `codex/at-module-adaptation`；先读[详细验证](FM160_DETAILS_VERIFICATION.md)、ADR-067及[计划](AT_MODULE_ADAPTATION_PLAN.md)。首轮证据另保留于[基础遥测验证](FM160_TELEMETRY_VERIFICATION.md)。
+- 工作树`C:/Users/Administrator/Desktop/router-agent-at-module-adaptation` / `codex/at-module-adaptation`；先读[详细验证](FM160_DETAILS_VERIFICATION.md)、ADR-068及[计划](AT_MODULE_ADAPTATION_PLAN.md)。首轮证据另保留于[基础遥测验证](FM160_TELEMETRY_VERIFICATION.md)。
 - 完成details显式开关/能力门禁、24项固定查询和Server字段投影；WPF显示详细中文字段及三锁（否/实际值/未知），不增加设置命令。旧模板仍保持身份或基础遥测，生产模板未应用新开关。
 - 20004当前核心单次查询24项成功，温度和三锁已实测；原Probe/redial PID及启动时间、路由表前后不变，设备helper清理。锁定开启/LTE/CA等采用回归夹具，没有为测试改设备网络。
 - Linux全量与CTest18、专项race、生成器198、WPF243、双架构及Windows发布构建通过。完整WPF剪贴板/ASan环境问题见专项历史记录。用户真实页面及持续采样部署验收待授权；不自动合入、推送、部署或处理其他工作树变更。

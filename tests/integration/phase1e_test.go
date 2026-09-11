@@ -275,12 +275,38 @@ func TestProbeReconnectResourceConvergence(t *testing.T) {
 		}
 		return len(entries)
 	}
+	// Optional forwarding initializes its pipe-owning worker asynchronously.
+	// Compare the same ready state on every session, not a pre-start FD count
+	// against a fully initialized worker. Keep the original strict bounds.
+	agent := os.Getenv("RMP_FORWARDING_AGENT")
+	if !filepath.IsAbs(agent) {
+		agent = filepath.Join(filepath.Dir(bin), "router-forwarding-agent")
+	}
+	agentInfo, agentErr := os.Stat(agent)
+	forwardingReady := func(p *phase1cPeer, session string) {
+		if agentErr != nil || agentInfo.Mode().Perm()&0111 == 0 {
+			return
+		}
+		id := strings.Repeat("1", 64)
+		p.send(protocol.TypeForwardingCommand, 0, map[string]string{"id": id, "session_id": session, "op": "inventory"})
+		f := p.read()
+		var status struct {
+			ID        string `json:"id"`
+			SessionID string `json:"session_id"`
+			State     string `json:"state"`
+		}
+		if err := json.Unmarshal(f.Payload, &status); err != nil || f.Header.Type != protocol.TypeForwardingStatus || status.ID != id || status.SessionID != session || status.State != "inventory" {
+			t.Fatalf("forwarding worker not ready: %+v, %v", status, err)
+		}
+	}
 	p := acceptFilePeer(t, l, "resource-0")
 	p.send(protocol.TypeTask, 0, map[string]interface{}{"task_id": "warmup", "type": "start_process", "timeout": 1, "params": map[string]string{}})
 	if f := p.read(); f.Header.Type != protocol.TypeTaskAck {
 		t.Fatal("warmup ACK missing")
 	}
+	forwardingReady(p, "resource-0")
 	baseFD, baseThreads := count("fd"), count("task")
+	t.Logf("ready resource baseline: fd=%d threads=%d", baseFD, baseThreads)
 	for i := 0; i < 8; i++ {
 		w, f := wireFile(800+i, "upload", filepath.Join(dir, fmt.Sprintf("target-%d", i)), []byte("incomplete"))
 		p.ack(p.send(protocol.TypeTask, 0, w), "queued")
@@ -291,6 +317,7 @@ func TestProbeReconnectResourceConvergence(t *testing.T) {
 		for j := 0; j <= i; j++ {
 			wireResult(p, fmt.Sprintf("file-%d", 800+j), "failed")
 		}
+		forwardingReady(p, fmt.Sprintf("resource-%d", i+1))
 		left, e := filepath.Glob(filepath.Join(dir, ".rmp-transfer-*"))
 		if e != nil || len(left) != 0 {
 			t.Fatal("temp leak", left, e)

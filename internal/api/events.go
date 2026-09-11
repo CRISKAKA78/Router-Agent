@@ -23,6 +23,7 @@ func (a *Server) poll() {
 	previous := a.app.Revisions()
 	lastMaintenance := ""
 	var lastNetworks uint64
+	lastForwarding := ""
 	for {
 		select {
 		case <-a.ctx.Done():
@@ -39,6 +40,14 @@ func (a *Server) poll() {
 				}
 			}
 			previous = now
+			if service := a.app.Forwarding(); service != nil {
+				b, _ := json.Marshal(service.List())
+				current := string(b)
+				if current != lastForwarding {
+					a.broadcast("forwardings")
+					lastForwarding = current
+				}
+			}
 			if service := a.app.Maintenance(); service != nil {
 				b, _ := json.Marshal(service.List())
 				current := string(b)
@@ -68,11 +77,11 @@ func (a *Server) events(w http.ResponseWriter, r *http.Request) {
 	topics := map[string]bool{}
 	q := r.URL.Query().Get("topics")
 	if q == "" {
-		q = "devices,tasks,files,maintenance,networks"
+		q = "devices,tasks,files,maintenance,networks,forwardings"
 	}
 	for _, v := range strings.Split(q, ",") {
 		switch v {
-		case "devices", "tasks", "files", "maintenance", "networks":
+		case "devices", "tasks", "files", "maintenance", "networks", "forwardings":
 			topics[v] = true
 		default:
 			write(w, invalid())

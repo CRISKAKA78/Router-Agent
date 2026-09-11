@@ -228,7 +228,8 @@ It wraps the private reverse TCP mapping; the remote side uses isolated PTYs. Ad
 cover bad token/partial line/busy connections with zero PTY writes, stripped registration,
 bidirectional data and next-owner reopening. No physical UART is opened.
 
-Latest device evidence uses SSH **port20007**, not the obsolete port20001. The device
+The September 11 device evidence below used SSH **port20007**. The user changed it back
+to **port20001** on September 12; see the diagnostic section below for current results. The device
 registration branch has now actually run: run05 kept 5 failures; after the API metadata
 and Linux serial-lifecycle fixes, run06 passed 44/45 checks. The remaining failure is the
 new 8-source burst of 32000-byte UDP datagrams (6 received, 2 timed out). Do not label the
@@ -264,3 +265,38 @@ as `/tmp/root/gost-poc-20260911-a6/gost`; do not confuse it with the earlier ARM
 All owned processes exited; only our a5/a6 upload intermediate archives were removed to
 recover tmpfs space. Binaries, logs and the user's original archive remain. See the report
 section4.5 for checks, hashes, memory and remaining real-UART/long-soak/UDP-burst limitations.
+
+
+## UDP burst diagnosis (2026-09-12; current SSH port20001)
+
+Use `udp_burst_smoke.py` with a fresh output directory. Remote mode requires the same
+SSH password environment and AskPass as device_smoke, a fresh isolated
+`/tmp/root/gost-poc-*` directory containing the already validated GOST executable, and
+an ARM helper built from `./tests/poc/gostv3/devicehelper`. The runner checks live test
+port occupancy (not closed TCP TIME_WAIT), uploads the helper, runs bounded fixtures,
+and cleans up only owned processes. Device helpers self-exit after 12 minutes; GOST
+has a 600-second watchdog. SSH loss is reported as unconfirmed cleanup until rechecked.
+
+```powershell
+# No device or SSH required; records Windows loopback evidence only.
+python tests/poc/gostv3/udp_burst_smoke.py --local --gost build/gost-patched-src/gost-patched.exe --output build/device-poc/new-local-run --rounds 5 --late-window 12
+```
+
+Remote flags additionally require `--host admin@47.119.168.150 --port 20001`,
+`--remote-dir`, `--helper` and `--askpass`; use a fresh directory, not the historical
+runs. `--rounds` is bounded to 20, clients to 16, payload size to 12..65000 bytes.
+`--late-window` defaults to 0 and is bounded to 12 seconds **after** the original
+3-second failure. It keeps the same socket open and reports late_exact/late_seconds,
+never retries or converts an overdue result into a pass. Exit 2 includes failed
+3-second checks even when all replies eventually arrive. No RSS admission check is
+applied, per the user's explicit instruction; lifecycle and queue limits remain.
+
+Observed evidence: Windows udp-local-02 157/160 on time (not all passed); device a8
+51/80 on time; device a9 with late observation 27/40 on time plus 13 exact late
+replies, max 4.821s. All 40 reached and were echoed by the device fixture, socket drops
+remained zero and every round recorded 8 inbound/8 outbound Relay trace events.
+The SSH-carried test route is not a direct production Relay benchmark. Do not assume
+all historic timeouts were late replies or claim Windows packet loss is resolved.
+See GOST_V3_POC section4.6 for evidence, cleanup and test commands. The metrics fixture
+retains only 128 synthetic 12-byte identifiers, not full payloads; its two Linux tests
+passed ten iterations, and ARM build/vet passed.

@@ -1,0 +1,4 @@
+package forwardagent
+import("testing";"routerprobe/internal/forwarding")
+func TestOnLinkSource(t *testing.T){v:=forwarding.Inventory{Interfaces:[]forwarding.Interface{{Name:"br0",Address:"192.168.5.222/24"}}};q:=forwarding.Request{Interface:"br0",TargetIP:"192.168.5.100"};ip,e:=Source(q,v);if e!=nil||ip!="192.168.5.222"{t.Fatal(ip,e)};for _,target:=range []string{"192.168.6.100","192.168.5.255","192.168.5.0","192.168.5.222"}{q.TargetIP=target;if _,e=Source(q,v);e==nil{t.Fatal("accepted",target)}};q.Interface="eth9";q.TargetIP="192.168.5.100";if _,e=Source(q,v);e==nil{t.Fatal("wrong interface")}}
+func TestInventoryDoesNotOpenUART(t *testing.T){v:=Inventory("/missing/gost");if v.Backend{t.Fatal("missing executable advertised")};for _,i:=range v.Interfaces{if i.Name=="lo"{t.Fatal("loopback offered")}}}

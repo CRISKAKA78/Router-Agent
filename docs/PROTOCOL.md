@@ -1,5 +1,15 @@
 # 路由器探针 TCP 长连接控制协议
 
+## Forwarding 可选管理控制（ADR-069）
+
+- 新版Probe检测到可执行侧车时上报REGISTER能力forwarding_v1。旧设备不发新消息，基础管理兼容。
+- Server→Probe 0x50 FORWARDING_COMMAND、Probe→Server 0x51 FORWARDING_STATUS，沿用控制帧封装，负载UTF-8 JSON；不承载持续业务字节，不复用Task RESULT或RMT1。
+- command：id(32随机字节的64hex管理相关ID)、session_id、op(inventory/create/close)、request(见API)；create另含relay(host:port)、secret、certificate(固定CA PEM)、listen。内部配置不能进入公开列表/UI。Server队列32、设备队列16、侧车行64KiB，只处理当前Session。
+- status：id、session_id、state、可选reason/source_ip/inventory。state=inventory/running/closed/failed；侧车异常退出可报空id的helper_failed，关闭该Session所有映射。inventory为interfaces[{name,address(CIDR)}]、serials[]、backend，不是目标在线探测。running只表示子进程启动，Server仍需BIND成功才能公开active，不保证物理UART已打开。
+- inventory8秒/create20秒超时；租期默认240分钟、0不限时仍会话撤销。关闭确认独立于Server释放，迟到报告不复活条目。断线/替换/父进程退出回收，不恢复旧通道。
+- 外部串口注册仍按下节，串口无UDP；Relay固定证书TLS不代表现有控制链路整体安全性已升级。
+
+
 ## FM160 详细蜂窝 EVENT（ADR-068）
 
 本节为下方身份v1和telemetry v2的兼容扩展，不修改旧事件规则。
@@ -25,14 +35,14 @@
 
 ## 串口外部 TCP 注册协议 v1（ADR-063）
 
-这是新串口入口的外部数据协议，**不是Probe控制协议或旧RMT1帧**。`internal/serialauth`已实现并通过隔离测试；产品API、Probe监管和WPF尚未接入，不表示现有Server已开放此端口。
+这是新串口入口的外部数据协议，**不是Probe控制协议或旧RMT1帧**。`internal/serialauth`已接入产品API、Probe监管及WPF；本轮未替换生产实例，不表示线上Server已开放此端口。
 
 1. TCP连接建立后5秒内发送ASCII `AUTH ` + 64位小写hex凭据 + CRLF；也接受LF。认证行含换行最多512字节，只有一次尝试，不接受BOM、多余空格或大小写变体；空闲/慢速分片不延长期限。
 2. 无欢迎包。收到完整正确注册行后，服务端先取得该条目独占权，再连接预配置的literal loopback TCP后端；成功回复`OK\r\n`，客户端从此发送任意原始二进制字节。响应之前同包携带的数据会暂存于有界读取缓冲，成功后才转发；注册行自身永不转发。
 3. 返回`ERR AUTH\r\n`（错误或超时）、`ERR BUSY\r\n`（已有拥有者）、`ERR BACKEND\r\n`（内部TCP连接失败）或`ERR CLOSED\r\n`（条目失效）后关闭；失效/超限/对端已关闭时也可能直接断开，不保证错误行送达。不能凭TCP连接成功判断认证成功。
 4. 默认待鉴权总数16、每IP4，入口连接准入每秒20/突发20，状态可计数但不记录注册内容。未鉴权不预开串口、不占独占槽。失败数据直接丢弃，不在同一连接重试；重新连接须重新注册。
 5. 单拥有者双向转发；任一方向关闭即关闭两侧并回收入口槽。更换凭据、显式关闭、租期结束或上层context取消，关闭待鉴权和活动连接。0租期仍须由所属设备Session生命周期取消。
-6. `OK`仅确认入口和内部TCP连接，**不是物理串口打开确认**。串口真实就绪/占用与远端回收反馈仍待产品集成。token是可复用bearer凭据，明文TCP不具备防窃听或防重放保障。
+6. `OK`仅确认入口和内部TCP连接，**不是物理串口打开确认**。物理串口就绪/占用仍待硬件验收；远端进程回收由 ADR-069 的状态反馈单独记录，不以 OK 代替。token是可复用bearer凭据，明文TCP不具备防窃听或防重放保障。
 
 Windows网络调试工具以文本发送注册行并启用CRLF（或实际LF），等待OK，再切换文本/HEX收发业务数据；字符串`\r\n`不是四个要发送的可见字符，而是行结束字节。无需客户端GOST或额外驱动。
 

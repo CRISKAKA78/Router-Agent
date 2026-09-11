@@ -25,6 +25,7 @@ public partial class MainWindow : Window
     private readonly Dictionary<string, TabItem> tabs = [];
     private LogWorkspace logWorkspace=null!;
     private bool refreshing, working, closing, closed;
+ private ForwardingView forwardLan=null!,forwardSerial=null!;
     private double outputHeight = 112;
     private readonly DispatcherTimer clock = new() { Interval = TimeSpan.FromSeconds(1) };
     private Device? Device => snapshot.Devices.FirstOrDefault(d => d.DeviceId == selectedDevice);
@@ -49,8 +50,8 @@ public partial class MainWindow : Window
         WorkspaceTabs.SizeChanged += (_, _) => {
             var compact = WorkspaceTabs.ActualWidth < 760 * (double)FindResource("UiFontSize") / 13;
             foreach (var tab in tabs.Values) {
-                tab.Padding = new(compact ? 8 : 22, 12, compact ? 8 : 22, 12);
-                // Seven workspaces must keep their text labels on a single row at
+                tab.Padding = new(compact ? 4 : 22, 12, compact ? 4 : 22, 12);
+                // Nine workspaces must keep their text labels on a single row at
                 // the minimum window width; restore icons when space permits.
                 if (tab.Header is StackPanel header && header.Children[0] is WorkbenchIcon icon)
                     icon.Visibility = compact ? Visibility.Collapsed : Visibility.Visible;
@@ -60,13 +61,14 @@ public partial class MainWindow : Window
         ApplySnapshot();
         Loaded += AutoConnect;
         PreviewKeyDown += HandleKeys; Closing += OnClosing;
-        clock.Tick += (_, _) => { UpdateMaintenanceClock(); UpdateConnectionHistoryClock(); }; clock.Start();
+        clock.Tick += (_, _) => { UpdateMaintenanceClock(); UpdateConnectionHistoryClock(); forwardLan.Update();forwardSerial.Update(); }; clock.Start();
         SystemEvents.UserPreferenceChanged += SystemThemeChanged;
     }
     private NetworkWorkspace networkWorkspace=null!;
     private void BuildViews()
     {
         AddPage("overview", "设备详情", BuildOverview()); DiscoveryTab.Content=BuildDiscoveries(); ConfigureDeviceMenu(); AddPage("maintenance", "远程维护", BuildMaintenance());
+        forwardLan=new("lan",()=>connection,()=>Device,Write);forwardSerial=new("serial",()=>connection,()=>Device,Write);AddPage("forwarding","内网穿透",forwardLan);AddPage("serial","串口透传",forwardSerial);
         AddPage("files", "文件管理", BuildFiles()); AddPage("config", "配置管理", BuildConfig()); logWorkspace=new(()=>connection,()=>Device); AddPage("logs", "日志", logWorkspace); settingsContent = BuildSettings(); AddPage("tools", "仓库工具", BuildTools());
  networkWorkspace=new NetworkWorkspace(()=>connection,()=>selectedDevice); AddPage("networks","异地组网",networkWorkspace);
     }
@@ -170,7 +172,7 @@ public partial class MainWindow : Window
             SyncText.Text = snapshot.FetchedAt is { } fetched ? "同步 " + fetched.ToLocalTime().ToString("HH:mm:ss") : "";
             PendingBanner.Visibility = connection?.Pending != null && !connection.Busy ? Visibility.Visible : Visibility.Collapsed;
             PendingText.Text = $"{connection?.Pending?.Label} 响应不确定。原请求已保留，新写入已暂停。";
-            UpdateDiscoveries(); UpdateOverview(); UpdateMaintenance(); UpdateTasks(); UpdateFiles(); UpdateTools(); UpdateConfig(); UpdateEnabled(); networkWorkspace?.Update();
+            UpdateDiscoveries(); UpdateOverview(); UpdateMaintenance(); forwardLan.Update(); forwardSerial.Update(); UpdateTasks(); UpdateFiles(); UpdateTools(); UpdateConfig(); UpdateEnabled(); networkWorkspace?.Update();
         } finally { refreshing = false; }
         _ = RefreshDetails();
         EnsureFileScope();
@@ -259,7 +261,7 @@ public partial class MainWindow : Window
         var c = Connected(); var pending = c.Pending; if (pending == null) return;
         if (!Confirm("重试原请求", "请先确认服务器进程没有重启，且已核对原任务/资产状态。重试将使用完全相同的请求键和字节。确认继续？")) return;
         if(exchange?.Owner==c&&exchange.PendingStage==pending){await RunExchange(exchange);return;}
-        var result = await c.ExecuteAsync(pending, true); if(c==connection&&pending.Path=="deployments")ShowCreatedTask(result); Log("完成", "原请求已返回。" + (result.TryGetProperty("task_id", out var id) ? "任务 " + id.GetString() : ""));
+        var result = await c.ExecuteAsync(pending, true); if(c==connection){forwardLan.Accept(result);forwardSerial.Accept(result);} if(c==connection&&pending.Path=="deployments")ShowCreatedTask(result); Log("完成", "原请求已返回。" + (result.TryGetProperty("task_id", out var id) ? "任务 " + id.GetString() : ""));
     });
     private void AbandonClick(object sender, RoutedEventArgs e) { if (Confirm("放弃待定记录", "此操作只清除客户端记录，不会撤销服务器可能已完成的操作。确认已核对服务器状态后继续？")) connection?.Abandon(); }
     private static uint Positive(string value) => uint.TryParse(value, out var n) && n > 0 ? n : throw new ArgumentException("超时须为正整数秒。");

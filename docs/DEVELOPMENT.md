@@ -24,6 +24,8 @@ Agent 先从仓库查明已有行为，将需求整理为简短的可观察结�
 
 暂缓项：Phase 7 MCP、Phase 8 AI Agent、微信小程序、正式公网 Web 部署、新 Tunnel 数据面、其他大规模架构扩展。认证/TLS/RBAC、租户、完整审计、跨重启恢复等未决主题不能作为普通功能的附赠实现。新协议消息、通用端口转发或任意目标端口不能包装成“最小 API 补充”。
 
+已明确授权的例外以当前 Accepted ADR 为准：ADR-069 的 Forwarding 服务/侧车与直连 IPv4 LAN、串口 TCP 数据面已接入；不是放开任意路由目标、旧 Maintenance 固定目标或全平台安全架构。其验证入口见 [穿透产品接入](FORWARDING_IMPLEMENTATION.md) 和 [全工作树集成](ALL_WORKTREES_INTEGRATION.md)。
+
 ## 执行顺序
 
 1. 按 AGENTS 必读顺序接管，检查 `git status --short`、当前提交、相关代码和测试入口。保留已有改动、运行数据、用户进程；记录会影响任务的初始问题。

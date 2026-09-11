@@ -36,6 +36,8 @@ func main() {
 			go func() { defer c.Close(); c.SetDeadline(time.Now().Add(2 * time.Minute)); io.Copy(c, c) }()
 		}
 	}()
+	udpMetrics := newUDPMetrics(udp.(*net.UDPConn))
+	http.HandleFunc("/udp/stats", udpMetrics.serveHTTP)
 	go func() {
 		b := make([]byte, 65536)
 		for {
@@ -43,7 +45,8 @@ func main() {
 			if e != nil {
 				return
 			}
-			udp.WriteTo(b[:n], a)
+			written, err := udp.WriteTo(b[:n], a)
+			udpMetrics.record(b[:n], a, written, err)
 		}
 	}()
 	var mu sync.Mutex

@@ -1,11 +1,18 @@
 # 路由器远程运维平台架构基线
 
+## Forwarding 产品接入（ADR-069）
+
+独立internal/forwarding.Service持有映射、租期、持久端口隔离、Session撤销和公开状态；Management组合，API/WS只经Application访问。Gateway只提供当前Session有界管理运输；Probe C++ ForwardingManager通过私有管道监管Linux Go侧车router-forwarding-agent，由侧车检查直连IPv4/串口白名单并持有GOST。缺侧车不影响基础Probe。
+
+数据不走控制或旧RMT1：每映射独立TLS Relay/随机内部凭据，设备主动连接并固定证书验证；LAN绑定本机源IP代理目标，串口TCP经serialauth.Gate认证后才连loopback反向后端。进程/Session退出撤销，不恢复0租期条目。外部串口仍明文注册，不隐含全局控制TLS/API认证已完成。旧Maintenance固定目标/正租期不变。详见[产品接入](FORWARDING_IMPLEMENTATION.md)。
+
+
 ## 组网成员配置与恢复（ADR-066）
 
 `overlay.Service` 持有网络、成员配置/修订、期望状态、稳定设备映射与操作历史；WPF 不复制服务端状态机。成员工作线程独立串行，正常执行和周期性核实共享实际配置验证。`WebClient` 使用同机 Web 的结构化配置读取及 ShowNodeInfo 只读 RPC，TOML 仅在服务端内存解析，不公开原始配置或密码。
 
 管理驱动区分仍在执行的 Task 与 Server 重启丢失的暂态历史，复用既有 Probe inspect/install/start 和仓库/File链路恢复已成功配置但临时引擎丢失的在线成员；停止意图不会被后台恢复覆盖。成员配置变更重建单个网络实例，不重启 Probe 或整台设备。未变更 Probe TCP 指令和数据面协议。
-## 蜂窝模块适配边界（ADR-067/067）
+## 蜂窝模块适配边界（ADR-067/068）
 
 `统一模板（telemetry/details开关/周期） → Probe USB分组与ATI实际身份 → 内置只读命令规则 → Gateway白名单/会话/配置校验 → Device Service字段与物理单位归一化 → 公开API/WS → WPF属性与三图`。
 
@@ -13,11 +20,11 @@
 
 详情仍复用同一采集worker及只读快照服务，通过独立details能力/事件保护旧版本。Server的`cellular_fm160_details.go`集中处理小区、PDP、载波、单次温度和锁定配置投影，字段名/分组/来源由Server派生；WPF仅负责展示和有界趋势。锁定配置读取不是设备写控制服务，没有新增数据面或任意AT入口。手册与实机变体边界见[详细验证](FM160_DETAILS_VERIFICATION.md)。
 
-## 新串口鉴权入口（ADR-063，独立模块已实现，产品调用链未接入）
+## 串口鉴权入口（ADR-063 / ADR-069）
 
 `internal/serialauth`负责一条映射的外部TCP注册、凭据摘要校验、连接准入/独占和固定loopback后端的双向字节复制。验证入口在`tests/poc/gostv3/registration`，默认loopback且只允许loopback监听，避免PoC自行暴露公网；它不是正式Server启动入口。
 
-目标调用链仍为Client → 公开Application/API → 新Forwarding服务，数据另走“外部TCP → 注册鉴权入口 → 私有GOST反向TCP映射 → 设备GOST串口端”。鉴权成功之前不拨后端；旧Maintenance/RMT1保持不变。此模块不实现UART、GOST配置监管、公开HTTP API、设备Session绑定或持久化，以上必须由后续受监管的调用层接入并验收。Gate的context取消/到期/轮换回收已测试，不等于远端辅助进程和UART已确认回收。
+当前调用链为Client → 公开Application/API → 新Forwarding服务，数据另走“外部TCP → 注册鉴权入口 → 私有GOST反向TCP映射 → 设备GOST串口端”。鉴权成功之前不拨后端；旧Maintenance/RMT1保持不变。此模块不实现UART、GOST配置监管、公开HTTP API、设备Session绑定或持久化，以上由 ADR-069 的 Forwarding 服务、Gateway 和设备侧车实现并分别验证。Gate的context取消/到期/轮换回收已测试，不等于远端辅助进程和UART已确认回收。
 
 LAN TCP/UDP保持GOST数据面；PoC补丁只在忽略的第三方源码副本构建，可复现补丁及回归保存在`tests/poc/gostv3/patches`，不把GOST依赖并入产品go.mod。详见[GOST验证](GOST_V3_POC.md)。
 

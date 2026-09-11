@@ -2,13 +2,17 @@
 
 > 合入更新：用户已授权本工作树（含 AT 前置智能邻居）并入本地 main；当前进度、统一 ADR 编号及联合验证见 [WORKTREE_INTEGRATION](WORKTREE_INTEGRATION.md)。下文独立工作树、未提交或原目录不写入等语句记录当时事实，不限制本次授权；原始测试证据仍在对应工作树的忽略目录，不能当作本次联合测试结果。
 
-2026-09-11；当前独立worktree/分支`codex/gostv3-device-poc`（基于5ca179a），原工作目录不写入。用户已通过ADR-063确认注册包方式并授权按讨论实施。本轮新增独立鉴权入口、最小GOST补丁及本机集成验证，尚未接入产品API/Probe/WPF、未部署；历史原版设备证据见§4.2/4.3，最新结果见§4.5。
+## 2026-09-12 当前产品接入更新
+
+用户暂停UDP丢包定位/RSS门槛并授权完成产品；Service/API、Probe侧车监管与WPF已实现和隔离验证，见[产品接入](FORWARDING_IMPLEMENTATION.md)。下方保留历史调研/PoC结果，旧A-only/未接入不代表当前状态；UDP失败未改为通过，生产与硬件验收仍待执行。
+
+2026-09-11；当前独立worktree/分支`codex/gostv3-device-poc`（基于5ca179a），原工作目录不写入。用户已通过ADR-063确认注册包方式并授权按讨论实施。本轮新增独立鉴权入口、最小GOST补丁及本机集成验证，尚未接入产品API/Probe/WPF、未部署；历史原版设备证据见§4.2/4.3，最新结果见§4.6。该分支ADR-059/060的main统一编号为062/063；本轮只在独立worktree续测，不重排历史ADR。
 
 ## 结论
 
-**SSH已改为20007并恢复实机验证。补丁版在FNR100上通过TCP、单路完整/空UDP及TCP串口首包鉴权、断线重接；run06为45项检查44通过，仍有8来源并发32000字节UDP的2路超时，不是全项通过。**
+**2026-09-12 SSH最新改回20001，已成功登录同一FNR100。用户明确暂不限制GOST实测RSS，资源数字继续保留。新增UDP迟到观察：40/40最终完整返回，其中13个超过原3秒期限；不将其改判为3秒压力全通过。Windows回环仍有157/160的未到包记录，不宣称UDP压力问题全部解决。**
 
-本轮定位并修复API数值metadata未生效的配置问题，以及Linux串口空闲读取阻塞Close的问题。后者以原版失败、修复后WSL和ARM各10轮通过及实际反向PTY注册链路形成验证闭环。当前GOST RSS约17.0～23.3MiB，超过16MiB候选预算；物理UART、真实LAN不同网关对端、1小时稳定性和产品API/Probe/WPF接入尚未完成。GOST保持优先，继续解决剩余压力/预算/监管，不提前部署生产。
+本轮定位并修复API数值metadata未生效的配置问题，以及Linux串口空闲读取阻塞Close的问题。后者以原版失败、修复后WSL和ARM各10轮通过及实际反向PTY注册链路形成验证闭环。此前GOST RSS约17.0～23.3MiB；16MiB候选预算已按用户新要求暂停，不再作为当前阻塞；物理UART、真实LAN不同网关对端、1小时稳定性和产品API/Probe/WPF接入尚未完成。GOST保持优先，继续解决剩余压力/监管，不提前部署生产。
 
 详细结果以§4.5为准；§4.1～4.4保留当时的失败和阻塞记录，不能把旧SSH不可达或当时未实现状态当作当前状态。
 
@@ -298,6 +302,28 @@ run06资源：无映射RSS17432KiB、8活动TCP时22004KiB、20轮后23312KiB、
 - 所有自有进程已停止。仅删除本轮a5/a6上传中间`gost.gz`、`helper.gz`及a6的`serial.test.gz`，保留二进制和日志及用户原始GOST压缩包。/tmp剩余从13676KiB恢复到56216KiB；未清理用户文件或历史测试目录。
 - 本轮仅续测和最小补丁/测试配置修复：公开API、Probe控制、WPF和旧Maintenance无变化，无需借此重跑全产品UI/Phase1～5。实际硬件UART、LAN不同网关设备、长期稳定性、并发大UDP与预算仍需后续验证；不得将本机/PTY结果冒充整套产品上线。
 
+### 4.6 UDP突发定位与SSH20001恢复（2026-09-12）
+
+**授权与环境**：用户明确GOST实测RSS暂不限制，并将SSH从20007改回`admin@47.119.168.150:20001`；新端口实查仍为FNR100 ARMv7/Linux3.14.77。本轮不改GOST业务实现，不调整全局网络参数，不重发UDP，不放宽原3秒通过标准。RSS预算暂停不涉及认证、租期、会话隔离、队列边界或回收。
+
+**诊断变更**：`udp_burst_smoke.py`记录Windows IPv4 UDP聚合计数、每来源发送/回包结果、GOST Relay双向逐包事件，以及设备目标socket inode、SO_RCVBUF、/proc/net/udp行与收发计数。fixture只保存最多128个合成报文的12字节标识，不记录完整负载。新增`--late-window 12`：原3秒内未返回仍判失败，保持同一socket再观察最多12秒，绝不重发；迟到结果独立标记`late_exact`和`late_seconds`。`--local`仅为Windows回环诊断，不是ARM或公网直连证据。
+
+| 实际运行 | 结果 | 判读 |
+| --- | --- | --- |
+| a7 / udp-diagnosis-01，SSH20007 | fixture就绪后SSH断开，API等待失败；未执行压力 | 20001恢复后取回日志：GOST曾成功BIND，随后EOF/19400拒绝连接，持续重连直到600秒超时退出；不能误记为GOST启动崩溃 |
+| udp-local-02，Windows回环，20轮×8×32000 | 157/160在3秒内返回；3个未到；后续小包通过 | 3次失败中1次只有7条入口事件、另2次8条入口但目标只收到7个。尚未精确归因，不用Windows聚合计数0错误排除socket/用户态丢包 |
+| a8 / udp-device-02，SSH20001，10轮×8×32000，原3秒关闭 | 51/80按时返回，29个失败；后续小包/清理通过 | 观察到客户端关闭后的回包事件；跨轮目标计数不能直接当本轮丢包数 |
+| a9 / udp-device-late-02，同设备，5轮×8×32000，3秒判定+12秒只观察 | 27/40在3秒内；13/40迟到；最终40/40原样返回，最慢4.821秒 | 每轮目标收到8个并成功回写，目标socket drops=0，每轮8入+8出Relay事件；这5轮没有最终报文缺失，但5轮均未满足全部≤3秒 |
+
+**结论范围**：本轮实机可重复的部分“丢包”实为迟到；不支持据此直接增加GOST UDP缓冲或自研重传。该链路是Windows Relay → SSH反向端口 → 设备GOST → 回环UDP目标，并非未来管理Server直接Relay部署。逐包证据能定位延迟发生于这条端到端路径，但尚未分离SSH承载、网络抖动、设备调度与GOST处理的各自贡献，不能把迟到全部归因SSH，也不能反向声称生产链路性能达标。原run06的2个超时未保留迟到观察，无法事后断言其必定同因。Windows独立回环的未到包仍单独保留。
+
+**验证/证据**：
+- 实机入口：`python tests/poc/gostv3/udp_burst_smoke.py --host admin@47.119.168.150 --port 20001 --remote-dir /tmp/root/gost-poc-20260912-a9 --gost build/gost-patched-src/gost-patched.exe --helper build/device-poc/device-helper-udp --askpass build/device-poc/askpass.exe --output build/device-poc/udp-device-late-02 --rounds 5 --late-window 12`。这是已执行命令；复跑须新建隔离目录及输出、准备其中gost，不覆盖a9。凭据仅进程环境传递。
+- 本地证据：`build/device-poc/udp-local-02`、`udp-device-02`、`udp-device-late-02`；每个含results.json与Relay/client或设备日志。基础设施失败证据保留在`udp-local-01`（DLL拼写已修正）、`udp-device-late-01`（TIME_WAIT误判已修正）、`udp-diagnosis-01`。它们不计成功压力样本。
+- fixture增加两项回归（128条上限/零报文/错误计数、真实临时UDP socket取证），Linux AMD64独立测试各10轮通过，日志`build/device-poc/udp-fixture-tests.log`。`GOOS=linux GOARCH=amd64 go test -c ./tests/poc/gostv3/devicehelper`、Linux AMD64及ARM `go vet`、ARM `go build`通过；Python语法检查通过。没有产品业务/公开API/协议变化，不重跑无关WPF和全量产品测试。
+- 20001最终只读检查确认a7/a8/a9无残留测试进程，Probe仍PID32540且路由保持。仅清理三个自有helper.gz上传中间包；用户原始包、二进制和日志保留，/tmp最终余31284KiB。新测试前先检查/tmp容量，勿无限堆积副本。证据`port20001-final-check.stdout`；原20007断连时无法确认的清理现已核实。
+- main中既有PoC合入不等于本轮新改动提交/部署；本轮只写独立worktree，未提交、推送、合并或替换生产Probe。
+
 ## 5. 可复现入口、证据与检查
 
 测试源码：[tests/poc/gostv3](../tests/poc/gostv3/README.md)。仅使用标准库，未更改go.mod/go.sum或产品构建入口。
@@ -324,8 +350,8 @@ wsl -d RouterAgentTest -u root -- unshare -mnpf --mount-proc sh -c '<same isolat
 
 ## 6. 下一步（按新授权推进，实际阻断不跳过）
 
-1. 继续使用用户指定的SSH20007。定位8来源32000字节突发UDP的丢失位置，增加两端socket/队列和收发计数证据；不以放宽超时、自动重试或删除压力检查代替定位。单路65000和空报文已通过，不再误记为仍被8192截断。
+1. 继续使用用户最新指定的SSH20001。基于§4.6区分迟到和最终缺失，分离SSH承载与GOST直接Relay性能，继续定位Windows回环未到包；不以放宽超时、自动重试或删除压力检查代替定位。单路65000和空报文已通过，不再误记为仍被8192截断。
 2. 在明确的非生产UART及测试对端上验证真实串口、电气参数与热插拔，并验证实际LAN不同网关对端。当前同PTY首包/独占/快速重开已通过，不再重复列为未验证；硬件与跨控制Session回收不能由它替代。
-3. 评估实测RSS与16MiB候选预算及1小时稳定性，再按准入结果接入Service/API/Probe辅助进程监管/WPF。客户端注册包选择已确认，不需重复询问；不替换生产进程或自行放宽资源门槛。
+3. RSS候选门槛已按用户明确要求暂停，仍记录资源并验证1小时稳定性及回收，再按准入结果接入Service/API/Probe辅助进程监管/WPF。客户端注册包选择已确认，不需重复询问；不替换生产进程。
 
 固定来源：GitHub `go-gost/gost` release/tag v3.3.0、二进制buildinfo、`github.com/go-gost/x@v0.16.0`模块源码及两者LICENSE。原调研文档中的master/最新文档只是背景，本轮行为结论由上述固定二进制和测试结果给出。
