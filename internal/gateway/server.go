@@ -665,9 +665,9 @@ func (s *Server) handleConnection(conn net.Conn) {
 						Event string `json:"event"`
 					}
 					_ = json.Unmarshal(frame.Payload, &eventName)
-					if eventName.Event == "cellular" {
+					if eventName.Event == "cellular" || eventName.Event == "cellular_telemetry" || eventName.Event == "cellular_details" {
 						n, age, e := parseCellular(frame.Payload)
-						if frame.Header.Flags != 0 || e != nil || !slices.Contains(active.capabilities, "cellular_identity_v1") {
+						if frame.Header.Flags != 0 || e != nil || !slices.Contains(active.capabilities, "cellular_identity_v1") || (n.Details && !slices.Contains(active.capabilities, "cellular_details_v1")) || (n.Telemetry && !slices.Contains(active.capabilities, "cellular_telemetry_v2")) {
 							return
 						}
 						s.devices.ObserveCellular(active.deviceID, active.sessionID, n, time.Now(), age)

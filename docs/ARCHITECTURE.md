@@ -5,6 +5,13 @@
 `overlay.Service` 持有网络、成员配置/修订、期望状态、稳定设备映射与操作历史；WPF 不复制服务端状态机。成员工作线程独立串行，正常执行和周期性核实共享实际配置验证。`WebClient` 使用同机 Web 的结构化配置读取及 ShowNodeInfo 只读 RPC，TOML 仅在服务端内存解析，不公开原始配置或密码。
 
 管理驱动区分仍在执行的 Task 与 Server 重启丢失的暂态历史，复用既有 Probe inspect/install/start 和仓库/File链路恢复已成功配置但临时引擎丢失的在线成员；停止意图不会被后台恢复覆盖。成员配置变更重建单个网络实例，不重启 Probe 或整台设备。未变更 Probe TCP 指令和数据面协议。
+## 蜂窝模块适配边界（ADR-067/067）
+
+`统一模板（telemetry/details开关/周期） → Probe USB分组与ATI实际身份 → 内置只读命令规则 → Gateway白名单/会话/配置校验 → Device Service字段与物理单位归一化 → 公开API/WS → WPF属性与三图`。
+
+下方ADR-060的通用身份架构继续作为v1。首个扩展规则为FM160-CN，未知模块回退通用身份；同型号路由器不绑定同一模组。Probe每轮重新识别，不实现身份缓存/热更新规则，UART采集仍独立后台运行且不承载控制流。Server不自行打开串口，不把解析逻辑复制到Client/HTTP Adapter。生成器只编辑意图与能力门禁，WPF只消费统一数据。具体契约见PROTOCOL/API，真实支持范围见[FM160验证](FM160_TELEMETRY_VERIFICATION.md)。
+
+详情仍复用同一采集worker及只读快照服务，通过独立details能力/事件保护旧版本。Server的`cellular_fm160_details.go`集中处理小区、PDP、载波、单次温度和锁定配置投影，字段名/分组/来源由Server派生；WPF仅负责展示和有界趋势。锁定配置读取不是设备写控制服务，没有新增数据面或任意AT入口。手册与实机变体边界见[详细验证](FM160_DETAILS_VERIFICATION.md)。
 
 ## 新串口鉴权入口（ADR-063，独立模块已实现，产品调用链未接入）
 

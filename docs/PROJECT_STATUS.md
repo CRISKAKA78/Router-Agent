@@ -6,6 +6,12 @@
 - WPF左侧设备观察视角、11列成员表、中文NAT与实际链路统计、路由器拓扑/采样计数流向动画、折叠详情已接入；独立链路页移除。
 - 官方2.6.4-8428a89d真实Web/core的machine ID和路由三态/代理/P2P配置往返通过；Windows Go测试/vet/build、Linux六包race及真实Probe定向回归、WPF643项完整回归与18项末次组网页检查通过。命令、范围、日志和限制见[改造验证](OVERLAY_REDESIGN_VERIFICATION.md)。
 - 新WPF位于build/windows-desktop-networkv2/win-x64；Windows/Linux Server位于build/overlay-redesign。未提交推送、未部署或重启生产服务。现网原未知记录尚未现场核实/清理；下方首轮缺口与部署记录是历史，不替代本轮范围。
+## 当前工作树：FM160详情与锁定配置（2026-09-12）
+
+- `codex/at-module-adaptation`已扩展FM160-CN的24项固定查询：温度/电压、网络与PDP、服务小区/邻区、PCC/SCC、可用射频测量及锁定配置。显式details能力/事件保护原v1/v2；Server统一解析，WPF按中文字段/分组展示，保留原三图与滚动体验。
+- 锁频段、锁频点、锁小区未锁显示“否”，锁定显示实际配置，失败不伪造否。20004实机本轮24项均返回ok，三锁均否，温度40/39/39°C；只读当前采集核心helper测试，未安装新Probe或变更网络/锁定配置。
+- Linux全量/CTest18、重点race、生成器198、WPF专项243和双旧工具链构建通过；详情夹具覆盖已锁、异常、LTE/NR、CA/EN-DC。实际设备关闭GTCELLINFO、CA带宽编码500未定义、邻区新鲜度不可保证，均如实标记。证据见[详细验证](FM160_DETAILS_VERIFICATION.md)。
+- 未部署/提交/推送/合入，生产程序与模板不变；FM150/FM650/移远型号未适配。完整WPF此前剪贴板断言失败、ASan环境缺库，本轮不宣称其通过。
 
 ## 本次源码交付
 

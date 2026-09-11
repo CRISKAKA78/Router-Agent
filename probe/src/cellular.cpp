@@ -122,7 +122,7 @@ bool Quiet(int fd,const std::atomic<bool>* stop,const Clock::time_point& deadlin
  }return false;
 }
 bool Unsolicited(const std::string& line){return line=="RING"||line=="RDY"||line=="SMS Ready"||line=="Call Ready"||line=="PB DONE"||line=="NO CARRIER"||(!line.empty()&&(line[0]=='+'||line[0]=='^'||line[0]=='%'));}
-AtIdentity Query(int fd,const std::string& command,unsigned timeout,const std::atomic<bool>* stop,const Clock::time_point& round){
+AtIdentity Query(int fd,const std::string& command,unsigned timeout,const std::atomic<bool>* stop,const Clock::time_point& round,const std::string& expected="",std::size_t capacity=1024){
  AtIdentity r;r.command=command;r.status="timeout";
  auto end=std::min(round,Clock::now()+std::chrono::milliseconds(timeout));const std::string wire=command+"\r";std::size_t sent=0,received=0;
  while(sent<wire.size()&&!Stopped(stop)&&Clock::now()<end){
@@ -144,8 +144,8 @@ AtIdentity Query(int fd,const std::string& command,unsigned timeout,const std::a
     if(text=="OK"){r.status="ok";r.value=body;return r;}
     if(text=="ERROR"||text.compare(0,11,"+CME ERROR:")==0||text.compare(0,11,"+CMS ERROR:")==0){r.status="rejected";return r;}
     const bool imeiPrefix=text.compare(0,6,"+CGSN:")==0||text.compare(0,5,"+GSN:")==0;
-    if(Unsolicited(text)&&!(command!="ATI"&&imeiPrefix))continue;
-    if(body.size()+text.size()+1>1024){r.status="overflow";return r;}
+    if(Unsolicited(text)&&!(command!="ATI"&&imeiPrefix)&&!(expected.size()&&text.compare(0,expected.size(),expected)==0))continue;
+    if(body.size()+text.size()+1>capacity){r.status="overflow";return r;}
     if(!body.empty())body+='\n';
     body+=text;
    }else if((ch>=32&&ch<=126)||ch=='\t'){line+=static_cast<char>(ch);}
@@ -156,7 +156,7 @@ AtIdentity Query(int fd,const std::string& command,unsigned timeout,const std::a
  return r;
 }
 bool CanContinue(const AtIdentity& q){return q.status=="ok"||q.status=="rejected"||q.status=="invalid_value";}
-void ProbePort(const Candidate& c,CellularPort* p,const std::string& root,const std::atomic<bool>* stop,unsigned timeout,const Clock::time_point& end){
+void ProbePort(const Candidate& c,CellularPort* p,const std::string& root,const std::atomic<bool>* stop,unsigned timeout,const Clock::time_point& end,bool telemetry,bool details){
  PortLease lease;auto failure=lease.Open(c,root,stop,end);
  if(!failure.empty()){p->status=failure=="port_busy"?"busy":"error";p->reason=failure;return;}
  if(!Quiet(lease.fd,stop,std::min(end,Clock::now()+std::chrono::milliseconds(500)))){p->status="error";p->reason="unsolicited_data";return;}
@@ -171,6 +171,33 @@ void ProbePort(const Candidate& c,CellularPort* p,const std::string& root,const 
  }
  p->status=p->ati.status=="ok"&&p->imei.status=="ok"?"ok":"partial";
  if(p->status=="partial")p->reason="identity_incomplete";
+ if(telemetry && p->status=="ok" && p->ati.value.find("Manufacturer: Fibocom Wireless Inc.")!=std::string::npos
+    && ("\n"+p->ati.value+"\n").find("\nModel: FM160-CN\n")!=std::string::npos){
+  p->profile="fibocom-fm160-v1";
+  const std::pair<const char*,const char*> commands[]={
+   {"AT+CPIN?","+CPIN:"},{"AT+CCID","+CCID:"},{"AT+CIMI","+CIMI:"},
+   {"AT+COPS?","+COPS:"},{"AT+CEREG?","+CEREG:"},{"AT+C5GREG?","+C5GREG:"},
+   {"AT+CSQ","+CSQ:"},{"AT+CESQ","+CESQ:"}};
+  bool proceed=true;
+  for(const auto& entry:commands){AtIdentity q;q.command=entry.first;
+   if(proceed){q=Query(lease.fd,entry.first,timeout,stop,end,entry.second);proceed=CanContinue(q);}
+   p->queries.push_back(q);
+  }
+  if(details){
+   p->profile="fibocom-fm160-details-v1";
+   const std::pair<const char*,const char*> extra[]={{"AT+CBC","+CBC:"},{"AT+MTSM?","+MTSM:"},{"AT+MTSM=1","+MTSM:"},{"AT+MTSM=6","+MTSM:"},{"AT+MTSM=7","+MTSM:"},{"AT+CGATT?","+CGATT:"},{"AT+CGACT?","+CGACT:"},{"AT+CGDCONT?","+CGDCONT:"},{"AT+CGPADDR","+CGPADDR:"},{"AT+CGCONTRDP","+CGCONTRDP:"},{"AT+GTACT?","+GTACT:"},{"AT+GTACT=?","+GTACT:"},{"AT+GTCELLLOCK?","+GTCELLLOCK:"},{"AT+GTCAINFO?","+GTCAINFO:"},{"AT+GTCELLINFO?","+GTCELLINFO:"},{"AT+GTCCINFO?","+GTCCINFO:"}};
+   bool temperatureSafe=false;
+   for(const auto& entry:extra){AtIdentity q;q.command=entry.first;
+    const bool temp=q.command.compare(0,8,"AT+MTSM=")==0;
+    if(proceed&&(!temp||temperatureSafe)){
+     const unsigned budget=q.command=="AT+GTCCINFO?"?15000:q.command=="AT+GTCAINFO?"?3000:timeout;
+     q=Query(lease.fd,entry.first,budget,stop,end,entry.second,4096);proceed=CanContinue(q);
+     if(q.command=="AT+MTSM?")temperatureSafe=q.status=="ok"&&(q.value=="+MTSM: 0"||q.value=="+MTSM: 1"||q.value=="+MTSM: 6"||q.value=="+MTSM: 7");
+    }
+    p->queries.push_back(q);
+   }
+  }
+ }
  p->sampled=Clock::now();
 }
 std::uint64_t Age(Clock::time_point at){auto n=std::chrono::duration_cast<std::chrono::milliseconds>(Clock::now()-at).count();return static_cast<std::uint64_t>(std::max<long long>(0,std::min<long long>(315360000000LL,n)));}
@@ -178,7 +205,8 @@ std::string IdentityJson(const AtIdentity& q){return "{\"command\":"+EscapeJsonS
 }
 bool ParseCellularPlan(const std::string& bytes,CellularPlan* plan){
  JsonObject v;std::string e;if(!ParseJsonObject(bytes,&v,&e))return false;
- CellularPlan p;for(const auto& item:v){if(item.first!="interval_seconds"||item.second.type!=JsonType::kUnsignedInteger||item.second.unsigned_value<10||item.second.unsigned_value>86400)return false;p.interval=static_cast<unsigned>(item.second.unsigned_value);}
+ CellularPlan p;for(const auto& item:v){if(item.first=="details"){if(item.second.type!=JsonType::kBoolean)return false;p.details=item.second.bool_value;continue;}if(item.first=="telemetry"){if(item.second.type!=JsonType::kBoolean)return false;p.telemetry=item.second.bool_value;continue;}if(item.first!="interval_seconds"||item.second.type!=JsonType::kUnsignedInteger||item.second.unsigned_value<10||item.second.unsigned_value>86400)return false;p.interval=static_cast<unsigned>(item.second.unsigned_value);}
+ if(p.details&&!p.telemetry)return false;
  *plan=p;return true;
 }
 std::string ParseIMEI(const std::string& text){
@@ -191,8 +219,8 @@ std::string ParseIMEI(const std::string& text){
   value=line;
  }return value;
 }
-CellularObservation SampleCellular(const std::string& root,const std::atomic<bool>* stop,unsigned* cursor,unsigned timeout,unsigned round_ms){
- CellularObservation observation;auto candidates=Discover(root,&observation.limited,&observation.reason);
+CellularObservation SampleCellular(const std::string& root,const std::atomic<bool>* stop,unsigned* cursor,unsigned timeout,unsigned round_ms,bool telemetry,bool details){
+ CellularObservation observation;observation.telemetry=telemetry;observation.details=details;auto candidates=Discover(root,&observation.limited,&observation.reason);
  if(candidates.empty()){if(!observation.reason.empty())observation.status="error";return observation;}
  const auto deadline=Clock::now()+std::chrono::milliseconds(round_ms);std::set<std::string> complete;
  for(auto& c:candidates){c.port.ati.command="ATI";observation.ports.push_back(c.port);}
@@ -201,7 +229,7 @@ CellularObservation SampleCellular(const std::string& root,const std::atomic<boo
   const unsigned i=(start+n)%candidates.size();auto& p=observation.ports[i];
   if(complete.count(p.device_key)){p.status="alternate";p.reason="device_port_selected";continue;}
   if(Stopped(stop)||Clock::now()>=deadline){observation.limited=true;continue;}
-  ProbePort(candidates[i],&p,root,stop,timeout,deadline);p.sampled=Clock::now();attempted=n+1;
+  ProbePort(candidates[i],&p,root,stop,timeout,deadline,telemetry,details);p.sampled=Clock::now();attempted=n+1;
   if(p.status=="ok")complete.insert(p.device_key);
  }
  *cursor=(start+std::max(1u,attempted))%candidates.size();
@@ -216,10 +244,11 @@ CellularObservation SampleCellular(const std::string& root,const std::atomic<boo
  observation.sampled=Clock::now();return observation;
 }
 std::string CellularEvent(const CellularObservation& v,std::uint64_t revision,unsigned interval,std::size_t limit){
- std::string prefix="{\"event\":\"cellular\",\"config_revision\":"+std::to_string(revision)+",\"interval_seconds\":"+std::to_string(interval)+",\"age_ms\":"+std::to_string(Age(v.sampled));
+ std::string prefix="{\"event\":"+EscapeJsonString(v.details?"cellular_details":v.telemetry?"cellular_telemetry":"cellular")+",\"config_revision\":"+std::to_string(revision)+",\"interval_seconds\":"+std::to_string(interval)+",\"age_ms\":"+std::to_string(Age(v.sampled));
  std::string s=prefix+",\"status\":"+EscapeJsonString(v.status)+",\"reason\":"+EscapeJsonString(v.reason)+",\"limited\":"+(v.limited?"true":"false")+",\"ports\":[";
  for(const auto& p:v.ports){if(&p!=&v.ports.front())s+=',';
-  s+="{\"path\":"+EscapeJsonString(p.path)+",\"device_key\":"+EscapeJsonString(p.device_key)+",\"status\":"+EscapeJsonString(p.status)+",\"reason\":"+EscapeJsonString(p.reason)+",\"selected\":"+(p.selected?"true":"false")+",\"age_ms\":"+std::to_string(Age(p.sampled))+",\"ati\":"+IdentityJson(p.ati)+",\"imei\":"+IdentityJson(p.imei)+"}";
+  s+="{\"path\":"+EscapeJsonString(p.path)+",\"device_key\":"+EscapeJsonString(p.device_key)+",\"status\":"+EscapeJsonString(p.status)+",\"reason\":"+EscapeJsonString(p.reason)+",\"selected\":"+(p.selected?"true":"false")+",\"age_ms\":"+std::to_string(Age(p.sampled))+",\"ati\":"+IdentityJson(p.ati)+",\"imei\":"+IdentityJson(p.imei);
+  if(v.telemetry){s+=",\"profile\":"+EscapeJsonString(p.profile)+",\"queries\":[";for(std::size_t i=0;i<p.queries.size();++i){if(i)s+=',';s+=IdentityJson(p.queries[i]);}s+="]";}s+="}";
  }
  s+="]}";if(s.size()<=std::min<std::size_t>(65536,limit))return s;
  s=prefix+",\"status\":\"error\",\"reason\":\"payload_limit\",\"limited\":true,\"ports\":[]}";return s.size()<=limit?s:"";
@@ -228,7 +257,7 @@ CellularCollector::CellularCollector(const CellularPlan& p,std::uint64_t r):plan
 CellularCollector::~CellularCollector(){stop_=true;if(worker_.joinable())worker_.join();}
 void CellularCollector::SetRevision(std::uint64_t r){std::lock_guard<std::mutex> lock(mutex_);revision_=r;pending_=observed_;}
 void CellularCollector::Run(){unsigned cursor=0;while(!stop_){
- auto v=SampleCellular("",&stop_,&cursor);if(stop_)break;
+ auto v=SampleCellular("",&stop_,&cursor,1500,15000,plan_.telemetry,plan_.details);if(stop_)break;
  {std::lock_guard<std::mutex> lock(mutex_);observation_=std::move(v);observed_=true;pending_=true;}
  const auto next=Clock::now()+std::chrono::seconds(plan_.interval);while(!stop_&&Clock::now()<next)std::this_thread::sleep_for(std::chrono::milliseconds(50));
 }}

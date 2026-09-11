@@ -8,7 +8,7 @@
 #include <thread>
 #include <vector>
 namespace rmp {
-struct CellularPlan { unsigned interval=30; };
+struct CellularPlan { unsigned interval=30; bool telemetry=false,details=false; };
 bool ParseCellularPlan(const std::string&,CellularPlan*);
 struct AtIdentity {
  std::string command,value,status="not_queried";
@@ -17,17 +17,18 @@ struct CellularPort {
  std::string path,device_key,status="pending",reason;
  bool selected=false;
  AtIdentity ati,imei;
+ std::string profile; std::vector<AtIdentity> queries;
  std::chrono::steady_clock::time_point sampled=std::chrono::steady_clock::now();
 };
 struct CellularObservation {
  std::string status="no_ports",reason;
- bool limited=false;
+ bool limited=false,telemetry=false,details=false;
  std::vector<CellularPort> ports;
  std::chrono::steady_clock::time_point sampled=std::chrono::steady_clock::now();
 };
 // root is only injected by native tests; production always uses the host filesystem.
 CellularObservation SampleCellular(const std::string& root,const std::atomic<bool>* stop,
- unsigned* cursor,unsigned timeout_ms=1500,unsigned round_ms=15000);
+ unsigned* cursor,unsigned timeout_ms=1500,unsigned round_ms=15000,bool telemetry=false,bool details=false);
 std::string CellularEvent(const CellularObservation&,std::uint64_t revision,unsigned interval,std::size_t limit);
 std::string ParseIMEI(const std::string& text);
 class CellularCollector {

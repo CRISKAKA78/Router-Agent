@@ -5,6 +5,22 @@ using System.Text.Json;
 namespace ProbeTemplateGenerator.Tests;
 public class CellularTests
 {
+ [Fact] public void DetailsAreOptInAndRequireTelemetry(){
+ var p=new TemplateProject{Name="FM160详情",CellularProbe=new(){Details=true}};
+ Assert.Contains(new TemplateCompiler().Validate(p),v=>v.Field=="cellular_probe.details");
+ p.CellularProbe.Telemetry=true;var runtime=new TemplateCompiler().Compile(p);p.CellularProbe.Details=false;
+ Assert.True(runtime.CellularProbe!.Details);var files=new ProjectFiles();Assert.True(files.ReadProject(files.SerializeTemplate(runtime)).CellularProbe!.Details);
+ Assert.True(files.ReadProject(files.SerializeProject(files.FromTemplate(runtime))).CellularProbe!.Details);
+ }
+
+ [Fact] public void TelemetryOptInSurvivesProjectAndRuntime(){
+ var files=new ProjectFiles();var project=new TemplateProject{Name="FM160",CellularProbe=new(){Telemetry=true}};
+ var runtime=new TemplateCompiler().Compile(project);project.CellularProbe.Telemetry=false;
+ Assert.True(runtime.CellularProbe!.Telemetry);Assert.True(files.ReadProject(files.SerializeTemplate(runtime)).CellularProbe!.Telemetry);
+ Assert.True(files.ReadProject(files.SerializeProject(files.FromTemplate(runtime))).CellularProbe!.Telemetry);
+ using var old=JsonDocument.Parse(files.SerializeTemplate(new TemplateCompiler().Compile(project)));
+ Assert.False(old.RootElement.GetProperty("cellular_probe").TryGetProperty("telemetry",out _));
+ }
  [Fact] public void CellularOnlyTemplateCompilesAndCopies(){
   var p=new TemplateProject{Name="自动AT",CellularProbe=new(){IntervalSeconds=30}};
   var compiler=new TemplateCompiler();Assert.Empty(compiler.Validate(p));var t=compiler.Compile(p);

@@ -27,7 +27,7 @@ func (s *Server) runConfiguration(active *session) {
 			s.mu.Unlock()
 			if applied != p.Configuration.Revision && (sent.Revision != p.Configuration.Revision || time.Since(last) > 10*time.Second) {
 				q := p.Configuration
-				if q.Template.CellularProbe != nil && !slices.Contains(active.capabilities, "cellular_identity_v1") {
+				if q.Template.CellularProbe != nil && (!slices.Contains(active.capabilities, "cellular_identity_v1") || (q.Template.CellularProbe.Details && !slices.Contains(active.capabilities, "cellular_details_v1")) || (q.Template.CellularProbe.Telemetry && !slices.Contains(active.capabilities, "cellular_telemetry_v2"))) {
 					if sent.Revision != q.Revision {
 						s.mu.Lock()
 						active.sentConfig = q

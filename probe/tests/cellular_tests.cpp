@@ -52,5 +52,36 @@ int main(){try{
  {Fixture f;Modem m(f,"ttyUSB0","1-1",[](const std::string& c){return c=="AT"?std::string("OK\r\n"):std::string();});auto v=Sample(f);Check(v.status=="partial"&&v.ports[0].ati.status=="timeout"&&v.ports[0].imei.status=="not_queried"&&m.Seen().size()==2,"timeout stops transaction chain");}
  {Fixture f;Modem m(f,"ttyUSB0","1-1",[](const std::string&){return std::string();});std::atomic<bool> stop{false};unsigned cursor=0;auto start=std::chrono::steady_clock::now();std::thread cancel([&]{std::this_thread::sleep_for(std::chrono::milliseconds(80));stop=true;});SampleCellular(f.root,&stop,&cursor,2000,15000);cancel.join();Check(std::chrono::steady_clock::now()-start<std::chrono::milliseconds(500),"cancellation bounded");}
  {Fixture f;Modem slow(f,"ttyUSB0","1-1",[](const std::string&){return std::string();});Modem good(f,"ttyUSB1","1-2");unsigned cursor=0;auto first=Sample(f,&cursor,200);Check(first.limited,"round bounded");auto next=Sample(f,&cursor);Check(next.ports[1].selected,"round robin reaches later device");}
+ {Check(ParseCellularPlan("{\"telemetry\":true}",&p)&&p.telemetry,"telemetry opt-in");Check(!ParseCellularPlan("{\"telemetry\":null}",&p),"telemetry strict bool");}
+ {Fixture f;Modem m(f,"ttyUSB1","1-1",[](const std::string& c){
+  if(c=="ATI")return std::string("Manufacturer: Fibocom Wireless Inc.\r\nModel: FM160-CN\r\nRevision: fixture\r\nOK\r\n");
+  if(c=="AT+CGSN")return std::string("867123456789012\r\nOK\r\n");
+  if(c=="AT+CPIN?")return std::string("+CEREG: 1\r\n+CPIN: READY\r\nOK\r\n");
+  if(c=="AT+CESQ")return std::string("+CESQ: 99,99,255,255,14,33,255,255,255\r\nOK\r\n");
+  return c=="AT"?std::string("OK\r\n"):std::string("ERROR\r\n");});
+  unsigned cursor=0;auto v=SampleCellular(f.root,NULL,&cursor,180,5000,true);
+  Check(v.telemetry&&v.ports[0].profile=="fibocom-fm160-v1"&&v.ports[0].queries.size()==8,"FM160 exact-profile selection");
+  Check(v.ports[0].queries[0].value=="+CPIN: READY"&&v.ports[0].queries[7].value.find("+CESQ:")==0,"expected response prefix survives URC filter");
+  Check(CellularEvent(v,1,30,65536).find("cellular_telemetry")!=std::string::npos,"versioned telemetry event");
+ }
+ {Fixture f;Modem m(f,"ttyUSB1");unsigned cursor=0;auto v=SampleCellular(f.root,NULL,&cursor,180,3000,true);
+  Check(v.telemetry&&v.ports[0].profile.empty()&&v.ports[0].queries.empty()&&m.Seen().size()==3,"unknown module never receives vendor queries");}
+
+ Check(!ParseCellularPlan("{\"details\":true}",&p),"details require telemetry");
+ Check(ParseCellularPlan("{\"telemetry\":true,\"details\":true}",&p)&&p.details,"details opt in");
+ for(const std::string mode:{"0","2"}){
+  Fixture f;Modem m(f,"ttyUSB1","1-1",[&](const std::string& c){
+   if(c=="ATI")return std::string("Manufacturer: Fibocom Wireless Inc.\r\nModel: FM160-CN\r\nRevision: fixture\r\nOK\r\n");
+   if(c=="AT+CGSN")return std::string("867123456789012\r\nOK\r\n");
+   if(c=="AT+MTSM?")return std::string("+MTSM: ")+mode+"\r\nOK\r\n";
+   if(c=="AT+GTCCINFO?")return std::string("+GTCCINFO:\r\nNR service cell:\r\n1,9,460,11,010203,0000012345,99240,C6,5078,100,91,74,74,67\r\nOK\r\n");
+   return c=="AT"?std::string("OK\r\n"):std::string("ERROR\r\n");});
+  unsigned cursor=0;auto v=SampleCellular(f.root,NULL,&cursor,180,5000,true,true);
+  Check(v.details&&v.ports[0].profile=="fibocom-fm160-details-v1"&&v.ports[0].queries.size()==24,"details profile and fixed query list");
+  auto seen=m.Seen();bool temp=false;for(const auto& c:seen){if(c=="AT+MTSM=1")temp=true;Check(c!="AT+GTCELLINFO=1"&&c!="AT+GTCELLLOCK=1"&&c!="AT+GTACT=14","no network configuration writes");}
+  Check(temp==(mode=="0"),"one-shot temperature preserves existing periodic reporting");
+  Check(v.ports[0].queries.back().value.find("NR service cell:")!=std::string::npos,"multiline cell response preserved");
+  Check(CellularEvent(v,1,30,65536).find("cellular_details")!=std::string::npos,"details event version");
+ }
  std::cout<<"cellular native: configuration, safe enumeration, occupancy, grouping, ATI/IMEI, renumber, timeout, cancellation, bounded payload passed\n";return 0;
  }catch(const std::exception& e){std::cerr<<e.what()<<"\n";return 1;}}

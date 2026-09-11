@@ -12,6 +12,8 @@ public sealed record ProbeTemplate(string TemplateId,string Name,ulong Version,M
 {
  public string? NeighborCapabilityError(IEnumerable<string> capabilities)
  {
+  if(CellularProbe?.Details==true&&!capabilities.Contains("cellular_details_v1")) return "当前Probe不支持cellular_details_v1，请先更新Probe后再应用蜂窝详细采集模板。";
+  if(CellularProbe?.Telemetry==true&&!capabilities.Contains("cellular_telemetry_v2")) return "当前Probe不支持cellular_telemetry_v2，请更新Probe后再应用扩展采集模板。";
   if (CellularProbe is not null&&!capabilities.Contains("cellular_identity_v1")) return "当前Probe不支持cellular_identity_v1；请更新Probe后再应用AT自动探测模板。";
   if (NeighborProbe is not { ValueKind: System.Text.Json.JsonValueKind.Object } settings) return null;
   if (!capabilities.Contains("neighbors_v1")) return "当前Probe不支持neighbors_v1；模板已保存，但设备应用需先更新Probe。";

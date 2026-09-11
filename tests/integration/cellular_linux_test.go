@@ -39,7 +39,7 @@ type identityPTY struct {
 	done     chan struct{}
 }
 
-func makeIdentityPTY(t *testing.T) *identityPTY {
+func makeIdentityPTY(t *testing.T, telemetry ...bool) *identityPTY {
 	t.Helper()
 	fd, e := syscall.Open("/dev/ptmx", syscall.O_RDWR|syscall.O_NOCTTY|syscall.O_NONBLOCK, 0)
 	if e != nil {
@@ -86,6 +86,21 @@ func makeIdentityPTY(t *testing.T) *identityPTY {
 						answer = "+CREG: 1\r\nIntegration USB modem\r\nFirmware test-only\r\nOK\r\n"
 					case "AT+CGSN":
 						answer = "867123456789012\r\nOK\r\n"
+					}
+					if len(telemetry) > 0 && telemetry[0] {
+						if command == "ATI" {
+							answer = "Manufacturer: Fibocom Wireless Inc.\r\nModel: FM160-CN\r\nRevision: 89641.test\r\nOK\r\n"
+						}
+						replies := map[string]string{"AT+CPIN?": "+CPIN: READY", "AT+CCID": "+CCID: 89860123456789012345", "AT+CIMI": "460011234567890", "AT+COPS?": "+COPS: 0,2,\"46001\",13", "AT+CEREG?": "+CEREG: 0,1", "AT+C5GREG?": "+C5GREG: 0,1", "AT+CSQ": "+CSQ: 20,99", "AT+CESQ": "+CESQ: 99,99,255,255,14,33,255,255,80"}
+						if reply, ok := replies[command]; ok {
+							answer = reply + "\r\nOK\r\n"
+						}
+					}
+					if len(telemetry) > 1 && telemetry[1] {
+						replies := map[string]string{"AT+MTSM?": "+MTSM: 0", "AT+MTSM=1": "+MTSM: 38", "AT+MTSM=6": "+MTSM: 42", "AT+MTSM=7": "+MTSM: 40", "AT+GTCELLLOCK?": "+GTCELLLOCK: 0", "AT+GTACT?": "+GTACT: 20,6,3,101,5078", "AT+GTACT=?": "+GTACT: (20),(6),(3),(),(),(101),(),(),(5078)", "AT+GTCCINFO?": "+GTCCINFO:\r\nNR service cell:\r\n1,9,460,11,010203,0000012345,99240,C6,5078,100,91,74,74,67"}
+						if reply, ok := replies[command]; ok {
+							answer = reply + "\r\nOK\r\n"
+						}
 					}
 					wire := []byte(command + "\r\n" + answer)
 					for len(wire) > 0 {
@@ -136,10 +151,19 @@ func linkIdentityTTY(t *testing.T, root, name string, p *identityPTY) {
 	}
 }
 func TestCellularIdentityRealProbeAutomaticRenumber(t *testing.T) {
+	for _, telemetry := range []bool{false, true} {
+		t.Run(fmt.Sprintf("telemetry=%t", telemetry), func(t *testing.T) { testCellularRealProbeAutomaticRenumber(t, telemetry) })
+	}
+}
+func TestCellularDetailsRealProbeAutomaticRenumber(t *testing.T) {
+	testCellularRealProbeAutomaticRenumber(t, true, true)
+}
+func testCellularRealProbeAutomaticRenumber(t *testing.T, telemetry bool, detailed ...bool) {
+	details := len(detailed) > 0 && detailed[0]
 	binary := probeBinary(t)
 	root := t.TempDir()
 	busy := makeIdentityPTY(t)
-	available := makeIdentityPTY(t)
+	available := makeIdentityPTY(t, telemetry, details)
 	linkIdentityTTY(t, root, "ttyUSB0", busy)
 	linkIdentityTTY(t, root, "ttyUSB2", available)
 	held, e := os.OpenFile(busy.path, os.O_RDWR|syscall.O_NOCTTY|syscall.O_NONBLOCK, 0)
@@ -168,7 +192,7 @@ func TestCellularIdentityRealProbeAutomaticRenumber(t *testing.T) {
 	}
 	server := httptest.NewServer(adapter)
 	defer func() { server.Close(); adapter.Close(); app.Close(); <-done }()
-	tpl, e := app.ProbeTemplates().Put("", 0, probetemplate.Input{Name: "auto AT", Properties: map[string]probetemplate.Property{}, Monitoring: &probetemplate.Monitoring{}, CellularProbe: &probetemplate.CellularProbe{Interval: 10}})
+	tpl, e := app.ProbeTemplates().Put("", 0, probetemplate.Input{Name: "auto AT", Properties: map[string]probetemplate.Property{}, Monitoring: &probetemplate.Monitoring{}, CellularProbe: &probetemplate.CellularProbe{Interval: 10, Telemetry: telemetry, Details: details}})
 	if e != nil {
 		t.Fatal(e)
 	}
@@ -208,6 +232,26 @@ exec "$@"`
 		c := v.LatestSession.Cellular
 		return c != nil && c.Status == "ok" && len(c.Ports) == 2
 	})
+	if first.LatestSession.Cellular.Telemetry != telemetry {
+		t.Fatal("telemetry version mismatch")
+	}
+	if telemetry {
+		expectedProfile := "fibocom-fm160-v1"
+		expectedSignals := 3
+		if details {
+			expectedProfile = "fibocom-fm160-details-v1"
+			expectedSignals = 5
+		}
+		found := false
+		for _, p := range first.LatestSession.Cellular.Ports {
+			if p.Selected && p.Profile == expectedProfile && len(p.Signals) == expectedSignals && len(p.Fields) >= 8 {
+				found = true
+			}
+		}
+		if !found {
+			t.Fatalf("missing normalized telemetry: %+v", first.LatestSession.Cellular.Ports)
+		}
+	}
 	// The merged Probe must expose and serve logs on the same control session
 	// while AT telemetry remains active, without dropping neighbor capabilities.
 	for _, capability := range []string{"neighbors_v1", "neighbors_inspect_v1", "cellular_identity_v1", "device_logs_v1", "network_agent_v1"} {
@@ -261,6 +305,22 @@ exec "$@"`
 	response.Body.Close()
 	if e != nil || body.Data.Snapshot == nil || body.Data.Snapshot.Status != "ok" {
 		t.Fatal("HTTP snapshot", e)
+	}
+	if details {
+		if !body.Data.Snapshot.Details {
+			t.Fatal("detail version missing in HTTP snapshot")
+		}
+		found := false
+		for _, p := range body.Data.Snapshot.Ports {
+			for _, f := range p.Fields {
+				if f.Key == "lock_band" && f.Value == "否" && f.Name == "锁频段" {
+					found = true
+				}
+			}
+		}
+		if !found {
+			t.Fatal("lock configuration did not reach HTTP")
+		}
 	}
 	// Simulate USB re-enumeration without touching the Probe or replacing its config.
 	if e := os.Rename(filepath.Join(root, "sys/class/tty/ttyUSB2"), filepath.Join(root, "sys/class/tty/ttyUSB9")); e != nil {

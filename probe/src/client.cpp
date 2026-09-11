@@ -132,7 +132,7 @@ std::string RegisterPayload(const ClientConfig& config) {
         output<<','<<EscapeJsonString(i->first)<<':'<<EscapeJsonString(i->second);
     output << ",\"arch\":" << EscapeJsonString(config.arch)
            << ",\"boot_id\":" << EscapeJsonString(config.boot_id)
-           << ",\"capabilities\":[\"exec\",\"file\",\"tunnel\",\"router_config\",\"telemetry_v2\",\"managed_config_v1\",\"port_counters_v1\",\"neighbors_v1\",\"neighbors_inspect_v1\",\"cellular_identity_v1\",\"device_logs_v1\",\"network_agent_v1\"]}";
+           << ",\"capabilities\":[\"exec\",\"file\",\"tunnel\",\"router_config\",\"telemetry_v2\",\"managed_config_v1\",\"port_counters_v1\",\"neighbors_v1\",\"neighbors_inspect_v1\",\"cellular_identity_v1\",\"cellular_telemetry_v2\",\"cellular_details_v1\",\"device_logs_v1\",\"network_agent_v1\"]}";
     return output.str();
 }
 
