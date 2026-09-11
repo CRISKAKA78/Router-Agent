@@ -1,3 +1,4 @@
+#include "rmp/network_agent.h"
 #include "rmp/task.h"
 #include "rmp/neighbors.h"
 
@@ -273,6 +274,7 @@ bool ParseTask(const std::string& input, ExecTask* task, std::string* error) {
         if (task->timeout == 0) { *error="file timeout must be positive"; return false; }
         return ParseFileParams(value->raw_value,task->type,&task->file,error);
     }
+    if(task->type=="network_agent") return task->timeout==30 && ParseNetworkAgent(value->raw_value,&task->config,error);
     if(task->type=="neighbor_scan"||task->type=="neighbor_cancel"){return task->timeout==30&&ParseNeighborTask(value->raw_value,task->type=="neighbor_cancel",&task->config);}
     if (task->type == "router_config") {
         if (task->timeout < 1 || task->timeout > 30) { *error="configuration timeout must be 1-30 seconds"; return false; }
@@ -378,7 +380,9 @@ ExecResult ExecuteExec(const ExecTask& task, const std::atomic<bool>* stop_reque
     // Prepare argv and PATH candidates before fork: the multithreaded child
     // performs only async-signal-safe operations and never invokes a shell.
     std::vector<std::string> arguments_storage, executable_paths;
-    if (task.type == "router_config") {
+    if (!task.arguments.empty()) {
+        arguments_storage=task.arguments; executable_paths.push_back(task.arguments[0]);
+    } else if (task.type == "router_config") {
         std::string error;
         if (!RouterConfigArguments(task.config, &arguments_storage, &error)) {
             result.status="failed"; result.stderr_text=error;

@@ -1,5 +1,11 @@
 # 项目路线图
 
+- [x] 2026-09-11 独立worktree完成[异地组网调研与初步方案](OVERLAY_NETWORK_RESEARCH.md)：官方稳定版本、候选能力、三层/二层边界、API/Probe/WPF接入与验证门槛。
+- [x] 2026-09-11 异地组网方案用户审核通过，按ADR-059开始实现；不改变Phase 6验收或启动Phase 7/8。
+- [x] 三层首轮代码：EasyTier Web API、Repository兼容投放、Probe独立引导、网络/成员/操作与WPF拓扑；本机验证见[专项记录](OVERLAY_NETWORK.md)。
+- [ ] 上游服务/账号和仓库ELF接线、本轮厂商Probe构建及两台真实设备三层互通/恢复/MTU验收。
+- [ ] 三层实机通过后实施VXLAN与按能力GRETAP/EoIP；不默认桥接LAN。
+
 - [x] 2026-09-11 服务器迁移连接故障已排查，用户确认解决；Agent 未复测解决后的端到端连接。本轮依授权整理既有迁移源码/测试/文档到本地 main 并删除迁移分支，实际合并结果以 Git 为准，不推送远端；不改变 Phase 6 最终产品验收状态。
 
 - [x] 2026-09-11 ADR-058：恢复10.1.1.128密码自动构建，产物改为/root/router-agent/router-agent；真实GCC5.2编译及ARMv7/EABI5/uClibc检查通过，厂商安装/运行验收保持未完成。

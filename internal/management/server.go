@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"routerprobe/internal/enrollment"
 	"routerprobe/internal/gateway"
+	"routerprobe/internal/overlay"
 	"routerprobe/internal/probetemplate"
 	"routerprobe/internal/repository"
 	"routerprobe/internal/tunnel"
@@ -14,12 +15,14 @@ import (
 )
 
 type Config struct {
+	EasyTier            overlay.Config
 	TemplateFile        string
 	Tunnel              *tunnel.Config // nil disables the optional data listener
 	RepositoryDirectory string
 	Gateway             gateway.Config
 }
 type Server struct {
+	networks     *overlay.Service
 	enrollment   *enrollment.Service
 	enrollmentMu sync.Mutex
 	templates    *probetemplate.Service
@@ -95,13 +98,26 @@ func New(config Config) (*Server, error) {
 		}
 		g.SetTunnelStatus(maintenance.Report)
 	}
-	return &Server{enrollment: catalog, Service: NewService(r, g.Devices(), g), gateway: g, repo: r, maintenance: maintenance, templates: templates}, nil
+	server := &Server{enrollment: catalog, Service: NewService(r, g.Devices(), g), gateway: g, repo: r, maintenance: maintenance, templates: templates}
+	if e = config.EasyTier.Validate(); e != nil {
+		server.Close()
+		return nil, e
+	}
+	server.networks, e = overlay.Open(filepath.Join(r.Directory(), "networks", "catalog.json"), config.EasyTier, &overlayDriver{s: server, config: config.EasyTier}, nil)
+	if e != nil {
+		server.Close()
+		return nil, e
+	}
+	return server, nil
 }
 func (s *Server) ProbeTemplates() *probetemplate.Service { return s.templates }
 func (s *Server) Maintenance() *tunnel.Service           { return s.maintenance }
 func (s *Server) Serve(l net.Listener) error             { return s.gateway.Serve(l) }
 func (s *Server) Close() error {
 	s.once.Do(func() {
+		if s.networks != nil {
+			s.networks.Close()
+		}
 		if s.maintenance != nil {
 			s.maintenance.Close()
 		}

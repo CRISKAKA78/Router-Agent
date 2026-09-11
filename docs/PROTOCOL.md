@@ -1106,3 +1106,9 @@ Phase 1 完整验收已通过，14 项基线与测试映射见 [PHASE1_VERIFICAT
 Probe 当前每连接最多保留 1024 个未确认 HEARTBEAT 的 message_id。若一直存在其他合法流量但对端不确认心跳，容量耗尽时在发送下一心跳之前关闭 TCP，并沿用既有重连与任务处理规则。该本地资源上限不增加 wire 字段或 ACK 超时：在线会话中不淘汰未确认关联，乱序和迟到 ACK 仍按原 reply_to 校验；任意合法消息仍刷新 last_seen。
 
 协商上限缩小时，Probe 立即复核同批 REGISTER_ACK 后已经缓冲的下一 Header，不等待超限 Payload 到齐。Server 文件 worker 退出后释放接收邮箱，任务身份与最终快照保留；文件块不因终态记录而继续驻留。
+
+## `network_agent_v1` / `network_agent`（ADR-059）
+
+新 Probe 注册 `network_agent_v1`，旧 Probe 不下发此任务。TASK type为`network_agent`、timeout固定30秒；params 为字符串 action/directory/machine_id 及仅start使用的config_server，允许动作inspect、prepare、install、start。Server与Probe两端校验固定动作、UUID、私有路径和受限配置服务URL；不接受任意命令/下载地址。规范语义、结果字段与安装步骤见 [OVERLAY_NETWORK](OVERLAY_NETWORK.md#api--probe--ui)。
+
+复用既有任务缓存、ACK/RESULT及相同task_id重发规则；安装文件仍走原File协议。标准TASK_RESULT.stdout包含JSON installed/running/tun/version/machine_id，失败原因固定脱敏文本。running只代表独立进程引导结果，Server须从EasyTier Web API回查实例，不代表IP业务互通。管理断线不终止已启动的独立EasyTier进程；没有新增Maintenance流量或二层数据承载。

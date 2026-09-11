@@ -22,12 +22,17 @@ func (a *Server) poll() {
 	defer ticker.Stop()
 	previous := a.app.Revisions()
 	lastMaintenance := ""
+	var lastNetworks uint64
 	for {
 		select {
 		case <-a.ctx.Done():
 			return
 		case <-ticker.C:
 			now := a.app.Revisions()
+			if rev := a.app.Networks().Revision(); rev != lastNetworks {
+				a.broadcast("networks")
+				lastNetworks = rev
+			}
 			for i, topic := range []string{"devices", "tasks", "files"} {
 				if now[i] != previous[i] {
 					a.broadcast(topic)
@@ -63,11 +68,11 @@ func (a *Server) events(w http.ResponseWriter, r *http.Request) {
 	topics := map[string]bool{}
 	q := r.URL.Query().Get("topics")
 	if q == "" {
-		q = "devices,tasks,files,maintenance"
+		q = "devices,tasks,files,maintenance,networks"
 	}
 	for _, v := range strings.Split(q, ",") {
 		switch v {
-		case "devices", "tasks", "files", "maintenance":
+		case "devices", "tasks", "files", "maintenance", "networks":
 			topics[v] = true
 		default:
 			write(w, invalid())

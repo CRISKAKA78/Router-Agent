@@ -412,3 +412,9 @@ DataHost接受IP或DNS主机名；Create在Server解析（最多5s、受ctx取�
 Server flags：`-tunnel-bind`、`-tunnel-host`、`-tunnel-data-listen`、`-tunnel-data-host`、`-tunnel-port-first`、`-tunnel-port-last`、`-tunnel-port-reuse-delay`、`-tunnel-max-sessions`、`-tunnel-session-connections`、`-tunnel-device-connections`、`-tunnel-total-connections`、`-tunnel-handshakes`、`-tunnel-history`、`-tunnel-connect-timeout`、`-tunnel-handshake-timeout`、`-tunnel-idle-timeout`。Probe `--tunnel-connections`默认8，允许1～64，超出范围启动失败。每流一线程，低内存部署可调小；需要更多浏览器连接时同步提高双方限额。公网绑定、可达地址、NAT和防火墙由部署者配置。
 
 固定目标为Probe的127.0.0.1:80/22/23。Maintenance/connection/token不持久化；无跨进程恢复、续租、任意端口、UDP/SOCKS/VPN/P2P、HTTP反向代理、TLS终止或通用映射管理；Phase 5增加HTTP/WebSocket，不增加UI/MCP或操作CLI。
+
+## 异地组网 API（ADR-059，首轮实现）
+
+新增 `/api/v1/network-settings`、`/networks`、网络成员/操作/拓扑、`/network-operations/{id}/reconcile` 及 WS `networks` topic；方法、DTO含义、错误码与部署状态见 [OVERLAY_NETWORK §API](OVERLAY_NETWORK.md#api--probe--ui)。写操作遵循既有幂等、JSON `{}` 空对象与 envelope；接受组网返回202只表示持久操作入队，不表示已互通。账号、密码、网络密钥和配置接入URL不属于公开DTO。
+
+本轮未提供 L2Segment API。拓扑来自采样证据，管理在线与引擎/链路状态分开，未知遥测返回null/unknown/stale，不推导成已连通。

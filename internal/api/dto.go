@@ -2,6 +2,7 @@
 package api
 
 import (
+	"encoding/json"
 	"routerprobe/internal/device"
 	"routerprobe/internal/filetransfer"
 	"routerprobe/internal/management"
@@ -43,6 +44,14 @@ func deviceDTO(v device.Snapshot) object {
 	return object{"neighbors": device.NeighborSnapshot(v, time.Now()), "source_ip": v.LatestSession.Registration.SourceIP, "effective_metrics": device.EffectiveMetrics(v.LatestSession, time.Now()), "device_id": v.Registration.DeviceID, "registration": registration(v.Registration), "runtime": runtimeDTO(v.LatestSession.Runtime), "status": v.Status, "first_seen_at": timestamp(v.FirstSeenAt), "last_seen_at": timestamp(v.LastSeenAt), "last_online_at": timestamp(v.LastOnlineAt), "last_offline_at": timestamp(v.LastOfflineAt), "current_session": session(v.CurrentSession), "latest_session": session(&v.LatestSession), "total_sessions": v.TotalSessions, "evicted_sessions": v.EvictedSessions}
 }
 func taskDTO(v task.Snapshot) object {
+	if v.Spec.Type == "network_agent" {
+		var params map[string]any
+		if json.Unmarshal(v.Spec.Params, &params) == nil {
+			delete(params, "config_server")
+			v.Spec.Params, _ = json.Marshal(params)
+		}
+	}
+
 	var last any
 	if len(v.Dispatches) > 0 {
 		last = v.Dispatches[len(v.Dispatches)-1].SessionID

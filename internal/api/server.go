@@ -16,6 +16,7 @@ import (
 	"routerprobe/internal/enrollment"
 	"routerprobe/internal/gateway"
 	"routerprobe/internal/management"
+	"routerprobe/internal/overlay"
 	"routerprobe/internal/probetemplate"
 	"routerprobe/internal/repository"
 	"routerprobe/internal/routerconfig"
@@ -191,6 +192,18 @@ func write(w http.ResponseWriter, v response) {
 func failure(err error) response {
 	s, c := 500, "internal_error"
 	switch {
+	case errors.Is(err, overlay.ErrInvalid):
+		s, c = 400, "invalid_network_request"
+	case errors.Is(err, overlay.ErrNotFound):
+		s, c = 404, "network_not_found"
+	case errors.Is(err, overlay.ErrConflict):
+		s, c = 409, "network_conflict"
+	case errors.Is(err, overlay.ErrDisabled):
+		s, c = 503, "network_not_configured"
+	case errors.Is(err, overlay.ErrUpstream):
+		s, c = 502, "network_controller_unavailable"
+	case errors.Is(err, overlay.ErrUncertain):
+		s, c = 409, "network_reconcile_required"
 	case errors.Is(err, enrollment.ErrNotManaged):
 		s, c = 409, "device_not_managed"
 	case errors.Is(err, repository.ErrInvalid), errors.Is(err, probetemplate.ErrInvalid), errors.Is(err, routerconfig.ErrInvalid):

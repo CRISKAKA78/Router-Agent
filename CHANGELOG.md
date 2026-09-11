@@ -1,5 +1,12 @@
 # 变更记录
 
+## 2026-09-12 异地组网首轮接入（独立 worktree）
+
+- 新增可选同主机 EasyTier Web 配置服务接线、网络/成员/操作/拓扑公开 API 和 WPF“异地组网”工作区；默认无 WG 监听、自定义路由开启且为空，保留官方 DHCP。
+- 新 Probe 支持从兼容仓库产物安装和独立启动 EasyTier；管理断线不主动拆网，不确定操作保留原标识且不自动重放。
+- 当前未部署到生产，真实设备互通与二层隧道未完成；接线和验证限制见 [异地组网](docs/OVERLAY_NETWORK.md)。
+
+
 ## 2026-09-11 Probe 构建入口
 
 - Probe构建恢复到root@10.1.1.128，从本地password.txt读取登录密码；源码经SFTP上传后编译，成品为/root/router-agent/router-agent。管理服务器地址与Linux Server构建上传保持原设置。

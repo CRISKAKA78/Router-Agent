@@ -1,3 +1,4 @@
+#include "rmp/network_agent.h"
 #include "rmp/task_manager.h"
 #include "rmp/json.h"
 #include "rmp/neighbors.h"
@@ -56,7 +57,7 @@ std::string TaskManager::Submit(const ExecTask& task, bool valid,
         for(std::map<std::string,Entry>::const_iterator i=entries_.begin();i!=entries_.end();++i)
             if(i->second.task.file.transfer_id==task.file.transfer_id) return "rejected";
     }
-    if (!valid || (task.type != "exec" && task.type != "router_config" && task.type != "neighbor_scan" && task.type != "neighbor_cancel" && !file) || entries_.size() >= capacity_ ||
+    if (!valid || (task.type != "network_agent" && task.type != "exec" && task.type != "router_config" && task.type != "neighbor_scan" && task.type != "neighbor_cancel" && !file) || entries_.size() >= capacity_ ||
         reservation > byte_capacity_ - reserved_bytes_) return "rejected";
     Entry entry;
     entry.task = task;
@@ -147,7 +148,8 @@ void TaskManager::Run() {
             std::cout << "task_state=RUNNING task_id=" << task.task_id << std::endl;
         }
         ExecResult result;
-        if(task.type=="neighbor_scan"){
+        if(task.type=="network_agent") result=ExecuteNetworkAgent(task,&stop_);
+        else if(task.type=="neighbor_scan"){
             if(neighbors_)result=neighbors_->Scan(task,cancel);
             else{result.task_id=task.task_id;result.status="failed";result.stderr_text="neighbors_unavailable";result.started_at=result.finished_at=static_cast<std::uint64_t>(std::time(NULL));}
         }else result=ExecuteExec(task,&stop_);

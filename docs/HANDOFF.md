@@ -1,5 +1,7 @@
 # 项目接管手册
 
+2026-09-12 异地组网首轮改造位于 `codex/overlay-network-research` 独立 worktree（ADR-059）：EasyTier 本机 Web API、持久网络操作、Probe 仓库安装/独立启动、WPF 第六工作区与真实观测拓扑已接入；不是生产/厂商互通验收。Windows 567 项检查、自包含发布及 Linux 16 项 CTest、完整 Go/integration、五包 race/vet 已通过，证据与限制见[专项记录](OVERLAY_NETWORK.md)。当前缺上游运行配置服务/账号、仓库兼容ELF包及本轮厂商构建，未替换生产Server/Probe；二层在三层实机通过后继续。无提交/推送。
+
 2026-09-11 接管更新：用户确认迁移后的维护连接问题已解决；排查证据为 Probe 到 47.119.168.150:9001 的 SYN 未到达服务器网卡，未确认具体网络规则及修复方式。Server 已实际常驻、Probe 在线；不要将下文短时部署记录当成当前运行状态。本轮将既有迁移改动整理进本地 main 并删除迁移分支，不推送远端，提交和分支结果以 Git 为准；凭据、构建包和运行数据仍留本机。
 
 2026-09-11 Probe最新入口为ADR-058：双击probe-build.cmd即可在10.1.1.128通过账号密码构建，password.txt由AskPass本地读取；不要改成47.119.168.150编译或使用私钥。产物/root/router-agent/router-agent；成功run为20260911-182649-f30c50be，构建/ELF通过，未替换设备Probe。完整规则及证据见[部署§5.3](DEPLOYMENT.md#53-mipsel--arm--arm64-交叉编译)。
