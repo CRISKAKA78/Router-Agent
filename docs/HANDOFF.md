@@ -1,8 +1,13 @@
 # 项目接管手册
 
+## 本轮更新合入
+
+- 用户已授权将新增组网修复合入本地main，源码快照f723973；Windows完整Go测试/vet/build、Linux相关六包race/真实Probe文件与仓库及组网定向race/vet/build通过。命令与结果见[第二轮集成](OVERLAY_INTEGRATION.md#第二轮实机修复更新合入)。
+- 原uncertain记录、上游空路由回读缺口与安全收口仍待处理；不因本次合并重放操作或追加远端部署。主工作区双架构构建与远程目录修复的未提交改动独立保留，不混入提交。
+
 ## 当前接管：EasyTier ARM—Server 实机联调
 
-- 组网 worktree 已快进到 main `bab2325`，主目录未提交的双架构构建改动未动；本轮修复未提交、合回或推送。
+- 组网 worktree 已快进到 main `bab2325`，主目录未提交的双架构构建改动未动；原实机轮次未提交；本次用户另行授权本地合入，未推送。
 - 用户已明确授权仓库上传、ARM—Server测试及Management重启，覆盖前次不部署的任务边界。ARM ID为 `FE7140555489`，最新指定SSH入口20001；20004暂不测试。
 - ARM/MIPS/mipsel core入库为包集合 `2.6.4-r1`；Management接入本机Web。双向ICMP、TCP/UDP echo、管理停机期间30/30 ping及MTU样本复测通过，见[实机证据、回退和遗留](OVERLAY_LIVE_VERIFICATION.md)。
 - 上传完成判断、异步启动只读等待修复已有Windows定向回归/vet/build与Linux五包race。原加入记录仍uncertain：上游空路由回读丢失开关，不强制确认；实际网络保持运行。

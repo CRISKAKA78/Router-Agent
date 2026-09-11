@@ -1,5 +1,10 @@
 # 项目路线图
 
+## 本轮更新合入
+
+- [x] 用户已授权将新增组网修复合入本地main，源码快照f723973；Windows完整Go测试/vet/build、Linux相关六包race/真实Probe文件与仓库及组网定向race/vet/build通过。命令与结果见[第二轮集成](OVERLAY_INTEGRATION.md#第二轮实机修复更新合入)。
+- [ ] 原uncertain记录、上游空路由回读缺口与安全收口仍待处理；不因本次合并重放操作或追加远端部署。主工作区双架构构建与远程目录修复的未提交改动独立保留，不混入提交。
+
 ## 当前里程碑：EasyTier ARM—Server 实机联调
 
 - [x] 同步main `bab2325`；ARM/MIPS/mipsel core入库为包集合 `2.6.4-r1`，按用户授权接入Web并备份更新Management。
