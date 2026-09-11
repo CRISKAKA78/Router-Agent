@@ -33,6 +33,7 @@ type Config struct {
 	RequestTimeout, WriteTimeout, PollInterval   time.Duration
 }
 type response struct {
+	message  string
 	status   int
 	data     any
 	location string
@@ -183,7 +184,11 @@ func write(w http.ResponseWriter, v response) {
 		return
 	}
 	if v.code != "" {
-		json.NewEncoder(w).Encode(object{"error": object{"code": v.code, "message": strings.ReplaceAll(v.code, "_", " ")}})
+		message := v.message
+		if message == "" {
+			message = strings.ReplaceAll(v.code, "_", " ")
+		}
+		json.NewEncoder(w).Encode(object{"error": object{"code": v.code, "message": message}})
 		return
 	}
 	json.NewEncoder(w).Encode(object{"data": v.data})

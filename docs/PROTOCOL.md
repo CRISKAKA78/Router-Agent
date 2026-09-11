@@ -1,5 +1,35 @@
 # 路由器探针 TCP 长连接控制协议
 
+## 设备日志（ADR-059，device_logs_v1）
+
+REGISTER增加可选能力 `device_logs_v1`。仅支持该能力的当前Session接收日志查询和任务；不改变帧头、ACK/RESULT或既有File数据协议。旧Probe仍可使用原功能。
+
+### 有界只读 EVENT 查询
+
+复用0x20 EVENT，flags=0。Server发送：
+
+```json
+{"event":"device_log_query","request_id":"0123456789abcdef0123456789abcdef","operation":"live","directory":"","generation":"","offset":0}
+```
+
+六个字段必须齐全；request_id为32位小写hex，operation为live/status/history；路径至多1024字节，generation至多64字节。Probe返回：
+
+```json
+{"event":"device_log_reply","request_id":"0123456789abcdef0123456789abcdef","data":{"state":"ok","generation":"1:23","start":0,"offset":3,"gap":false,"data_hex":"e4b8ad"},"error":""}
+```
+
+`data_hex`是原始字节hex（不是JSON文本截断）；Server解码成API base64 data。错误时data=null且error为有界错误标识。status/history的数据形状见API。没有匹配请求的迟到响应忽略，不跨Session投递；结构错误按协议拒绝。查询无Task、无TASK_ACK/RESULT，不每次轮询写任务记录；相同连接的原心跳与其他控制帧继续运行。
+
+Probe每Session独立只读worker、请求/响应合计队列上限4，主控制循环发回结果；Server每Session最多2个在途查询、live每500ms至多一次、12秒查询期限。Windows每秒轮询。读取 `/tmp/.systemlog`，首次从文件尾部最多8192字节开始；generation由文件设备号与inode构成，offset为字节位置。检测到换文件/缩短时gap=true，积压超过65536字节跳到尾部并标gap。没有文件时waiting_for_file。此模式为有界近实时查看，不承诺跨停顿、轮转或断线的无损完整采集。
+
+### 有副作用 TASK
+
+TASK type=`device_logs`，timeout_seconds=30，params形状与API相同（enable_live/history_settings/snapshot/release），继续既有任务身份、准入去重、ACK及RESULT；重复task_id不重复执行commit。与router_config共用串行配置工作通道，使用结构化nvram argv而非shell拼接。
+
+enable_live自动设置两个开关并commit，历史修改按persist决定commit。逐项回读；set/readback/commit失败不得宣称成功，运行值可能部分改变，不自动回滚或盲目重建任务。不重启设备/服务。
+
+snapshot复制常规历史文件到 `/tmp/router-agent-log-XXXXXX/原文件名`（私有目录，文件0600），单个≤32MiB、总计≤64MiB、最多8份，要求/tmp剩余空间超过文件大小+1MiB；25秒复制期限并响应取消。复制前后size/mtime/ctime不同则删除本次副本并失败。快照成功后通过现有File链路导出，File committed/released与Task RESULT仍分离。Windows文件确认完成后显式release探针快照；取消/故障遗留由进程内单调时钟清理（1小时，30秒检查）。正常进程退出清理自有快照，崩溃遗留不扫描删除，以免误删用户文件。探针不解压、不分析AT命令。
+
 ## 邻居发现（ADR-056，2026-09-10）
 
 REGISTER新增可选能力 `neighbors_v1`。声明该能力的新Probe支持以下结构化EVENT、两个TASK类型和运行模板 `neighbor_probe`；Server只对支持的当前Probe派发。旧Probe应用含此配置的模板时记录 `unsupported_neighbors`，不静默丢弃此功能；无此配置的模板保持原行为。沿用当前64KiB以上控制帧协商下限。

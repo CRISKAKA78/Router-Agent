@@ -1,5 +1,7 @@
 # 项目接管手册
 
+2026-09-11 日志入口：先读[设备日志验证与使用](DEVICE_LOGS_VERIFICATION.md)、ADR-059及API/PROTOCOL新增章节。工作树 `C:/Users/Administrator/Desktop/router-agent-device-logs`，分支 `codex/device-logs`，基线f331ffb。实时持久开启规则已确认，不恢复开关、不再寻找其他开关；历史目录为/tmp/third_party/data和/jffs。Server/WPF本地闭环已接通（Go全量与Linux race/vet、WPF580项及独立发布通过），MIPS Probe编译与实机测试由用户负责，不沿用旧ARM包或自动运行远程构建/部署脚本。原始样本语义解析仍未实施；无Git提交/推送。
+
 2026-09-11 接管更新：用户确认迁移后的维护连接问题已解决；排查证据为 Probe 到 47.119.168.150:9001 的 SYN 未到达服务器网卡，未确认具体网络规则及修复方式。Server 已实际常驻、Probe 在线；不要将下文短时部署记录当成当前运行状态。本轮将既有迁移改动整理进本地 main 并删除迁移分支，不推送远端，提交和分支结果以 Git 为准；凭据、构建包和运行数据仍留本机。
 
 2026-09-11 Probe最新入口为ADR-058：双击probe-build.cmd即可在10.1.1.128通过账号密码构建，password.txt由AskPass本地读取；不要改成47.119.168.150编译或使用私钥。产物/root/router-agent/router-agent；成功run为20260911-182649-f30c50be，构建/ELF通过，未替换设备Probe。完整规则及证据见[部署§5.3](DEPLOYMENT.md#53-mipsel--arm--arm64-交叉编译)。

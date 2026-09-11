@@ -1,3 +1,4 @@
+#include "rmp/device_logs.h"
 #include "rmp/task.h"
 #include "rmp/neighbors.h"
 
@@ -274,6 +275,7 @@ bool ParseTask(const std::string& input, ExecTask* task, std::string* error) {
         return ParseFileParams(value->raw_value,task->type,&task->file,error);
     }
     if(task->type=="neighbor_scan"||task->type=="neighbor_cancel"){return task->timeout==30&&ParseNeighborTask(value->raw_value,task->type=="neighbor_cancel",&task->config);}
+    if (task->type == "device_logs") { return task->timeout==30 && ParseDeviceLogTask(value->raw_value,&task->config,error); }
     if (task->type == "router_config") {
         if (task->timeout < 1 || task->timeout > 30) { *error="configuration timeout must be 1-30 seconds"; return false; }
         return ParseRouterConfig(value->raw_value, &task->config, error);

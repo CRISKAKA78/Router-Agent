@@ -50,6 +50,7 @@ func (a *Server) routes() {
 	a.templateRoutes()
 	a.enrollmentRoutes()
 	a.routerConfigRoutes()
+	a.deviceLogRoutes()
 	a.neighborRoutes()
 	a.route("GET /api/v1/devices", false, func(r *http.Request) response {
 		status := r.URL.Query().Get("status")

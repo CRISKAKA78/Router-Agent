@@ -44,7 +44,7 @@ internal static class Ui
     public static FrameworkElement IconLabel(string icon, string title) => new StackPanel { Orientation = Orientation.Horizontal,
         Children = { new WorkbenchIcon { Kind = icon, Margin = new(0,0,7,0) }, new TextBlock { Text = title } } };
     public static FrameworkElement NavigationHeader(string key, string title) {
-        var header = (StackPanel)IconLabel(key switch { "overview" => "details", "maintenance" => "network", "files" => "files", "config" => "config", _ => "tools" }, title);
+        var header = (StackPanel)IconLabel(key switch { "overview" => "details", "maintenance" => "network", "files" => "files", "config" => "config", "logs" => "files", _ => "tools" }, title);
         ((WorkbenchIcon)header.Children[0]).Width = ((WorkbenchIcon)header.Children[0]).Height = 20;
         return header;
     }

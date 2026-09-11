@@ -1,5 +1,13 @@
 # 路由器远程运维平台架构基线
 
+## 设备日志（ADR-059）
+
+新增 `internal/devicelog` 负责查询/参数模型和有界原文解码；Management连接该Service与Gateway、Task和File/Repository；HTTP只调用Application，不绕过服务访问会话或资产内部。Gateway关联当前Session的只读EVENT请求与响应；配置和快照依旧走TASK幂等。持续查看采用小批量pull，不新建Tunnel或后台无人订阅的采集任务。
+
+Probe `device_logs.cpp` 承担NVRAM结构化调用、文件尾读、历史目录发现和临时快照；读取worker与主控制循环隔离，配置任务与router_config串行。实时开启是用户已授权的持久写入（两个开关+commit），不再采用临时开关恢复方案。
+
+WPF `LogWorkspace` 经公开 `DeviceLogClient` 显示实时/历史/分析原文，文件传输复用 `FileExchange`；切页/切设备/Server释放并等待旧读取，保留不确定请求原身份。Server对gzip多个拼接成员完整校验，再发布TXT Asset或有限原文预览。厂商解析器只保留明确的待样本状态与后续扩展位置，不建空接口、不产生虚假语义结果。
+
 ## 默认部署与客户端偏好（ADR-057）
 
 Server CLI默认全接口监听，对外地址47.119.168.150，HTTP8888/控制9000/数据9001；内部Service缺省保持测试与嵌入用途。Windows本机交叉编译Linux AMD64，再由独立SFTP脚本上传Server和启动脚本，构建凭据不进入产品。WPF/Core移除SSH账号/密码与DPAPI存储职责，仅保存外部程序偏好，旧账号字段读取时忽略。关闭或失效维护隐藏公共地址，文件初始目录/tmp/root。模块/API/协议边界保持，见[验证与部署](SERVER_DEFAULTS_VERIFICATION.md)。

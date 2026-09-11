@@ -1,5 +1,16 @@
 # 架构决策记录
 
+## ADR-059 设备日志采集、持久开关与历史导出
+
+- 状态：Accepted，2026-09-11。用户审核 DEVICE_LOGS_PLAN 后明确：Windows 打开实时日志即由 Probe 设置 debuglog_enable=1、syslogd_enable=3 并自动 nvram commit；开关即时生效，无需继续实机验证。退出只停止读取，不恢复配置。
+- 局部扩展 ADR-031 的“配置不自动 commit”：仅 device_logs/enable_live 自动提交整份 NVRAM（可能包含其他已暂存修改），普通 router_config 仍不自动提交。历史设置保留显式 persist 参数，不擅自重启服务。
+- 历史路径只使用 /tmp/third_party/data 和 /jffs；/jfss 为已纠正笔误。RAM缓存 /tmp/root 独立标识。历史关闭不阻止导出旧文件。
+- 扩展已有 TASK 与 EVENT：device_logs 副作用操作遵守原任务幂等；只读日志查询使用按需、有界的 EVENT 请求/响应，不每秒创建任务、不保留无人查看的采集会话、不建立新 Tunnel。HTTP为公开入口，现有WS仍只发资源通知。
+- Probe负责轻量读文件、配置及快照；Go管理层编排；WPF负责显示与原始文件导出。语义解析等待样本，不放入Probe，不实现AI/MCP。
+- 用户负责本次新MIPS设备的Probe编译与设备功能测试；Agent只做本地代码/回归，不修改既有构建机、工具链或设备程序。
+- 完整行为与验证见 DEVICE_LOGS_PLAN、DEVICE_LOGS_VERIFICATION、API和PROTOCOL。此决定取代计划中的临时开关恢复及受控设备实验，不改写历史ADR。
+
+
 ## ADR-058 Probe 专用构建主机与产物名称
 
 - 状态：Accepted，2026-09-11。用户纠正 Probe 构建主机及凭据方式，并指定最终目录和文件名。

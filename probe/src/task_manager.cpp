@@ -1,3 +1,4 @@
+#include "rmp/device_logs.h"
 #include "rmp/task_manager.h"
 #include "rmp/json.h"
 #include "rmp/neighbors.h"
@@ -7,6 +8,7 @@
 
 namespace rmp {
 namespace {
+bool ConfigTask(const ExecTask& t){return t.type=="router_config"||t.type=="device_logs";}
 bool SameTask(const ExecTask& a, const ExecTask& b) {
     return a.type == b.type && a.timeout == b.timeout && a.command == b.command &&
            a.cwd == b.cwd && a.env == b.env && a.file == b.file && a.config == b.config;
@@ -56,7 +58,7 @@ std::string TaskManager::Submit(const ExecTask& task, bool valid,
         for(std::map<std::string,Entry>::const_iterator i=entries_.begin();i!=entries_.end();++i)
             if(i->second.task.file.transfer_id==task.file.transfer_id) return "rejected";
     }
-    if (!valid || (task.type != "exec" && task.type != "router_config" && task.type != "neighbor_scan" && task.type != "neighbor_cancel" && !file) || entries_.size() >= capacity_ ||
+    if (!valid || (task.type != "exec" && task.type != "router_config" && task.type != "device_logs" && task.type != "neighbor_scan" && task.type != "neighbor_cancel" && !file) || entries_.size() >= capacity_ ||
         reservation > byte_capacity_ - reserved_bytes_) return "rejected";
     Entry entry;
     entry.task = task;
@@ -122,7 +124,7 @@ unsigned TaskManager::RunningTasks() const { return running_.load(); }
 
 bool TaskManager::Runnable() const {
     for(std::size_t i=0;i<queue_.size();++i)
-        if(!config_running_||entries_.at(queue_[i]).task.type!="router_config") return true;
+        if(!config_running_||!ConfigTask(entries_.at(queue_[i]).task)) return true;
     return false;
 }
 
@@ -136,10 +138,10 @@ void TaskManager::Run() {
             condition_.wait(lock, [this] { return stop_.load() || Runnable(); });
             if (stop_.load()) return;
             std::deque<std::string>::iterator next=queue_.begin();
-            while(config_running_ && entries_.at(*next).task.type=="router_config") ++next;
+            while(config_running_ && ConfigTask(entries_.at(*next).task)) ++next;
             Entry& entry = entries_.at(*next);
             queue_.erase(next);
-            if(entry.task.type=="router_config") config_running_=true;
+            if(ConfigTask(entry.task)) config_running_=true;
             entry.state = "running";
             task = entry.task;cancel=entry.cancel;
             max_payload = entry.max_payload;
@@ -147,7 +149,8 @@ void TaskManager::Run() {
             std::cout << "task_state=RUNNING task_id=" << task.task_id << std::endl;
         }
         ExecResult result;
-        if(task.type=="neighbor_scan"){
+        if(task.type=="device_logs") result=ExecuteDeviceLogTask(task,&stop_);
+        else if(task.type=="neighbor_scan"){
             if(neighbors_)result=neighbors_->Scan(task,cancel);
             else{result.task_id=task.task_id;result.status="failed";result.stderr_text="neighbors_unavailable";result.started_at=result.finished_at=static_cast<std::uint64_t>(std::time(NULL));}
         }else result=ExecuteExec(task,&stop_);
@@ -166,7 +169,7 @@ void TaskManager::Run() {
             reserved_bytes_ -= entry.max_payload - payload.size();
             entry.payload.swap(payload);
             running_.fetch_sub(1);
-            if(task.type=="router_config") config_running_=false;
+            if(ConfigTask(task)) config_running_=false;
             condition_.notify_all();
             std::cout << "task_state=" << result.status << " task_id=" << task.task_id << std::endl;
         }

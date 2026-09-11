@@ -1,5 +1,31 @@
 # Management Server API
 
+## 设备日志（ADR-059）
+
+所有入口通过 Management/Application 层；写请求使用原有 `Idempotency-Key`，重试保留原键、请求字节和已知 task_id。新 Probe 声明 `device_logs_v1`，旧设备不下发新任务。响应仍为 `data` / `error` 信封。
+
+| 方法与路径（前缀 `/api/v1`） | 语义 |
+| --- | --- |
+| GET `/devices/{id}/logs/status?session_id=...` | 四个 NVRAM 原始字符串：debuglog_enable、syslogd_enable、log_save_en、log_save_itv；读取不修改配置。 |
+| GET `/devices/{id}/logs/live?session_id=...&generation=...&offset=...` | 单次有界读取；value 含 state、generation、start、offset、gap、data（原始字节的 base64）。首次从尾部最多8192字节起读；没有文件时 waiting_for_file。 |
+| GET `/devices/{id}/logs/history?session_id=...&directory=...` | 空目录自动扫描 /tmp/third_party/data、/jffs，并补充 /tmp/root RAM缓存；指定目录则只查该目录。返回 files、directories、limited。 |
+| POST `/devices/{id}/log-tasks` | `{ "session_id":"...", "params":{...} }`，202返回task_id；副作用通过 TASK 执行。 |
+| GET `/log-assets/{id}/preview` | 读取已进入Repository的原始日志；返回 text、bytes、truncated、parser_status。完整校验输入，最多展示512KiB，解压硬限64MiB。 |
+| POST `/log-assets/{id}/text` | `{}`，201返回新TXT Asset；完整校验并合并全部gzip成员后发布，失败不发布部分TXT。支持幂等重试。 |
+
+设备查询响应为 `{ "session_id":"当前会话", "value": ... }`，必须提供当前 session_id；不自动跟随新Session。每Session最多2个并发查询，live至少间隔500ms，查询超时12秒。超额429/log_busy；设备读取失败422/log_read_failed；会话变化、离线、不支持沿用现有错误映射。损坏、截断或超限压缩文件预览/解压返回422/log_preview_failed或log_decode_failed。
+
+`params` 所有值为字符串，拒绝无关字段：
+
+- `{"action":"enable_live"}`：设置debuglog_enable=1、syslogd_enable=3，回读并自动commit；关闭页面不恢复。commit提交整份已暂存NVRAM。
+- `{"action":"history_settings","enabled":"0|1","interval":"300","persist":"0|1"}`：间隔1～65535秒；开启同时打开debuglog总开关；只有persist=1提交，关闭历史不关闭实时输出。
+- `{"action":"snapshot","path":"/jffs/FF_BKDATA_2025-09-25.txt.gz"}`：成功TASK RESULT.stdout为JSON，含remote_path/name/size/expires_in_seconds；通过既有File下载流程读取该快照。
+- `{"action":"release","path":"快照路径"}`：只释放本进程创建且登记的快照；不存在幂等成功，不删除原历史文件。
+
+文件名匹配 `FF_BKDATA_YYYY-MM-DD.txt[.gz]`。files含name/path/size/modified（Unix秒）/cached；目录状态ok/alias/missing/unavailable/unreadable。目录/文件按设备与inode去重；扫描非递归、每目录2048条、总计128文件，达到上限以limited=true告知，不把权限失败当作空目录。
+
+`parser_status=awaiting_vendor_samples` 只表示原文可用、厂商语义解析待样本；不推导基站、覆盖时间或模组故障。Windows允许导入本地日志到既有Asset，再使用相同预览接口。原始gzip导出即使保留损坏字节也明确提示校验失败，不称作完整日志。
+
 ## 邻居发现（ADR-056，2026-09-10）
 
 新增路由均通过Management Application进入Device/Task/Gateway服务，前端不访问连接表。路径前缀 `/api/v1`，响应继续使用data/error信封，写请求需要Idempotency-Key。

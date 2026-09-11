@@ -62,6 +62,7 @@ internal static partial class Program
     private static async Task ClientChecks()
     {
         await NullableSessionChecks();
+        await DeviceLogClientChecks();
         foreach (var (seconds, expected) in new (long?, string)[] {
             (null, "—"), (-1, "—"), (0, "0秒"), (59, "59秒"), (60, "1分钟0秒"),
             (3599, "59分钟59秒"), (3600, "1小时0分钟0秒"), (86400, "1天0小时0分钟0秒"),
@@ -151,7 +152,7 @@ internal static partial class Program
             for (var i=0; i<8; i++) {
                 var peer = new TestProbe(); peers.Add(peer); var id = $"desktop-router-{i+1:00}";
                 await peer.StartAsync(controlPort, id, new { device_id = id, hostname = new[] { "杭州 · 核心网关", "上海 · 边缘路由器", "北京 · 实验室网关", "广州 · 接入网关", "南京 · 分支路由器", "成都 · 备份网关", "武汉 · 办公路由器", "深圳 · 配置测试设备" }[i], serial = $"RMP-TEST-{i+1:000}", model = "OpenWrt 测试对端", firmware = "隔离测试固件", arch = "x86_64", libc = "musl", kernel = "6.6-test", boot_id = "desktop-fixture", probe_version = "desktop-fixture",
-                    capabilities = i == 7 ? new[] { "exec", "file", "tunnel", "router_config", "telemetry_v2" } : new[] { "exec", "file", "tunnel", "telemetry_v2" } });
+                    capabilities = i == 7 ? new[] { "exec", "file", "tunnel", "router_config", "telemetry_v2" } : new[] { "exec", "file", "tunnel", "telemetry_v2", "device_logs_v1" } });
                 await Eventually(async()=>{try{return (await api.GetAsync<Device>("devices/"+id)).Profile!=null;}catch{return false;}},"fixture discovered before explicit admission");
                 var discovered=await api.GetAsync<Device>("devices/"+id);
                 var fieldValues=Enumerable.Range(0,i==1?30:1).ToDictionary(n=>"property_"+n,n=>new {name=n==0?"模板固件描述":"扩展属性 "+n,value=n==0?"中文长文本\n"+new string('X',800):"值 "+n});
@@ -170,7 +171,7 @@ internal static partial class Program
             await Eventually(() => Task.FromResult(connection.Synchronized && connection.Snapshot.Devices.Length == 8), "native window HTTP/WS snapshot with eight test peers");
             await Task.Delay(150);
             var pages = ((TabControl)window.FindName("WorkspaceTabs")).Items.Cast<TabItem>().Select(t => (string)t.Tag).ToArray();
-            Check(pages.SequenceEqual(new[] { "overview", "maintenance", "files", "config", "tools" }), "customer navigation exposes file exchange and read-only repository tools");
+            Check(pages.SequenceEqual(new[] { "overview", "maintenance", "files", "config", "logs", "tools" }), "customer navigation exposes file exchange, device logs and read-only repository tools");
             Check(window.GetType().Assembly.GetReferencedAssemblies().All(a => !a.Name!.Contains("WebView2")), "native customer executable has no WebView2 dependency");
             Check(connection.Snapshot.Tools.Length == 0, "customer snapshot no longer loads tool management");
             Check(((DataGrid)window.FindName("DevicesGrid")).Items.Count == 8, "native device table bound to server inventory");
@@ -244,12 +245,13 @@ internal static partial class Program
             Invoke(window,"Navigate","files");
             await ExchangeWorkspaceChecks(window,api,connection,tool);
             await NativeTelemetryChecks(window,peers[1]);
+            await DeviceLogWorkspaceChecks(window,connection,peers[1]);
             await ManagedDeviceChecks(window,api,connection,peers,controlPort);
             await InspectorChecks(window);
             await AppearanceChecks(window, profileFile);
             foreach (var theme in new[] { "Light", "Dark" }) {
                 Theme.Apply(theme);
-                foreach (var page in new[] { "overview", "maintenance", "files", "config", "tools" }) {
+                foreach (var page in new[] { "overview", "maintenance", "files", "config", "logs", "tools" }) {
                     Invoke(window, "Navigate", page); if(page=="overview")Field<TabControl>(window,"overviewTabs").SelectedIndex=0; await Task.Delay(150); await InvokeAsync(window,"RefreshDetails");
                     Render(window, theme.ToLowerInvariant()+"-"+page+"-1480.png");
                     if(page=="overview") {foreach(var pair in new[]{("storageMetrics","storage"),("networkMetrics","network")}) {var table=Field<DataGrid>(window,pair.Item1);var tabs=Field<TabControl>(window,"overviewTabs");var tab=tabs.Items.Cast<TabItem>().Single(t=>t.Header?.ToString()==(pair.Item2=="storage"?"存储空间":"接口状态"));tabs.SelectedItem=tab;if(pair.Item2=="network")Field<TabControl>(window,"interfaceTabs").SelectedIndex=1;await Task.Delay(80);Render(window,theme.ToLowerInvariant()+"-"+pair.Item2+"-1480.png");tabs.SelectedIndex=0;}}

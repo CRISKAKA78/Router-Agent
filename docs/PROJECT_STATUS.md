@@ -1,5 +1,7 @@
 # 项目状态
 
+2026-09-11 **ADR-059 日志源码及本地调用链已实现**：实时打开自动设置两个NVRAM开关并commit；历史自动发现/自定义目录、独立保存设置、原始gzip与TXT导出、原文预览已接通。独立 `codex/device-logs` worktree；Go全量、Linux Go race/vet与WPF580项检查通过，独立发布完成；验证与产物见[设备日志验证](DEVICE_LOGS_VERIFICATION.md)。用户已取消开关实验，Probe的MIPS编译及设备功能验收由用户执行，本轮未编译Probe或部署设备。厂商AT/基站/覆盖时间解析等待样本；未提交/推送。
+
 2026-09-11 迁移运行状态：已实测 47.119.168.150 上 Server 常驻运行、FNR100 Probe 在线；维护故障定位为 Probe 到 Server 9001/TCP 数据连接不可达，用户随后确认已解决，解决后的端到端连接未由 Agent 复测。本轮按用户授权整理既有 ADR-057/058 迁移改动并合入本地 main、删除迁移分支；实际提交与分支状态以 Git 为准，不推送远端。仅进行差异、凭据排除及合并完整性检查，不重跑产品测试；下文未常驻/未提交为历史记录。
 
 2026-09-11 **ADR-058 Probe构建纠正已完成**：默认root@10.1.1.128，password.txt自动密码认证，经SFTP上传源码并使用原/root/gcc-5.2。真实构建产物 `/root/router-agent/router-agent`，785556字节、ARMv7/EABI5/uClibc；默认接口及管理地址保持ADR-057。记录和验证见[部署§5.3](DEPLOYMENT.md#53-mipsel--arm--arm64-交叉编译)。厂商运行验收仍未完成，无Git提交/推送。
