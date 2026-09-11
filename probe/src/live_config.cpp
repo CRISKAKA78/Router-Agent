@@ -23,7 +23,7 @@ bool LiveTelemetry::Apply(const std::string&bytes,std::uint64_t reply,std::strin
  for(const auto&p:t.monitoring)c.monitoring[p.first]=p.second;
  if(t.has_network_interfaces)c.network_interfaces=t.network_interfaces;
  else c.network_interfaces=initial_.default_network_interfaces;
- c.switch_json=t.switch_json;c.neighbor_json=t.neighbor_json;
+ c.switch_json=t.switch_json;c.neighbor_json=t.neighbor_json;c.cellular_json=t.cellular_json;
  pending_=c;pending_bytes_=bytes;pending_revision_=revision;reply_=reply;requested_=true;return true;
 }
 static std::string NonNetworkPlan(const ClientConfig&config){

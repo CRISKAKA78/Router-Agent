@@ -14,6 +14,7 @@ struct ClientConfig {
  std::uint64_t template_generation=0;
  std::string switch_json;
  std::string neighbor_json;
+ std::string cellular_json;
  std::vector<std::string> default_network_interfaces;
  std::vector<std::string> network_interfaces;
  bool explicit_network_interfaces=false;

@@ -29,6 +29,7 @@ func (s *Service) ApplyConfiguration(id, session string, revision uint64, t *pro
 		current.ConfigTemplate = copyTemplate(t)
 		current.Telemetry = emptyTelemetry()
 		current.Neighbors = nil
+		current.Cellular = nil
 		r.recentNeighbors = nil
 		r.neighborDiscovery = nil
 		r.neighborDiscoveryOrder = 0

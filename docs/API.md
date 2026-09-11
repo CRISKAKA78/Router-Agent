@@ -1,5 +1,16 @@
 # Management Server API
 
+## 通用 AT 身份采集增量（ADR-058，2026-09-11）
+
+- `GET /api/v1/capabilities` 在已有能力列表中增加 `cellular_identity_v1`。生成器发布含AT配置的模板前校验此能力，缺少则阻止写请求；离线编辑/导出保持可用。
+- 模板输入/运行模板增加可选 `cellular_probe:{"interval_seconds":30}`，默认省略即关闭，周期10～86400、空对象默认30；未知字段拒绝。支持只含AT配置的模板。模板摘要也返回cellular_probe。设备应用时需Probe同名能力，缺少报 `unsupported_cellular`，不影响旧模板应用。
+- `GET /api/v1/devices/{id}/cellular` 为只读查询，无请求体，无 Task，无需 Idempotency-Key，不发AT；未知设备沿用404。标准响应 envelope 内 `data:{"snapshot":null}` 或完整快照。
+- 快照字段：`config_revision, interval_seconds, status, reason, limited, ports, sampled_at, stale`。ports含 `path, device_key, status, reason, selected, age_ms, ati, imei, sampled_at`；ati/imei为 `command,status,value`。状态枚举、长度及指令集合见[PROTOCOL](PROTOCOL.md)的ADR-058增量。
+- 现有 Device DTO 增加 `cellular`，纳管设备 DTO 增加 `cellular_configuration`（已应用模板配置，未启用为null）。快照只保留当前会话观测；新Session/应用或关闭模板清空，离线/超过三倍周期标stale。sampled_at由Server接收时间减Probe年龄推导，port.age_ms在查询时更新。
+- WPF通过现有HTTP快照/WS失效回查显示蜂窝模块；“刷新快照”不触发设备查询。ATI/IMEI原值可见，无新增遮罩/认证/TLS保证。所有读取经Application/Device Service，不访问Gateway注册表或存储表。
+
+使用、限额和未完成实机验收见[CELLULAR_AT](CELLULAR_AT.md)。下方各历史能力清单仅描述当时新增项。
+
 ## 智能邻居发现增量（ADR-057，2026-09-10）
 
 本节扩展下方 ADR-056 接口，未改变原传输、认证边界或幂等机制。所有请求通过 Application/Service；客户端不访问 Gateway、设备注册表或存储。

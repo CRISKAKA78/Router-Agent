@@ -8,11 +8,12 @@
         @if(State.ConfigurationTab==0){<MonitoringEditor State="State" />}
         else if(State.ConfigurationTab==1){<PresentationEditor State="State" />}
         else if(State.ConfigurationTab==2){<SwitchEditor State="State" />}
-        else{<NeighborEditor State="State" />}
+        else if(State.ConfigurationTab==3){<NeighborEditor State="State" />}
+        else{<CellularEditor State="State" />}
     </div>
     @foreach(var issue in State.Issues.Where(i=>i.AttributeId is null)){<p class="error-text" role="alert">@issue.Message</p>}
 </div>
 @code {
     [Parameter,EditorRequired]public EditorWorkspace State{get;set;}=default!;
-    private static readonly string[] tabs=["内置监控","分组与排序","物理端口采集","邻居发现"];
+    private static readonly string[] tabs=["内置监控","分组与排序","物理端口采集","邻居发现","蜂窝模块 AT"];
 }

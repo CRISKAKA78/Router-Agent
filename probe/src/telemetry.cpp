@@ -119,6 +119,7 @@ TelemetryCollector::TelemetryCollector(const ClientConfig&config,SystemSampler* 
   for(const auto& key:{"egress_ipv4","egress_ipv6"}){Add(values,key,key,"","","unknown");values[key].reason="collection_disabled";}
   Publish("egress",values);
  }
+ if(!config_.cellular_json.empty()){CellularPlan p;if(ParseCellularPlan(config_.cellular_json,&p))cellular_.reset(new CellularCollector(p,revision_));}
  StartNetwork();
  builtin_=std::thread(&TelemetryCollector::Builtins,this);
  if(!config.collection_json.empty())templates_=std::thread(&TelemetryCollector::Templates,this);
@@ -126,6 +127,7 @@ TelemetryCollector::TelemetryCollector(const ClientConfig&config,SystemSampler* 
 }
 TelemetryCollector::~TelemetryCollector(){
  stop_=true;network_stop_=true;
+ cellular_.reset();
  if(builtin_.joinable())builtin_.join();
  if(network_.joinable())network_.join();
  if(templates_.joinable())templates_.join();
@@ -149,6 +151,7 @@ void TelemetryCollector::StartNetwork(){
  }
 }
 void TelemetryCollector::ReconfigureNetwork(const ClientConfig&next){
+ if(cellular_)cellular_->SetRevision(next.config_revision);
  network_stop_=true;
  if(network_.joinable())network_.join();
  if(switches_.joinable())switches_.join();
@@ -229,6 +232,7 @@ void TelemetryCollector::Templates(){
  }
 }
 bool TelemetryCollector::Next(std::size_t max_payload,std::string*payload){
+ if(cellular_&&cellular_->Next(max_payload,payload))return true;
  std::lock_guard<std::mutex>l(mutex_);if(pending_.empty())return false;
  auto group=pending_.begin();const std::size_t limit=std::min<std::size_t>(65536,max_payload);
  const std::string prefix="{\"config_revision\":"+Integer(revision_)+",\"event\":\"telemetry\",\"group\":"+EscapeJsonString(group->first)+",\"values\":{";

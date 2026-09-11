@@ -18,6 +18,8 @@ Phase 0～5 已验收。当前提供原生 C# / WPF Windows 工作台和 C# / Bl
 
 Probe 一键交叉编译：双击 [probe-build.cmd](probe-build.cmd)，输入 SSH 密码后自动上传当前源码到 10.1.1.128 并使用已有 GCC 5.2 编译。成品留在远端专用目录，见 [部署说明 §5.3](docs/DEPLOYMENT.md#53-mipsel--arm--arm64-交叉编译)。
 
+MIPS/uClibc GCC5.4 一键编译：使用 [probe-build-gcc54.cmd](probe-build-gcc54.cmd)，从脚本同目录 `password.txt` 读取编译机密码，首次安装桌面SDK，输出到 `/root/router-probe-gcc54/output/router-probe`。FM160-CN真实AT验证与使用方法见[说明](docs/GCC54_AT_DEVICE_VERIFICATION.md)。
+
 Windows Server 一键重建并运行：双击 [server-windows.cmd](server-windows.cmd)。专用构建目录每次清空，运行数据独立保留；监听及 IPv6 域名配置见 [部署说明](docs/DEPLOYMENT.md)。
 
 ~~~text

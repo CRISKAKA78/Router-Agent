@@ -97,6 +97,7 @@ func (m *Monitoring) UnmarshalJSON(b []byte) error {
 }
 
 type Template struct {
+	CellularProbe *CellularProbe      `json:"cellular_probe,omitempty"`
 	NeighborProbe *NeighborProbe      `json:"neighbor_probe,omitempty"`
 	Presentation  *Presentation       `json:"presentation,omitempty"`
 	SwitchProbe   *SwitchProbe        `json:"switch_probe,omitempty"`
@@ -108,6 +109,7 @@ type Template struct {
 	Deleted       bool                `json:"deleted,omitempty"`
 }
 type Input struct {
+	CellularProbe *CellularProbe      `json:"cellular_probe,omitempty"`
 	NeighborProbe *NeighborProbe      `json:"neighbor_probe,omitempty"`
 	Presentation  *Presentation       `json:"presentation,omitempty"`
 	SwitchProbe   *SwitchProbe        `json:"switch_probe,omitempty"`
@@ -153,6 +155,9 @@ func StandardLimit(key string) int {
 	return 0
 }
 func Validate(v Input) error {
+	if e := ValidateCellular(v.CellularProbe); e != nil {
+		return e
+	}
 	if e := ValidateNeighbors(v.NeighborProbe); e != nil {
 		return e
 	}
@@ -175,7 +180,7 @@ func Validate(v Input) error {
 	if m := v.Monitoring; m != nil && (m.CPU > 86400 || m.Memory > 86400 || m.Disk > 86400 || m.Network > 86400 || m.Egress > 86400) {
 		return ErrInvalid
 	}
-	if !ValidText(v.Name, 128) || strings.TrimSpace(v.Name) != v.Name || (len(v.Properties) == 0 && v.Monitoring == nil && v.Presentation == nil && v.SwitchProbe == nil && v.NeighborProbe == nil) || len(v.Properties) > 38 {
+	if !ValidText(v.Name, 128) || strings.TrimSpace(v.Name) != v.Name || (len(v.Properties) == 0 && v.Monitoring == nil && v.Presentation == nil && v.SwitchProbe == nil && v.NeighborProbe == nil && v.CellularProbe == nil) || len(v.Properties) > 38 {
 		return ErrInvalid
 	}
 	custom := 0
@@ -209,6 +214,7 @@ func normalize(v Input) Input {
 	v.Presentation = CopyPresentation(v.Presentation)
 	v.SwitchProbe = CopySwitch(v.SwitchProbe)
 	v.NeighborProbe = CopyNeighbors(v.NeighborProbe)
+	v.CellularProbe = CopyCellular(v.CellularProbe)
 	if v.Monitoring != nil {
 		m := *v.Monitoring
 		if m.NetworkInterfaces != nil {
@@ -233,6 +239,7 @@ func clone(v Template) Template {
 	v.Presentation = CopyPresentation(v.Presentation)
 	v.SwitchProbe = CopySwitch(v.SwitchProbe)
 	v.NeighborProbe = CopyNeighbors(v.NeighborProbe)
+	v.CellularProbe = CopyCellular(v.CellularProbe)
 	if v.Monitoring != nil {
 		m := *v.Monitoring
 		if m.NetworkInterfaces != nil {
@@ -302,7 +309,7 @@ func Open(path string) (*Service, error) {
 		}
 		names := map[string]bool{}
 		for _, v := range c.Templates {
-			if !ValidText(v.ID, 128) || v.Version < 1 || Validate(Input{Name: v.Name, Properties: v.Properties, Monitoring: v.Monitoring, Presentation: v.Presentation, SwitchProbe: v.SwitchProbe, NeighborProbe: v.NeighborProbe}) != nil {
+			if !ValidText(v.ID, 128) || v.Version < 1 || Validate(Input{Name: v.Name, Properties: v.Properties, Monitoring: v.Monitoring, Presentation: v.Presentation, SwitchProbe: v.SwitchProbe, NeighborProbe: v.NeighborProbe, CellularProbe: v.CellularProbe}) != nil {
 				return fail(ErrInvalid)
 			}
 			if _, ok := s.items[v.ID]; ok || (!v.Deleted && names[v.Name]) {
@@ -408,7 +415,7 @@ func (s *Service) Put(id string, expected uint64, in Input) (Template, error) {
 	if s.closed {
 		return Template{}, ErrClosed
 	}
-	v := Template{NeighborProbe: in.NeighborProbe, Presentation: in.Presentation, SwitchProbe: in.SwitchProbe, Monitoring: in.Monitoring, ID: id, Name: in.Name, Version: 1, Properties: in.Properties}
+	v := Template{CellularProbe: in.CellularProbe, NeighborProbe: in.NeighborProbe, Presentation: in.Presentation, SwitchProbe: in.SwitchProbe, Monitoring: in.Monitoring, ID: id, Name: in.Name, Version: 1, Properties: in.Properties}
 	if id == "" {
 		if len(s.items) >= 1000 {
 			return Template{}, ErrCapacity

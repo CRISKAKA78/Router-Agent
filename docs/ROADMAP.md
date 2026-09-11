@@ -1,6 +1,16 @@
 # 项目路线图
 
-## 当前产品迭代：ADR-057（不新增Phase）
+## 当前产品迭代：ADR-058（不新增Phase）
+
+- [x] 新worktree隔离；通用USB串口自动发现/占用跳过/编号变化重识别，固定ATI与IMEI查询及有界取消。
+- [x] 模板启用与能力协商、Probe EVENT、Server最新快照/API、WPF蜂窝模块属性页闭环；不含任意AT或厂商专用查询。
+- [x] WindowsGo/vet、生成器196项、WPF582项/72份布局与发布；Linux16项CTest、真实Probe全量/vet/build及AT/相关采集定向race通过。[证据](CELLULAR_AT.md)。
+- [x] 用户追加授权后完成GCC5.4/MIPS小端/uClibc真实编译，FM160-CN自动ttyUSB1身份、占用跳过/释放恢复、周期/API/关闭采集；4项脚本回归、同目录password.txt免输入密码入口通过。[实机记录](GCC54_AT_DEVICE_VERIFICATION.md)。
+- [ ] ARM/GCC5.2及其他厂家，真实拨号/模组重启、USB热插拔重编号和长期业务共存验收；本次保留原实例，仅临时运行新Probe。
+- [ ] 生成器AT新用例真实浏览器交互（启动被策略拒绝）、物理WPF输入/DPI；ASan/UBSan当前缺库未通过。
+- [-] SIM/驻网/信号、厂家适配留待下一次明确范围；新Phase/AI/MCP/TLS/RBAC/数据库/Tunnel维持原未决，不提交/推送；部署范围仅上项用户追加授权的隔离实机测试，不自动替换原实例。
+
+## 此前产品迭代：ADR-057（历史事实）
 
 - [x] 智能/高级邻居配置、公开只读检测与能力协商、显式FNR100预设、直连扫描范围和Server有界近期记录实现；保留ADR-056两域重叠/不推断上级。
 - [x] Windows Go/vet、生成器189项（0跳过）、WPF572项/69份布局、自包含构建；最终Linux15项CTest、真实Probe全量/vet/build及核心包/邻居集成race通过。证据详见[专项记录](NEIGHBOR_SMART_CONFIGURATION.md)。

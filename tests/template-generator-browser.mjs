@@ -393,6 +393,33 @@ try {
   await expect(page.getByLabel('原始Linux接口名',{exact:true})).toHaveCount(2);
   await expect(page.getByLabel('计入LAN清单的端口',{exact:true}).nth(1)).toHaveValue('lan1,lan2');
   check('neighbor domains share interface, preserve distinct scopes and LAN ports across browser edit, project reload, export and API publication');
+  await tab('模板配置');await tab('蜂窝模块 AT');
+  await page.getByLabel('启用AT自动探测',{exact:true}).check();
+  await expect(page.getByLabel('AT自动探测周期',{exact:true})).toHaveValue('30');
+  await page.getByLabel('AT自动探测周期',{exact:true}).fill('9');
+  await expect(page.locator('.configuration-page .error-text')).toContainText(['AT 自动探测周期须为10～86400秒']);
+  await page.getByLabel('AT自动探测周期',{exact:true}).fill('10');
+  await page.getByLabel('配置模板名称',{exact:true}).fill('通用AT自动探测');
+  for(const [width,height,theme] of [[1920,1080,'Light'],[900,760,'Dark']]){
+    await page.setViewportSize({width,height});await page.getByLabel('更多操作').click();await page.getByLabel('外观',{exact:true}).selectOption(theme);
+    await expect(page.locator('html')).toHaveAttribute('data-theme',theme.toLowerCase());
+    await page.locator('.editor-section h3').scrollIntoViewIfNeeded();
+    await page.screenshot({path:resolve(output,`cellular-${width}-${theme}.png`)});
+    if(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth))throw Error('AT editor overflows viewport');
+  }
+  await tab('导出与发布');
+  const cellular=await download(()=>page.getByRole('button',{name:'导出运行模板',exact:true}).click());
+  if(cellular.cellular_probe.interval_seconds!==10||Object.keys(cellular.cellular_probe).length!==1)throw Error('AT config changed or introduced arbitrary commands');
+  await page.getByRole('button',{name:'发布为新模板',exact:true}).click();
+  await expect.poll(async()=>(await api('probe-templates')).items.find(t=>t.name==='通用AT自动探测')?.cellular_probe?.interval_seconds).toBe(10);
+  const cellularProject=await download(()=>page.keyboard.press('Control+s'));
+  await open(cellularProject);await confirm('替换');await tab('模板配置');await tab('蜂窝模块 AT');
+  await expect(page.getByLabel('启用AT自动探测',{exact:true})).toBeChecked();
+  await expect(page.getByLabel('AT自动探测周期',{exact:true})).toHaveValue('10');
+  await page.getByLabel('启用AT自动探测',{exact:true}).uncheck();await tab('导出与发布');
+  const disabled=await download(()=>page.getByRole('button',{name:'导出运行模板',exact:true}).click());
+  if('cellular_probe' in disabled)throw Error('Disabled AT configuration remained in runtime template');
+  check('AT auto-discovery enable/interval validation, themes, project reload, runtime export, real API publication and disable');
   if (errors.length) throw Error('Browser errors: '+errors.join('\n'));
   await writeFile(resolve(output,'browser-results.json'),JSON.stringify({checks,errors},null,2));
   console.log(`PASS ${checks.length} browser scenario groups; no browser errors`);

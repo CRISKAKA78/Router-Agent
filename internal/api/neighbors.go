@@ -9,7 +9,7 @@ import (
 
 func (a *Server) neighborRoutes() {
 	a.route("GET /api/v1/capabilities", false, func(r *http.Request) response {
-		return ok(object{"capabilities": []string{"neighbor_probe", "neighbors_inspect_v1", "neighbors_recent_v1"}}, nil)
+		return ok(object{"capabilities": []string{"neighbor_probe", "neighbors_inspect_v1", "neighbors_recent_v1", "cellular_identity_v1"}}, nil)
 	})
 	a.route("GET /api/v1/devices/{id}/neighbor-discovery", false, func(r *http.Request) response {
 		d, e := a.app.Devices().Get(r.PathValue("id"))

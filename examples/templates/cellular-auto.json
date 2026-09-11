@@ -1,0 +1,7 @@
+{
+  "name": "通用 AT 自动探测",
+  "properties": {},
+  "cellular_probe": {
+    "interval_seconds": 30
+  }
+}

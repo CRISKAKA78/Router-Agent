@@ -1,5 +1,22 @@
 # 路由器探针 TCP 长连接控制协议
 
+## 通用 AT 身份采集增量（ADR-058，2026-09-11）
+
+1. Probe REGISTER 增加 `cellular_identity_v1`。CONFIG_APPLY 中运行模板可选 `cellular_probe:{"interval_seconds":30}`；省略关闭，空对象默认30，周期整数10～86400，其他字段拒绝。旧 Probe 缺能力时 Server 应用返回 `unsupported_cellular`；保持完整模板应用和 ACK 门槛，不默默删去配置。
+2. 复用 EVENT，完整 JSON 结构如下（数值/身份为示例）：
+
+```json
+{"event":"cellular","config_revision":1,"interval_seconds":30,"age_ms":0,"status":"ok","reason":"","limited":false,"ports":[{"path":"/dev/ttyUSB2","device_key":"/sys/devices/platform/usb1/1-1","status":"ok","reason":"","selected":true,"age_ms":12,"ati":{"command":"ATI","status":"ok","value":"Generic modem"},"imei":{"command":"AT+CGSN","status":"ok","value":"867123456789012"}}]}
+```
+
+3. 事件最多64KiB且服从协商帧上限；最多16端口，path 为 `/dev/ttyUSB数字` 或 `/dev/ttyACM数字`（后缀最多10位），device_key 为最多256字节 `/sys/devices/` 下 USB 父路径，reason最多64字节，无NUL/换行。端口路径不重复，每 USB 父路径最多一个 selected。limited 表示枚举/轮内预算等限制，不代表全量覆盖。
+4. 顶层 status：ok/partial/unavailable/no_ports/error；端口 status：ok/partial/busy/not_at/error/pending/alternate。selected 仅允许ok/partial；端口ok必须ATI和IMEI均ok；非ok/partial端口的两个查询为not_queried。顶层ok表示已选端口身份完整，其他端口仍可能失败，客户端不得隐藏其状态。
+5. 查询 status：ok/not_queried/rejected/invalid_value/invalid_response/timeout/io_error/overflow/cancelled。失败 value 必须空；ATI.command固定ATI，IMEI.command为空（未查询）或AT+CGSN、AT+CGSN=1、AT+GSN。成功ATI非空、ASCII含换行/tab、最多1024字节；成功IMEI为严格15位数字。没有任意命令入口。
+6. age_ms 为单调时钟相对当前发送时刻的观测年龄，整数0～315360000000；逐端口年龄不得小于顶层年龄。Server计算sampled_at，Probe不得提交sampled_at/stale等顶层派生字段。顶层字段完整且禁止未知字段。溢出发送ports为空、status=error、reason=payload_limit、limited=true的完整错误事件，不截断身份字符串。
+7. Device Service 仅接受当前Session、已应用revision和周期匹配的结果，拒绝早于现有观测时间的事件。新Session/完整配置切换清空；仅网络修订变化保留原年龄重新绑定。离线或顶层/已选端口超过三倍周期在API标stale。无历史持久化、无新WS主题和TASK类型。
+
+详细采集限额与真实验证见[CELLULAR_AT](CELLULAR_AT.md)。其后的旧增量能力清单为各次新增项，不覆盖本节新增能力。
+
 ## 智能邻居发现增量（ADR-057，2026-09-10）
 
 保留ADR-056的neighbors_v1、EVENT与扫描/取消机制，不新增帧类型或持续交互数据面。

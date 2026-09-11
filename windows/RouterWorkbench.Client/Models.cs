@@ -21,7 +21,7 @@ public sealed record DeviceSession(string SessionId, Registration Registration, 
 }
 public sealed record Device(string DeviceId, Registration Registration, string Status, DeviceSession? CurrentSession,
     DeviceSession? LatestSession, DateTimeOffset? FirstSeenAt, DateTimeOffset? LastSeenAt,
-    DateTimeOffset? LastOnlineAt, DateTimeOffset? LastOfflineAt, long TotalSessions, long EvictedSessions, DeviceRuntime? Runtime = null, string? SourceIp = null, Dictionary<string, Metric>? EffectiveMetrics = null, DeviceProfile? Profile=null, Presentation? Presentation=null, TemplateReference? ActiveTemplate=null, ulong AppliedRevision=0, NeighborSnapshot? Neighbors=null, NeighborDomainConfig[]? NeighborDomains=null, RouterAgent.Neighbors.NetworkDiscovery? NeighborDiscovery=null, NeighborRow[]? RecentNeighbors=null)
+    DateTimeOffset? LastOnlineAt, DateTimeOffset? LastOfflineAt, long TotalSessions, long EvictedSessions, DeviceRuntime? Runtime = null, string? SourceIp = null, Dictionary<string, Metric>? EffectiveMetrics = null, DeviceProfile? Profile=null, Presentation? Presentation=null, TemplateReference? ActiveTemplate=null, ulong AppliedRevision=0, NeighborSnapshot? Neighbors=null, NeighborDomainConfig[]? NeighborDomains=null, RouterAgent.Neighbors.NetworkDiscovery? NeighborDiscovery=null, NeighborRow[]? RecentNeighbors=null, CellularSnapshot? Cellular=null, CellularSettings? CellularConfiguration=null)
 {
     [JsonIgnore] public string DeviceName => Profile?.Name ?? (string.IsNullOrEmpty(Registration.Hostname) ? "—" : Registration.Hostname);
     [JsonIgnore] public string DisplayName => Profile?.Name ?? (string.IsNullOrEmpty(Registration.Hostname) ? DeviceId : Registration.Hostname);

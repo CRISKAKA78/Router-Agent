@@ -1,6 +1,14 @@
 # 项目状态
 
-## 当前：ADR-057智能邻居配置已实现，产品验收有明确缺口
+## 当前：ADR-058已完成GCC5.4/MIPS实机ATI/IMEI测试
+
+2026-09-11，工作仍在独立worktree `router-agent-at-discovery` / `codex/at-discovery`。用户追加授权后，已用桌面gcc-5.4.tar.gz在10.1.1.128编译，最新产物 `/root/router-probe-gcc54/output/router-probe`（1131344字节）。新增根目录probe-build-gcc54.cmd，默认读取同目录password.txt，无密码提示；密码不写入脚本，测试临时密码文件已删除。
+
+MT7621/Linux4.4/uClibc实机自动选择ttyUSB1，ATI识别Fibocom FM160-CN，AT+CGSN有效IMEI、周期上报/HTTP快照、真实占用跳过/释放恢复、关闭模板清空通过。原redial与Probe PID及启动时间不变，临时Probe/Server/SSH转发已停止；没有覆盖生产实例或Git提交/推送。4项脚本回归与远端bash/ELF检查通过，详见[GCC54实机证据及产物](GCC54_AT_DEVICE_VERIFICATION.md)。
+
+物理模块重启/USB热插拔重编号、长期业务共存、其他厂家与ARM/mipsel以外工具链仍需分别验收。首轮Windows/Go、生成器196项、WPF582项/72份布局、Linux16项CTest/全量与定向race是既有验证，本轮未改产品逻辑、不冒称重跑；浏览器策略与sanitizer缺库限制见[CELLULAR_AT](CELLULAR_AT.md)。SIM/驻网/信号未实现，不新增Phase。
+
+## 此前：ADR-057智能邻居配置（历史事实）
 
 工作分支核对为 `GPT6API-TEST`。生成器智能/高级配置、公开能力协商与只读网络检测、显式FNR100预设、WPF默认直连扫描和Server1024条/24小时近期视图已接通；主动响应60秒后转近期，不推断上级、不把历史说成在线。仅邻居配置模板的应用校验遗漏已修复。没有新阶段、数据库或Tunnel改造。
 

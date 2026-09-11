@@ -1,6 +1,14 @@
 # 项目接管手册
 
-## 当前接管：智能邻居配置（ADR-057）
+## 当前接管：GCC5.4实机验证与免输入密码构建
+
+2026-09-11用户追加授权编译/上传测试已执行。先读[GCC54实机说明](GCC54_AT_DEVICE_VERIFICATION.md)，通用AT架构仍见[CELLULAR_AT](CELLULAR_AT.md)/ADR-058。分支 `codex/at-discovery` 在 `C:\Users\Administrator\Desktop\router-agent-at-discovery`；未合并其他worktree变化、未提交或推送。
+
+新增 `probe-build-gcc54.cmd` → `.ps1` → `scripts/build-probe-gcc54.sh`；根目录password.txt读取10.1.1.128的root密码，已忽略且不上传，测试临时凭证已删除。默认SDK缓存来自桌面gcc-5.4.tar.gz，固定成品 `/root/router-probe-gcc54/output/router-probe`，最终run `20260911-230640-7e2480c9`。不要误用旧GCC5.2 ARM入口。
+
+实机FM160-CN/ttyUSB1通用ATI/IMEI、真实占用/恢复、当前Server/API和关闭模板通过；目标保留 `/tmp/router-at-test-20260911-230834/router-probe`，已停止，原Probe9339/redial1419保持。后续正式替换运行实例需按用户当前范围决定，不能因为本次临时测试就自动覆盖；模组重启/物理重编号和其他厂家尚未测试。4项脚本回归及真实编译通过，其他首轮产品回归为历史事实，证据路径在专项文档。下面记录属于历史任务，不构成本次新增授权。
+
+## 此前接管：智能邻居配置（ADR-057，历史入口）
 
 先读[本轮操作、代码导航和验证](NEIGHBOR_SMART_CONFIGURATION.md)、ADR-057及API/PROTOCOL增量。核心新增在Device Service的neighbor_discovery/近期记录、Probe原生neighbor_inspect与FNR100解析、共享CIDR模型、Blazor NeighborEditor/NeighborPublishing和WPF NeighborView；仍通过公开API/既有TASK与EVENT。local/lan可共用br0，近期视图不等于在线。
 

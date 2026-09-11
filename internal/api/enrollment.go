@@ -40,6 +40,9 @@ func (a *Server) managedDTO(d device.Snapshot) object {
 	}
 	if t := d.LatestSession.ConfigTemplate; t != nil {
 		out["presentation"] = t.Presentation
+		if t.CellularProbe != nil {
+			out["cellular_configuration"] = t.CellularProbe
+		}
 		if t.NeighborProbe != nil {
 			out["neighbor_domains"] = t.NeighborProbe.Domains
 			out["neighbor_configuration"] = t.NeighborProbe
@@ -106,5 +109,5 @@ func templateSummary(t *probetemplate.Template) any {
 	for k, p := range t.Properties {
 		props[k] = object{"name": p.Name, "interval_seconds": p.Interval}
 	}
-	return object{"template_id": t.ID, "name": t.Name, "version": t.Version, "monitoring": t.Monitoring, "properties": props}
+	return object{"template_id": t.ID, "name": t.Name, "version": t.Version, "monitoring": t.Monitoring, "properties": props, "cellular_probe": t.CellularProbe}
 }

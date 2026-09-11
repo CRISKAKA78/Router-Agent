@@ -1,4 +1,5 @@
 #include "rmp/collection.h"
+#include "rmp/cellular.h"
 #include "rmp/json.h"
 #include "rmp/task.h"
 #include "rmp/switch_probe.h"
@@ -57,6 +58,7 @@ bool ParseCollectionTemplate(const std::string& json,CollectionTemplate* value,s
  if(m.count("network_interfaces")){if(m["network_interfaces"].type!=JsonType::kString||!ParseNetworkInterfaces(m["network_interfaces"].string_value,&parsed.network_interfaces))return false;parsed.has_network_interfaces=true;}}
  if(root.count("switch_probe")){if(!ValidateSwitchProbe(root["switch_probe"].raw_value))return false;parsed.switch_json=root["switch_probe"].raw_value;}
  if(root.count("neighbor_probe")){NeighborPlan plan;if(!ParseNeighborPlan(root["neighbor_probe"].raw_value,&plan))return false;parsed.neighbor_json=root["neighbor_probe"].raw_value;}
+ if(root.count("cellular_probe")){CellularPlan plan;if(!ParseCellularPlan(root["cellular_probe"].raw_value,&plan))return false;parsed.cellular_json=root["cellular_probe"].raw_value;}
  unsigned custom=0;
  for(JsonObject::const_iterator i=props.begin();i!=props.end();++i){
   JsonObject p;CollectionProperty property;std::uint64_t seconds;

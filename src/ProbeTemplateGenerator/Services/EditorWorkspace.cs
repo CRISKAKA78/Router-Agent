@@ -84,7 +84,7 @@ public sealed partial class EditorWorkspace(TemplateCompiler compiler, ProjectFi
     {
         if (issue.AttributeId is not null) SelectedId = issue.AttributeId;
         Stage = issue.AttributeId is null ? 0 : 1;
-        if(issue.Field.StartsWith("neighbor",StringComparison.OrdinalIgnoreCase))ConfigurationTab=3;else if(issue.Field=="SwitchProbe")ConfigurationTab=2;else if(issue.Field=="Presentation")ConfigurationTab=1;
+        if(issue.Field.StartsWith("cellular",StringComparison.OrdinalIgnoreCase))ConfigurationTab=4;else if(issue.Field.StartsWith("neighbor",StringComparison.OrdinalIgnoreCase))ConfigurationTab=3;else if(issue.Field=="SwitchProbe")ConfigurationTab=2;else if(issue.Field=="Presentation")ConfigurationTab=1;
         Notify();
     }
     public void AddAttribute(AttributeVisibility visibility)

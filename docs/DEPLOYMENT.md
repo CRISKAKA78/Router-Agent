@@ -266,6 +266,8 @@ ldd build/probe/router-probe
 
 ### 5.3 mipsel / ARM / ARM64 交叉编译
 
+**MIPS/uClibc GCC5.4 新入口（2026-09-11）：** [probe-build-gcc54.cmd](../probe-build-gcc54.cmd) 从同目录password.txt读取编译机root密码，默认10.1.1.128，首次使用桌面gcc-5.4.tar.gz安装独立SDK；成品 `/root/router-probe-gcc54/output/router-probe`。已在MT7621/Fibocom FM160-CN设备验证自动串口、ATI/IMEI、占用跳过和恢复；未重启模组或替换生产实例。完整目录、参数、安全边界及证据见[GCC54实机说明](GCC54_AT_DEVICE_VERIFICATION.md)。下方GCC5.2入口保持原ARM用途。
+
 **已配置的 GCC 5.2 一键入口：** 在 Windows 双击仓库根目录 [probe-build.cmd](../probe-build.cmd)，按提示输入 SSH 密码；已配置 SSH 密钥时直接使用密钥。首次连接按 OpenSSH 提示核对主机身份，脚本不保存密码。Windows 需要系统 `ssh.exe`、`tar.exe` 和 Windows PowerShell；远端使用已有 CMake、make、Python 3、binutils 及 `/root/gcc-5.2`。
 
 脚本通过一次 SSH 登录将当前工作区 `probe` 源码（包含尚未提交的更新）上传到 `root@10.1.1.128`，先将上传的 Bash 脚本从 CRLF 规范化为 LF，再自动应用该 SDK 所需的整数转字符串、strtoull 和声明头兼容处理，执行 Release 交叉编译及 ELF 检查。兼容处理仅作用于远端副本，仓库产品代码不改动。Windows 不生成源码压缩包或构建产物。

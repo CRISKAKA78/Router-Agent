@@ -271,6 +271,7 @@ internal static partial class Program
             var afterReplacement=(await api.ListAsync<ConnectionPeriod>("devices/desktop-router-02/connections")).First();Check(beforeReplacement.Id==afterReplacement.Id&&beforeReplacement.OnlineAt==afterReplacement.OnlineAt,"session replacement retains continuous online history via API");
             await api.ExecuteAsync(new("archive version", $"tools/{tool.ToolId}/versions/1.0/archive")); await api.ExecuteAsync(new("archive asset", $"assets/{asset.AssetId}/archive"));
             Check((await api.GetAsync<Asset>($"assets/{asset.AssetId}")).Archived, "archive preserves original identity");
+            await CellularChecks(window);
             await NeighborChecks(window);
             await NeighborInteractionChecks(window,api,connection,controlPort);
             await InvokeAsync(window, "Disconnect"); Check(!connection.Synchronized || connection.Token.IsCancellationRequested, "native disconnect cancels old connection");

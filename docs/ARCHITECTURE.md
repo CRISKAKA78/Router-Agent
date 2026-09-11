@@ -1,5 +1,11 @@
 # 路由器远程运维平台架构基线
 
+## 通用 AT 身份采集增量（ADR-058，2026-09-11）
+
+可选运行模板 cellular_probe 启用 Probe 的 CellularCollector：只枚举 USB-backed ttyUSB/ttyACM，经占用检查与短期独占发送固定 AT/ATI/IMEI 查询。采集在 TelemetryCollector 所有的可取消后台线程中运行，串口不进入 TCP Gateway；待发送结果合并为一份最新 EVENT，不以串口等待阻塞心跳。每轮重枚举，按 USB 父设备分组而非 tty 编号绑定，限额与共存边界见[CELLULAR_AT](CELLULAR_AT.md)。
+
+Gateway 校验有界事件与能力，Device Service 校验 Session/已应用 revision 并持有最新内存快照、派生观测年龄及 stale。HTTP Adapter 仅通过 Application/Device Service 查询；生成器管理模板开关/周期，WPF 通过公开 Device DTO 展示，不复制 AT 或设备状态机。无新数据库、任务类型、帧或数据面；SIM/射频/厂商适配未实现。
+
 ## 邻居发现（ADR-056 / ADR-057）
 
 Probe的SystemSampler惰性持有进程级Neighbors采集器；其有界worker读取内核邻居/FDB、可选租约和显式选择的厂商表。TaskManager复用采集器执行原生ARP扫描/取消，并用原生neighbor_inspect任务读取sysfs及RTM_GETADDR。普通检测无Shell；显式FNR100测试及预设使用固定只读命令和环境/格式核验，失败回退内核。控制会话释放或重配置请求停止扫描，不引入AI、外部依赖服务或数据面。

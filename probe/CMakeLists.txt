@@ -17,6 +17,7 @@ add_library(rmp_probe_core STATIC
     src/client.cpp
     src/system_info.cpp
     src/telemetry.cpp
+    src/cellular.cpp
     src/neighbors.cpp
     src/neighbor_networks.cpp
     src/egress.cpp
@@ -52,6 +53,9 @@ target_compile_definitions(router-probe PRIVATE RMP_NETWORK_INTERFACES="${RMP_NE
 
 include(CTest)
 if(BUILD_TESTING)
+    add_executable(cellular_tests tests/cellular_tests.cpp)
+    target_link_libraries(cellular_tests PRIVATE rmp_probe_core)
+    add_test(NAME cellular_tests COMMAND cellular_tests)
     add_executable(egress_tests tests/egress_tests.cpp)
     target_link_libraries(egress_tests PRIVATE rmp_probe_core)
     add_test(NAME egress_tests COMMAND egress_tests)

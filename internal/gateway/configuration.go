@@ -27,7 +27,15 @@ func (s *Server) runConfiguration(active *session) {
 			s.mu.Unlock()
 			if applied != p.Configuration.Revision && (sent.Revision != p.Configuration.Revision || time.Since(last) > 10*time.Second) {
 				q := p.Configuration
-				if q.Template.NeighborProbe != nil && (!slices.Contains(active.capabilities, "neighbors_v1") || (q.Template.NeighborProbe.FDBPreset != "" && !slices.Contains(active.capabilities, "neighbors_inspect_v1"))) {
+				if q.Template.CellularProbe != nil && !slices.Contains(active.capabilities, "cellular_identity_v1") {
+					if sent.Revision != q.Revision {
+						s.mu.Lock()
+						active.sentConfig = q
+						s.mu.Unlock()
+						s.devices.ApplyConfiguration(active.deviceID, active.sessionID, 0, nil, "unsupported_cellular")
+					}
+					last = time.Now()
+				} else if q.Template.NeighborProbe != nil && (!slices.Contains(active.capabilities, "neighbors_v1") || (q.Template.NeighborProbe.FDBPreset != "" && !slices.Contains(active.capabilities, "neighbors_inspect_v1"))) {
 					if sent.Revision != q.Revision {
 						s.mu.Lock()
 						active.sentConfig = q

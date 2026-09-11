@@ -44,6 +44,7 @@ const (
 )
 
 type Session struct {
+	Cellular                       *Cellular
 	Neighbors                      *Neighbors
 	ConfigRevision                 uint64
 	ConfigTemplate                 *probetemplate.Template
@@ -283,6 +284,7 @@ func cloneRegistration(v Registration) Registration {
 func cloneSession(v Session) Session {
 	v.ConfigTemplate = copyTemplate(v.ConfigTemplate)
 	v.Neighbors = copyNeighbors(v.Neighbors)
+	v.Cellular = copyCellular(v.Cellular)
 	v.Registration = cloneRegistration(v.Registration)
 	v.Runtime = cloneRuntime(v.Runtime)
 	v.Telemetry = cloneTelemetry(v.Telemetry)
