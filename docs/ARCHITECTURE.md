@@ -1,5 +1,13 @@
 # 路由器远程运维平台架构基线
 
+## 新串口鉴权入口（ADR-063，独立模块已实现，产品调用链未接入）
+
+`internal/serialauth`负责一条映射的外部TCP注册、凭据摘要校验、连接准入/独占和固定loopback后端的双向字节复制。验证入口在`tests/poc/gostv3/registration`，默认loopback且只允许loopback监听，避免PoC自行暴露公网；它不是正式Server启动入口。
+
+目标调用链仍为Client → 公开Application/API → 新Forwarding服务，数据另走“外部TCP → 注册鉴权入口 → 私有GOST反向TCP映射 → 设备GOST串口端”。鉴权成功之前不拨后端；旧Maintenance/RMT1保持不变。此模块不实现UART、GOST配置监管、公开HTTP API、设备Session绑定或持久化，以上必须由后续受监管的调用层接入并验收。Gate的context取消/到期/轮换回收已测试，不等于远端辅助进程和UART已确认回收。
+
+LAN TCP/UDP保持GOST数据面；PoC补丁只在忽略的第三方源码副本构建，可复现补丁及回归保存在`tests/poc/gostv3/patches`，不把GOST依赖并入产品go.mod。详见[GOST验证](GOST_V3_POC.md)。
+
 ## 设备日志（ADR-061）
 
 新增 `internal/devicelog` 负责查询/参数模型和有界原文解码；Management连接该Service与Gateway、Task和File/Repository；HTTP只调用Application，不绕过服务访问会话或资产内部。Gateway关联当前Session的只读EVENT请求与响应；配置和快照依旧走TASK幂等。持续查看采用小批量pull，不新建Tunnel或后台无人订阅的采集任务。

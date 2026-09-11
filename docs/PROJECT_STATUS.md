@@ -1,5 +1,7 @@
 # 项目状态
 
+2026-09-11 **SSH20007实机续测完成，run06为45项44通过，仍非完整准入。** FNR100补丁版TCP、单路0～65000字节UDP、PTY两档双向、注册首包剥离/认证前零写入/独占/断线及5轮快速重接通过；新增8来源32000字节UDP压力仅6/8成功。修复API缓冲数值类型配置及Linux串口Close阻塞，原版回归失败、修复后WSL/ARM各10轮通过；补丁重现及ARM vet通过。RSS约17.0～23.3MiB超候选16MiB，真实UART/不同网关LAN/长稳及API/Probe/WPF尚未完成。详见[GOST报告§4.5](GOST_V3_POC.md#45-ssh20007设备续测与串口回收修复2026-09-11最新)；自有进程退出，Probe PID32540和路由保持，原worktree不写、未提交/推送/部署。
+
 2026-09-11 **ADR-061 日志源码及本地调用链已实现**：实时打开自动设置两个NVRAM开关并commit；历史自动发现/自定义目录、独立保存设置、原始gzip与TXT导出、原文预览已接通。独立 `codex/device-logs` worktree；Go全量、Linux Go race/vet与WPF580项检查通过，独立发布完成；验证与产物见[设备日志验证](DEVICE_LOGS_VERIFICATION.md)。用户已取消开关实验，Probe的MIPS编译及设备功能验收由用户执行，本轮未编译Probe或部署设备。厂商AT/基站/覆盖时间解析等待样本；未提交/推送。
 
 ## 当前：ADR-060已完成GCC5.4/MIPS实机ATI/IMEI测试

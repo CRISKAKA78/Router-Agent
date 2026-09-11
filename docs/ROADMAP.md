@@ -1,5 +1,19 @@
 # 项目路线图
 
+- [x] 2026-09-11 SSH入口更新为20007；修复API UDP缓冲数值类型及Linux串口关闭阻塞，完成实机注册/PTY重接，WSL和ARM关闭回归各10轮通过。run06为45项44通过，详见[GOST报告§4.5](GOST_V3_POC.md#45-ssh20007设备续测与串口回收修复2026-09-11最新)。
+- [ ] 剩余准入：8来源32000字节UDP突发2路超时的定位、RSS17.0～23.3MiB与16MiB候选预算、真实UART/不同网关LAN/1小时长稳及监管。不将PTY通过当作硬件验收，不削减LAN UDP。
+
+- [x] 2026-09-11 ADR-063确认Windows无额外依赖的TCP首包注册；实现独立鉴权/独占/撤销模块与PoC入口，Windows重复回归和Linux race通过。
+- [x] 2026-09-11 GOST固定版最小补丁及回归可复现，Windows/ARM交叉构建成功，本机注册集成20项和Relay回归14项通过；LAN UDP完整/空报文与并发保留。
+- [x] 2026-09-11 20001入口历史阻塞已由用户改20007解决；ARM对齐及PTY注册/重开已实机验证，剩余准入以上方最新条目为准。
+- [ ] 后续产品Service/API/Probe/WPF与完整生命周期接入尚未实现；按ADR-063新授权及依赖推进，不重复索取已确认的客户端选择。
+
+- [x] 2026-09-11 创建 `codex/lan-serial-tunnel-plan`，完成[内网穿透/串口透传方案调研与计划](LAN_SERIAL_TUNNEL_PLAN.md)，记录Proposed ADR-062；无业务实现、部署或Git提交/推送。
+- [x] 2026-09-11 用户批准A、GOST v3优先；完成固定v3.3.0的Linux/Windows有限PoC、PTY和配置级TCP串口独占验证，保留失败与资源证据，见[GOST_V3_POC](GOST_V3_POC.md)。
+- [x] 2026-09-11 按用户要求新建独立worktree `codex/gostv3-device-poc`，经47.119.168.150:20001完成真实ARM启动、TCP/8并发/20轮开关、独立PTY两档双向及资源采样；保留climiter ARM panic与UDP失败证据，原工作目录不写入。
+- [x] 2026-09-11 用户明确串口仅TCP并新增连接后鉴权；完成本机Relay固定目标认证/防污染验证，发现独占bridge下一拥有者重接收失败；当前串口UDP测试移除，LAN TCP/UDP测试保留。
+- [ ] A完整准入仍未通过：客户端首包方案、climiter及PTY重开已有新证据；剩余UDP压力/资源/硬件/长期监管见顶部，不用历史A-only语句覆盖ADR-063授权。
+
 ## 设备日志（ADR-061，不新建阶段）
 
 - [x] 独立worktree、前期只读探测与审核；用户确认实时开关即时生效且自动commit，取消设备开关实验。

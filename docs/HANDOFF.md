@@ -1,5 +1,7 @@
 # 项目接管手册
 
+2026-09-11 使用独立`C:/Users/Administrator/Desktop/router-agent-gostv3-poc` / `codex/gostv3-device-poc`，原工作目录不写入。SSH最新为`admin@47.119.168.150:20007`，凭据沿用且不落库。先读[GOST报告§4.5](GOST_V3_POC.md#45-ssh20007设备续测与串口回收修复2026-09-11最新)：修复版ARM首包鉴权和PTY快速重开通过，45项中只剩8来源大UDP压力失败（6/8）；RSS约17.0～23.3MiB。原版Close阻塞回归失败、修复后WSL/ARM各10轮通过。下一步定位UDP丢失位置及资源预算、实际UART/不同网关LAN/长期监管，再推进产品调用链。新包/日志在a6隔离目录；测试已退出，仅清理自有上传压缩中间包，/tmp余56216KiB；不重复询问注册方案、不恢复旧20001入口。
+
 2026-09-11 日志入口：先读[设备日志验证与使用](DEVICE_LOGS_VERIFICATION.md)、ADR-061及API/PROTOCOL新增章节。工作树 `C:/Users/Administrator/Desktop/router-agent-device-logs`，分支 `codex/device-logs`，基线f331ffb。实时持久开启规则已确认，不恢复开关、不再寻找其他开关；历史目录为/tmp/third_party/data和/jffs。Server/WPF本地闭环已接通（Go全量与Linux race/vet、WPF580项及独立发布通过），MIPS Probe编译与实机测试由用户负责，不沿用旧ARM包或自动运行远程构建/部署脚本。原始样本语义解析仍未实施；无Git提交/推送。
 
 ## 当前接管：GCC5.4实机验证与免输入密码构建
