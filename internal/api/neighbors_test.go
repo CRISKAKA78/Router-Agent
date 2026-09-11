@@ -18,3 +18,17 @@ func TestNeighborAPIUnsupportedAndInvalidRanges(t *testing.T) {
 		request(t, base, "POST", path, fmt.Sprint("bad-", i), body, 400)
 	}
 }
+
+func TestNeighborCapabilitiesAndFieldErrors(t *testing.T) {
+	_, _, base, _ := fixture(t, Config{})
+	c := request(t, base, "GET", "/api/v1/capabilities", "", "", 200)
+	caps := c["data"].(map[string]any)["capabilities"].([]any)
+	if len(caps) < 3 || caps[0] != "neighbor_probe" {
+		t.Fatal(c)
+	}
+	v := request(t, base, "POST", "/api/v1/probe-templates", "bad-interval", `{"name":"neighbor","properties":{},"neighbor_probe":{"interval_seconds":1,"domains":[{"id":"local","scope":"broadcast","interface":"br0"}]}}`, 400)
+	e := v["error"].(map[string]any)
+	if e["code"] != "invalid_request" || e["field"] != "neighbor_probe.interval_seconds" || e["details"] == "" {
+		t.Fatal(v)
+	}
+}

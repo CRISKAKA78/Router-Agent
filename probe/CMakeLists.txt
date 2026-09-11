@@ -18,6 +18,7 @@ add_library(rmp_probe_core STATIC
     src/system_info.cpp
     src/telemetry.cpp
     src/neighbors.cpp
+    src/neighbor_networks.cpp
     src/egress.cpp
     src/live_config.cpp
     src/switch_probe.cpp

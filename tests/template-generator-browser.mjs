@@ -363,14 +363,17 @@ try {
   if(physical.switch_probe.counters.rx_field!=='RxGoodByte'||physical.switch_probe.ports[4].display_name!=='WAN')throw Error('Server lost physical profile');
   check('FNR100 profile, exact 64-bit sample preview, invalid counter rejection, layouts, export and real API publication');
   await tab('模板配置');await tab('邻居发现');
-  await page.getByLabel('启用邻居采集',{exact:true}).check();
-  await page.getByLabel('邻居三层接口',{exact:true}).fill('br0');
-  await page.getByLabel('广播域标识',{exact:true}).fill('local');
-  await page.getByRole('button',{name:'添加广播域',exact:true}).click();
-  await page.getByLabel('广播域标识',{exact:true}).nth(1).fill('lan');
-  await page.getByLabel('邻居分类',{exact:true}).nth(1).selectOption('lan');
-  await page.getByLabel('邻居三层接口',{exact:true}).nth(1).fill('br0');
-  await page.getByLabel('邻居转发端口',{exact:true}).nth(1).fill('lan1,lan2');
+  await page.getByLabel('启用邻居发现 · 发现本机网络设备',{exact:true}).check();
+  await expect(page.locator('.neighbor-editor details').first()).not.toHaveAttribute('open','');
+  await page.locator('.neighbor-editor summary').filter({hasText:'高级设置'}).click();
+  await page.getByRole('button',{name:'添加高级域',exact:true}).click();
+  await page.getByLabel('原始Linux接口名',{exact:true}).fill('br0');
+  await page.getByLabel('内部域ID',{exact:true}).fill('local');
+  await page.getByRole('button',{name:'添加高级域',exact:true}).click();
+  await page.getByLabel('内部域ID',{exact:true}).nth(1).fill('lan');
+  await page.getByLabel('邻居scope',{exact:true}).nth(1).selectOption('lan');
+  await page.getByLabel('原始Linux接口名',{exact:true}).nth(1).fill('br0');
+  await page.getByLabel('计入LAN清单的端口',{exact:true}).nth(1).fill('lan1,lan2');
   for(const [width,height,theme] of [[1920,1080,'Light'],[900,760,'Dark']]){
     await page.setViewportSize({width,height});await page.getByLabel('更多操作').click();await page.getByLabel('外观',{exact:true}).selectOption(theme);
     await expect(page.locator('html')).toHaveAttribute('data-theme',theme.toLowerCase());
@@ -386,8 +389,9 @@ try {
   if((await api('probe-templates')).items.find(t=>t.template_id===physical.template_id).neighbor_probe.domains.length!==2)throw Error('Server lost neighbor domains');
   const neighborProject=await download(()=>page.keyboard.press('Control+s'));
   await open(neighborProject);await confirm('替换');await tab('模板配置');await tab('邻居发现');
-  await expect(page.getByLabel('邻居三层接口',{exact:true})).toHaveCount(2);
-  await expect(page.getByLabel('邻居转发端口',{exact:true}).nth(1)).toHaveValue('lan1,lan2');
+  await page.locator('.neighbor-editor summary').filter({hasText:'高级设置'}).click();
+  await expect(page.getByLabel('原始Linux接口名',{exact:true})).toHaveCount(2);
+  await expect(page.getByLabel('计入LAN清单的端口',{exact:true}).nth(1)).toHaveValue('lan1,lan2');
   check('neighbor domains share interface, preserve distinct scopes and LAN ports across browser edit, project reload, export and API publication');
   if (errors.length) throw Error('Browser errors: '+errors.join('\n'));
   await writeFile(resolve(output,'browser-results.json'),JSON.stringify({checks,errors},null,2));

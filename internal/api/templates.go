@@ -1,6 +1,7 @@
 package api
 
 import (
+	"errors"
 	"net/http"
 	"routerprobe/internal/probetemplate"
 )
@@ -19,7 +20,11 @@ func (a *Server) templateRoutes() {
 	})
 	a.route("POST /api/v1/probe-templates", true, func(r *http.Request) response {
 		var q probetemplate.Input
-		if decode(r, &q) != nil {
+		if e := decode(r, &q); e != nil {
+			var field *probetemplate.FieldError
+			if errors.As(e, &field) {
+				return failure(e)
+			}
 			return invalid()
 		}
 		v, e := a.app.ProbeTemplates().Put("", 0, q)
@@ -33,7 +38,14 @@ func (a *Server) templateRoutes() {
 			probetemplate.Input
 			Version uint64 `json:"version"`
 		}
-		if decode(r, &q) != nil || q.Version == 0 {
+		if e := decode(r, &q); e != nil {
+			var field *probetemplate.FieldError
+			if errors.As(e, &field) {
+				return failure(e)
+			}
+			return invalid()
+		}
+		if q.Version == 0 {
 			return invalid()
 		}
 		v, e := a.app.ProbeTemplates().Put(r.PathValue("id"), q.Version, q.Input)
@@ -43,7 +55,14 @@ func (a *Server) templateRoutes() {
 		var q struct {
 			Version uint64 `json:"version"`
 		}
-		if decode(r, &q) != nil || q.Version == 0 {
+		if e := decode(r, &q); e != nil {
+			var field *probetemplate.FieldError
+			if errors.As(e, &field) {
+				return failure(e)
+			}
+			return invalid()
+		}
+		if q.Version == 0 {
 			return invalid()
 		}
 		e := a.app.DeleteTemplate(r.PathValue("id"), q.Version)

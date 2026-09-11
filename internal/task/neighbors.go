@@ -51,3 +51,23 @@ func (s *Service) NewNeighbor(deviceID string, p NeighborRequest, cancel bool) (
 	spec.Params = append(json.RawMessage(nil), raw...)
 	return spec, nil
 }
+
+type NeighborInspectRequest struct {
+	SessionID  string `json:"session_id"`
+	Revision   uint64 `json:"config_revision"`
+	VendorTest bool   `json:"vendor_test"`
+}
+
+func (s *Service) NewNeighborInspect(deviceID string, p NeighborInspectRequest) (Spec, error) {
+	id, e := newTaskID()
+	if e != nil {
+		return Spec{}, e
+	}
+	raw, _ := json.Marshal(p)
+	spec := Spec{ID: id, DeviceID: deviceID, Type: "neighbor_inspect", CreatedAt: time.Now().Unix(), Timeout: 30, Params: raw}
+	s.mu.Lock()
+	s.records[id] = &record{snapshot: Snapshot{Spec: spec, State: StateReceived}, done: make(chan struct{})}
+	s.mu.Unlock()
+	s.revision.Add(1)
+	return spec, nil
+}

@@ -243,6 +243,56 @@ public sealed class PublishingTests
         await Assert.ThrowsAsync<InvalidOperationException>(() => service.ConnectAsync("http://localhost:9999"));
     }
 
+
+    [Fact]
+    public async Task OldServerBlocksNeighborPublishBeforeAnyWrite()
+    {
+        int writes=0;
+        await using var server=await ApiPeer.StartAsync(async c=>{if(c.Request.Method=="GET")await WriteList(c);else{writes++;await c.Response.WriteAsJsonAsync(new {error=new{code="invalid_request"}});}});
+        await using var service=NewService();await service.ConnectAsync(server.Origin);await UntilAsync(()=>service.Synchronized);
+        var template=Template();template.NeighborProbe=new(){Domains=[new(){Interface="br0"}]};
+        var error=await Assert.ThrowsAsync<InvalidOperationException>(()=>service.PublishAsync(template,false));
+        Assert.Contains("当前Management Server不支持邻居发现模板",error.Message);Assert.Contains("neighbor_probe",service.CapabilitySummary);Assert.Equal(0,writes);Assert.Null(service.Pending);
+    }
+
+    [Fact]
+    public async Task ReadOnlyInspectionPreservesOriginalRequestOnUncertainResponse()
+    {
+        var requests=new ConcurrentQueue<(string Body,string Key)>();
+        PendingTemplateMutation? persisted=null;
+        await using var server=await ApiPeer.StartAsync(WriteList,neighborHandler:async c=>
+        {
+            if(c.Request.Path=="/api/v1/capabilities") { await c.Response.WriteAsJsonAsync(new{data=new{capabilities=new[]{"neighbor_probe","neighbors_inspect_v1"}}}); return; }
+            if(c.Request.Method=="GET") { await c.Response.WriteAsJsonAsync(new{data=new{items=Array.Empty<object>(),total=0}}); return; }
+            var body=await new StreamReader(c.Request.Body).ReadToEndAsync();var key=c.Request.Headers["Idempotency-Key"].ToString();
+            Assert.NotNull(persisted);Assert.Equal(persisted!.Body,body);Assert.Equal(persisted.Key,key);requests.Enqueue((body,key));
+            if(requests.Count==1){c.Abort();return;}
+            await c.Response.WriteAsJsonAsync(new{data=new{task_id="original-inspection"}});
+        });
+        await using var service=NewService();service.PersistStateAsync=()=>{persisted=service.Pending;return Task.CompletedTask;};
+        await service.ConnectAsync(server.Origin);await UntilAsync(()=>service.Synchronized);
+        var reference=new NeighborReference("reference","online",new ReferenceRegistration("FNR100","test",["neighbors_v1","neighbors_inspect_v1"]),new ReferenceSession("session-a"),9,null,null);
+        await Assert.ThrowsAnyAsync<Exception>(()=>service.InspectNeighborsAsync(reference,true));
+        var original=Assert.IsType<PendingTemplateMutation>(service.Pending);Assert.Contains("neighbor-inspections",original.Path);
+        using(var body=JsonDocument.Parse(original.Body)){Assert.True(body.RootElement.GetProperty("vendor_test").GetBoolean());Assert.Equal((ulong)9,body.RootElement.GetProperty("config_revision").GetUInt64());}
+        await service.RetryPendingAsync(true);Assert.Null(service.Pending);Assert.Equal(2,requests.Count);Assert.Equal(requests.First(),requests.Last());
+    }
+
+    [Fact]
+    public async Task NeighborEditorRendersOfflineAccessibleFieldsAndPreciseErrors()
+    {
+        var js=new BrowserStorage();var files=new ProjectFiles();await using var publishing=NewService();
+        await using var state=new EditorWorkspace(new TemplateCompiler(),files,new WorkspacePersistence(js,files),publishing,js);
+        await state.InitializeAsync();state.Project.NeighborProbe=new(){FdbPreset="fnr100",Domains=[new(){Id="local",Interface="../bad"}]};state.Touch();
+        using var services=new ServiceCollection().AddLogging().BuildServiceProvider();
+        await using var renderer=new Microsoft.AspNetCore.Components.Web.HtmlRenderer(services,services.GetRequiredService<ILoggerFactory>());
+        var html=await renderer.Dispatcher.InvokeAsync(async()=>{var rendered=await renderer.RenderComponentAsync<ProbeTemplateGenerator.Features.Attributes.NeighborEditor>(Microsoft.AspNetCore.Components.ParameterView.FromDictionary(new Dictionary<string,object?>{{"State",state}}));return rendered.ToHtmlString();});
+        html=WebUtility.HtmlDecode(html);
+        Assert.Contains("智能配置（推荐）",html);Assert.Contains("尚未设备验证",html);Assert.Contains("物理端口识别命令（高级）",html);Assert.Contains("所有应用该模板版本的设备",html);
+        Assert.Contains("aria-invalid=",html);Assert.Contains("neighbor-domain-0-error",html);Assert.Contains("原始Linux接口名",html);Assert.Contains("清除型号预设（保留现有域）",html);Assert.DoesNotContain("邻居三层接口",html);
+        Assert.Contains(state.Issues,i=>i.Field=="neighbor_probe.domains[0].interface");
+    }
+
     private static WorkspacePersistence CreatePersistence() => new(new BrowserStorage(), new ProjectFiles());
 
     private static TemplatePublishingService NewService()
@@ -279,6 +329,7 @@ public sealed class PublishingTests
                 Values[(string)args![0]!] = (string)args[1]!;
                 Writes++;
             }
+            else if(identifier=="workspace.setTheme") { /* Native HTML rendering does not execute browser theme scripts. */ }
             else throw new NotSupportedException(identifier);
             return ValueTask.FromResult(result is null ? default! : (TValue)result);
         }
@@ -288,7 +339,7 @@ public sealed class PublishingTests
     {
         public string Origin { get; } = origin;
 
-        public static async Task<ApiPeer> StartAsync(RequestDelegate handler, Task? initialGate = null, bool closeFirstConnection = false)
+        public static async Task<ApiPeer> StartAsync(RequestDelegate handler, Task? initialGate = null, bool closeFirstConnection = false, RequestDelegate? neighborHandler = null)
         {
             var builder = WebApplication.CreateBuilder(new WebApplicationOptions { EnvironmentName = "Testing" });
             builder.WebHost.UseKestrel().UseUrls("http://127.0.0.1:0");
@@ -317,6 +368,11 @@ public sealed class PublishingTests
                 }
                 catch (Exception ex) when (ex is WebSocketException or OperationCanceledException) { }
             });
+            if(neighborHandler is not null) {
+                app.Map("/api/v1/capabilities",neighborHandler);
+                app.Map("/api/v1/devices",neighborHandler);
+                app.Map("/api/v1/devices/{**path}",neighborHandler);
+            }
             app.Map("/api/v1/probe-templates/{**path}", handler);
             app.Map("/api/v1/probe-templates", handler);
             await app.StartAsync();

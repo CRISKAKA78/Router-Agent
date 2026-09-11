@@ -67,6 +67,8 @@ type Runtime struct {
 // LatestSession is current when online, or the most recently ended session.
 // Zero LastOfflineAt means no online -> offline transition has been observed.
 type Snapshot struct {
+	RecentNeighbors                                      []RecentNeighbor
+	NeighborDiscovery                                    *NeighborDiscovery
 	Registration                                         Registration
 	Status                                               Status
 	FirstSeenAt, LastSeenAt, LastOnlineAt, LastOfflineAt time.Time
@@ -92,6 +94,9 @@ type Query interface {
 }
 
 type record struct {
+	neighborDiscoveryOrder             uint64
+	recentNeighbors                    []RecentNeighbor
+	neighborDiscovery                  *NeighborDiscovery
 	connection                         *ConnectionPeriod
 	connections                        []ConnectionPeriod
 	connectionTotal, connectionEvicted uint64
@@ -140,6 +145,9 @@ func (s *Service) Publish(info Registration, sessionID string, at time.Time) {
 	} else {
 		s.beginConnection(r, at)
 	}
+	r.recentNeighbors = nil
+	r.neighborDiscovery = nil
+	r.neighborDiscoveryOrder = 0
 	r.current = &Session{ID: sessionID, Registration: cloneRegistration(info), Telemetry: emptyTelemetry(), StartedAt: at, LastSeenAt: at}
 	r.total++
 }
@@ -252,7 +260,7 @@ func (s *Service) Sessions(deviceID string) (SessionHistory, error) {
 }
 
 func snapshot(r *record) Snapshot {
-	v := Snapshot{Status: Offline, FirstSeenAt: r.firstSeen, LastOfflineAt: r.lastOffline, TotalSessions: r.total, EvictedSessions: r.evicted}
+	v := Snapshot{RecentNeighbors: append([]RecentNeighbor{}, r.recentNeighbors...), NeighborDiscovery: copyDiscovery(r.neighborDiscovery), Status: Offline, FirstSeenAt: r.firstSeen, LastOfflineAt: r.lastOffline, TotalSessions: r.total, EvictedSessions: r.evicted}
 	if r.current != nil {
 		v.Status = Online
 		current := cloneSession(*r.current)

@@ -334,3 +334,12 @@ fluent-button.danger-action::part(control) { background: #b73532; border-color: 
 .preview-tabs > button { flex-shrink: 0; white-space: nowrap; }
 
 .attribute-categories{display:flex;flex-wrap:wrap;gap:6px;margin:10px 0;position:sticky;top:0;z-index:2;background:var(--surface,#fff);padding:8px 0}.attribute-categories button.active{font-weight:700;border-color:var(--accent,#267ad3)}.storage-visibility{margin:10px 0}
+
+/* Neighbor discovery stays within the existing workspace at narrow widths. */
+.neighbor-editor, .neighbor-editor fieldset, .neighbor-editor .field-grid>* {min-width:0;max-width:100%;}
+.neighbor-editor fieldset {border:0;padding:0;margin:12px 0;}
+.neighbor-editor select,.neighbor-editor input:not([type=checkbox]),.neighbor-editor textarea {box-sizing:border-box;width:100%;min-width:0;}
+.neighbor-editor pre {white-space:pre-wrap;overflow-wrap:anywhere;max-height:220px;overflow:auto;}
+.neighbor-editor p {overflow-wrap:anywhere;}
+.neighbor-editor details {margin-top:12px;} .neighbor-editor summary {cursor:pointer;padding:8px 0;}
+.neighbor-editor legend {font-weight:600;} .neighbor-editor .field-error {color:var(--error-foreground,#b42318);}

@@ -294,13 +294,14 @@ void Merge(std::vector<NeighborRow> &rows, const NeighborRow &row) {
         i.hostname = row.hostname;
       if (row.state == "responded" || row.state == "reachable")
         i.state = row.state;
+      if (row.active_age_ms >= 0) i.active_age_ms = row.active_age_ms;
       return;
     }
   if (rows.size() < 512)
     rows.push_back(row);
 }
 std::string RowJSON(const NeighborRow &r) {
-  return "{\"interface\":" + EscapeJsonString(r.interface) +
+  return "{" + (r.active_age_ms >= 0 ? "\"active_age_ms\":" + std::to_string(r.active_age_ms) + "," : "") + "\"interface\":" + EscapeJsonString(r.interface) +
          ",\"ip\":" + EscapeJsonString(r.ip) +
          ",\"mac\":" + EscapeJsonString(r.mac) +
          ",\"port\":" + EscapeJsonString(r.port) +
@@ -376,7 +377,7 @@ bool ParseNeighborPlan(const std::string &s, NeighborPlan *out) {
     return false;
   for (const auto &i : o)
     if (i.first != "domains" && i.first != "interval_seconds" &&
-        i.first != "fdb_command")
+        i.first != "fdb_command" && i.first != "fdb_preset")
       return false;
   if (o.count("interval_seconds")) {
     auto n = o["interval_seconds"];
@@ -393,6 +394,7 @@ bool ParseNeighborPlan(const std::string &s, NeighborPlan *out) {
         p.fdb_command.find('\0') != std::string::npos)
       return false;
   }
+  if(o.count("fdb_preset")){if(o["fdb_preset"].type!=JsonType::kString||Str(o,"fdb_preset")!="fnr100"||!p.fdb_command.empty())return false;p.fdb_preset="fnr100";}
   std::set<std::string> ids, interfaces;
   for (const auto &v : Objects(o["domains"].raw_value)) {
     for (const auto &i : v)
@@ -565,6 +567,7 @@ void Neighbors::Run() {
     auto ndp = Netlink(root_, AF_INET6, cancel.get(), &ndpOK);
     auto fdb = Netlink(root_, AF_BRIDGE, cancel.get(), &fdbOK);
     std::string vendor;
+ std::vector<NeighborRow> presetRows;
     bool vendorOK = true;
     if (!plan.fdb_command.empty()) {
       ExecTask t;
@@ -577,6 +580,7 @@ void Neighbors::Run() {
       if (vendorOK)
         vendor = result.stdout_text;
     }
+    if(plan.fdb_preset=="fnr100"){std::string raw;vendorOK=ReadFNR100(root_,cancel.get(),&presetRows,&raw);if(!vendorOK)presetRows.clear();}
     std::string domains;
     unsigned total = 0;
     std::size_t encoded = 0;
@@ -598,7 +602,7 @@ void Neighbors::Run() {
         for (const auto &r : recent)
           if (r.row.interface == d.interface &&
               Clock::now() - r.at < std::chrono::seconds(60))
-            Merge(rows, r.row);
+            {auto row=r.row;row.active_age_ms=std::chrono::duration_cast<std::chrono::milliseconds>(Clock::now()-r.at).count();Merge(rows,row);}
         if (!arpOK && !ipv4OK)
           reason = "arp_unavailable";
         if (!ndpOK)
@@ -677,6 +681,7 @@ void Neighbors::Run() {
               Text(port, 128) && !std::getline(fields, extra, '\t'))
             vendorPorts[NormalizeMac(mac)].insert(port);
         }
+        for(const auto&r:presetRows)if(d.interface==r.interface)vendorPorts[r.mac].insert(r.port);
         for (const auto &p : vendorPorts)
           ports[p.first] = p.second;
         for (const auto &p : ports) {
@@ -829,8 +834,10 @@ ExecResult Neighbors::Scan(const ExecTask &t,
   if (!NeighborRange(t.config.at("cidr"), &first, &last) ||
       !Address(domain.interface, &local, &mask, mac))
     return finish("interface_ipv4_unavailable");
-  if ((first & mask) != (local & mask) || (last & mask) != (local & mask))
-    return finish("range_not_on_link");
+  bool onLink=false;
+  for(const auto&n:DiscoverNeighborNetworks(root_))if(n.interface==domain.interface&&n.eligible)for(const auto&prefix:n.ipv4){auto slash=prefix.find('/');unsigned bits=std::strtoul(prefix.c_str()+slash+1,NULL,10);in_addr a;if(inet_pton(AF_INET,prefix.substr(0,slash).c_str(),&a)!=1)continue;auto candidate=ntohl(a.s_addr);auto m=bits?0xffffffffU<<(32-bits):0;
+   if((first&m)==(candidate&m)&&(last&m)==(candidate&m)){local=candidate;mask=m;onLink=true;break;}}
+  if(!onLink)return finish("range_not_on_link");
   FD fd(Socket(AF_PACKET, SOCK_RAW, htons(ETH_P_ARP)));
   if (fd.n < 0)
     return finish("raw_socket_unavailable");
@@ -862,6 +869,7 @@ ExecResult Neighbors::Scan(const ExecTask &t,
   std::uint64_t next = first;
   std::set<std::uint32_t> sent;
   std::vector<NeighborRow> responses;
+  std::map<std::string, Clock::time_point> respondedAt;
   while (Clock::now() < deadline && !cancel->load() && !stop_) {
     auto now = Clock::now();
     if (next <= last && now >= sendAt) {
@@ -907,6 +915,7 @@ ExecResult Neighbors::Scan(const ExecTask &t,
     row.source = "active_arp";
     row.state = "responded";
     Merge(responses, row);
+    respondedAt[row.ip + "/" + row.mac] = Clock::now();
   }
   if (cancel->load() || stop_)
     return finish("cancelled");
@@ -929,7 +938,7 @@ ExecResult Neighbors::Scan(const ExecTask &t,
                     recent_.end());
       for (const auto &r : responses)
         if (recent_.size() < 256)
-          recent_.push_back(Recent{domain.id, r, now});
+          recent_.push_back(Recent{domain.id, r, respondedAt.at(r.ip + "/" + r.mac)});
       refresh_ = true;
     }
   }
@@ -937,7 +946,8 @@ ExecResult Neighbors::Scan(const ExecTask &t,
     return finish(result.stderr_text);
   result.status = "success";
   result.exit_code = 0;
-  result.stdout_text = "{\"requests\":" + std::to_string(sent.size()) +
+  std::string responseRows;for(const auto&r:responses){auto row=r;row.active_age_ms=static_cast<std::uint64_t>(std::chrono::duration_cast<std::chrono::milliseconds>(Clock::now()-respondedAt.at(r.ip+"/"+r.mac)).count());if(!responseRows.empty())responseRows+=",";responseRows+=RowJSON(row);}
+  result.stdout_text = "{\"rows\":["+responseRows+"],\"requests\":" + std::to_string(sent.size()) +
                        ",\"responses\":" + std::to_string(responses.size()) +
                        "}";
   return finish("");

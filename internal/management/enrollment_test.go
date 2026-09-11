@@ -55,3 +55,22 @@ func TestOfflineConfigurationAndPinnedTemplateSurviveRestart(t *testing.T) {
 		t.Fatal("durable template references lost")
 	}
 }
+
+func TestNeighborOnlyTemplateCanBeApplied(t *testing.T) {
+	app, e := New(Config{RepositoryDirectory: t.TempDir()})
+	if e != nil {
+		t.Fatal(e)
+	}
+	defer app.Close()
+	template, e := app.ProbeTemplates().Put("", 0, probetemplate.Input{Name: "neighbor only", Properties: map[string]probetemplate.Property{}, NeighborProbe: &probetemplate.NeighborProbe{Interval: 30, Domains: []probetemplate.NeighborDomain{{ID: "local", Scope: "broadcast", Interface: "br0"}}}})
+	if e != nil {
+		t.Fatal(e)
+	}
+	if e := app.Enrollment().Discover(device.Registration{DeviceID: "n"}); e != nil {
+		t.Fatal(e)
+	}
+	p, e := app.UpdateDevice("n", DeviceUpdate{Version: 1, Admission: "managed", Name: "n", TemplateID: template.ID, ApplyTemplate: true})
+	if e != nil || p.Configuration.Template.NeighborProbe == nil {
+		t.Fatalf("neighbor-only apply: %+v %v", p, e)
+	}
+}

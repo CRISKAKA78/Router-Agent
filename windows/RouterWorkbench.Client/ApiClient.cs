@@ -7,9 +7,11 @@ using RouterWorkbench.Core;
 
 namespace RouterWorkbench.Client;
 
-public sealed class ApiException(string code, string message, HttpStatusCode status) : Exception($"{message} [{code}, HTTP {(int)status}]")
+public sealed class ApiException(string code, string message, HttpStatusCode status,string? field=null,string? details=null) : Exception($"{details??message} [{code}, HTTP {(int)status}]")
 {
     public string Code { get; } = code;
+    public string? Field {get;}=field;
+    public string? Details {get;}=details;
 }
 
 // Immutable request identity and payload. A raw import retains an open read-only handle,
@@ -57,7 +59,7 @@ public sealed class ApiClient : IDisposable
         using var document = await JsonDocument.ParseAsync(stream, cancellationToken: cancel.Token);
         if (!response.IsSuccessStatusCode) {
             if (!document.RootElement.TryGetProperty("error", out var error) || !error.TryGetProperty("code", out var code)) throw new InvalidDataException("API 错误响应无法解析。");
-            throw new ApiException(code.GetString()!, error.GetProperty("message").GetString()!, response.StatusCode);
+            throw new ApiException(code.GetString()!, error.GetProperty("message").GetString()!, response.StatusCode,error.TryGetProperty("field",out var field)?field.GetString():null,error.TryGetProperty("details",out var details)?details.GetString():null);
         }
         if (!document.RootElement.TryGetProperty("data", out var data)) throw new InvalidDataException("API 响应缺少 data。");
         return data.Clone();

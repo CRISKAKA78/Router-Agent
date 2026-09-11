@@ -1,5 +1,22 @@
 # Management Server API
 
+## 智能邻居发现增量（ADR-057，2026-09-10）
+
+本节扩展下方 ADR-056 接口，未改变原传输、认证边界或幂等机制。所有请求通过 Application/Service；客户端不访问 Gateway、设备注册表或存储。
+
+- `GET /api/v1/capabilities` → `data.capabilities: ["neighbor_probe", "neighbors_inspect_v1", "neighbors_recent_v1"]`。生成器把404/405或缺少 `neighbor_probe` 视为不支持，**在发送邻居模板发布/更新请求前**禁用，显示“当前Management Server不支持邻居发现模板，请更新Server后再发布”与当前/所需能力。离线保存、导入、导出不受此能力门槛限制。
+- `POST /api/v1/devices/{id}/neighbor-inspections`，需 `Idempotency-Key`，JSON 为 `{"session_id":"当前Session","config_revision":1,"vendor_test":false}`。返回202与 `data.task_id`，复用任务查询；这是读取设备事实的 TASK，不修改网络。普通检测可用于未纳管的在线参考设备；需 Probe `neighbors_inspect_v1`，Session/已应用revision必须匹配（未应用时revision可为0）。`vendor_test:true` 仅用户显式点击，Server还要求注册型号为FNR100；不允许自动厂商命令探测。
+- `GET /api/v1/devices/{id}/neighbor-discovery` → `data.discovery`，无结果为null。设备DTO同时添加 `neighbor_discovery`。字段为 `networks[]`、`preset`、`preset_status`、`raw_summary`（最多4096字节）、`ports[]`、`session_id`、`config_revision`、`detected_at`、`stale`；90秒、离线或Session/revision不符即过期。每个network含 `interface/bridge/vlan/master/eligible/reason/ipv4/networks/ports`；ipv4保留主机地址和前缀，networks由Server规范化，ports是内核桥成员路径。不推断上联/下联。桥成员不能作为独立采集接口；VLAN子接口按真实事实列出。普通检测不验证switch0/ARL，`preset_status=not_tested`；显式测试可能为verified/failed，不匹配回退内核FDB。
+- 设备纳管DTO添加 `neighbor_configuration`（已应用的完整neighbor_probe或null），供用户明确“使用设备当前已应用配置”；包含可选高级命令，只复制，不执行。原 `neighbor_domains` 与模板摘要保持兼容。
+- 原 `GET /devices/{id}/neighbors` 保留 `data.snapshot`，添加 `data.recent`、`retention_seconds:86400`、`capacity:1024`、`persistent:false`；设备DTO同时提供 `recent_neighbors`。近期条目包含原行字段及 `domain_id/scope/first_seen/last_seen/current/active_at`。每设备按域/IP/MAC去重并按最后发现淘汰，跨域可重叠；仅Server内存，重启、Session替换或配置修订变化清空。离线不立即删除历史，但不表示在线。默认客户端显示recent，用户可切换最新快照。
+- 主动响应的 `responded/active_arp` 最长60秒，之后移除主动新鲜来源，近期行显示 `recent` 与最后发现时间；仅主动历史来源为 `active_arp_history`。缓存、租约、FDB以及 `current:true` 均不是在线保证。只有MAC时IP保持空/未知。
+- 原扫描接口仍要求规范IPv4 CIDR `/24`～`/32`（最多256地址）。新Probe的检测结果必须新鲜且属于所选域的当前直连网络；失败400 `field:"cidr"`。为了兼容已发布的 `neighbors_v1` Probe，未声明检测能力时保持旧的规范范围校验，并由Probe最终检查直连范围；新WPF提示升级后使用自动检测。客户端接受主机地址前缀并在提交前显示规范化值；不放宽Server或Probe最终校验。
+- 扫描成功后任务DTO可选 `neighbor_summary:{responses,added,updated}`；统计以扫描派发前同接口IP/MAC记录为基线，不重复计算跨域记录。实时结果立刻合入可匹配广播域历史；LAN仍等待真实端口证据。刷新查询不创建扫描。重复RESULT不重复合入；旧Session/revision的结果不污染新视图。
+- 模板 `neighbor_probe` 可选 `fdb_preset:"fnr100"`，与 `fdb_command` 互斥；预设需新Probe额外能力，设备应用前显示能力不足，不把保存模板视为设备应用成功。
+- 错误保持原 `error.code`（例如invalid_request），兼容增加字符串 `field`、`details`，如 `neighbor_probe.domains[0].interface`。新生成器定位字段，旧客户端可忽略新增详情。
+
+操作、边界与本轮证据见[智能邻居配置](NEIGHBOR_SMART_CONFIGURATION.md)。
+
 ## 邻居发现（ADR-056，2026-09-10）
 
 新增路由均通过Management Application进入Device/Task/Gateway服务，前端不访问连接表。路径前缀 `/api/v1`，响应继续使用data/error信封，写请求需要Idempotency-Key。

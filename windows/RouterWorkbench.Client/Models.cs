@@ -21,7 +21,7 @@ public sealed record DeviceSession(string SessionId, Registration Registration, 
 }
 public sealed record Device(string DeviceId, Registration Registration, string Status, DeviceSession? CurrentSession,
     DeviceSession? LatestSession, DateTimeOffset? FirstSeenAt, DateTimeOffset? LastSeenAt,
-    DateTimeOffset? LastOnlineAt, DateTimeOffset? LastOfflineAt, long TotalSessions, long EvictedSessions, DeviceRuntime? Runtime = null, string? SourceIp = null, Dictionary<string, Metric>? EffectiveMetrics = null, DeviceProfile? Profile=null, Presentation? Presentation=null, TemplateReference? ActiveTemplate=null, ulong AppliedRevision=0, NeighborSnapshot? Neighbors=null, NeighborDomainConfig[]? NeighborDomains=null)
+    DateTimeOffset? LastOnlineAt, DateTimeOffset? LastOfflineAt, long TotalSessions, long EvictedSessions, DeviceRuntime? Runtime = null, string? SourceIp = null, Dictionary<string, Metric>? EffectiveMetrics = null, DeviceProfile? Profile=null, Presentation? Presentation=null, TemplateReference? ActiveTemplate=null, ulong AppliedRevision=0, NeighborSnapshot? Neighbors=null, NeighborDomainConfig[]? NeighborDomains=null, RouterAgent.Neighbors.NetworkDiscovery? NeighborDiscovery=null, NeighborRow[]? RecentNeighbors=null)
 {
     [JsonIgnore] public string DeviceName => Profile?.Name ?? (string.IsNullOrEmpty(Registration.Hostname) ? "—" : Registration.Hostname);
     [JsonIgnore] public string DisplayName => Profile?.Name ?? (string.IsNullOrEmpty(Registration.Hostname) ? DeviceId : Registration.Hostname);
@@ -39,7 +39,7 @@ public sealed record TaskResult(string Status, int ExitCode, string Stdout, stri
     DateTimeOffset? StartedAt, DateTimeOffset? FinishedAt);
 public sealed record TaskDetail(string TaskId, string DeviceId, string Type, string State, DateTimeOffset CreatedAt,
     string Command, string Cwd, uint TimeoutSeconds, string? LastSessionId, int DispatchCount, TaskResult? Result,
-    Dictionary<string, string>? Env, [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)] JsonElement Params) : TaskSummary(TaskId, DeviceId, Type, State, CreatedAt);
+    Dictionary<string, string>? Env, [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)] JsonElement Params, NeighborScanSummary? NeighborSummary=null) : TaskSummary(TaskId, DeviceId, Type, State, CreatedAt);
 public sealed record Transfer(string TaskId, string TransferId, bool Committed, bool Released, bool Failed, long Size, string Sha256);
 public sealed record Operation(string TaskId, string TransferId, string DeviceId, string SessionId, string ToolId, string Version, string ArtifactId, string AssetId);
 public sealed record Asset(string AssetId, string Name, long Size, string Sha256, bool Archived, DateTimeOffset CreatedAt)

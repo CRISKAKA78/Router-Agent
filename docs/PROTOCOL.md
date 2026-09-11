@@ -1,5 +1,19 @@
 # 路由器探针 TCP 长连接控制协议
 
+## 智能邻居发现增量（ADR-057，2026-09-10）
+
+保留ADR-056的neighbors_v1、EVENT与扫描/取消机制，不新增帧类型或持续交互数据面。
+
+1. Probe REGISTER增加能力 `neighbors_inspect_v1`。TASK增加 `type:"neighbor_inspect"`，timeout=30，params为 `session_id`（非空、最多128字节）、`config_revision`、`vendor_test`（boolean）三个字段。沿用ACK/RESULT、任务幂等缓存及Session绑定；响应不确定不得创建替代任务。三个参数都参与任务身份比较。
+2. 普通检测仅读取sysfs、proc网络元数据及RTM_GETADDR（500ms有界读取）；输出当前以太网接口、全部受限IPv4前缀、桥/VLAN/桥成员和桥成员端口。检测不按接口名、默认路由或MAC数量猜方向。结果JSON放在RESULT stdout：`networks:[{interface,bridge,vlan,master,eligible,reason,ipv4,ports}]`，以及 `preset/preset_status/raw_summary/ports`。Server限制64接口、每接口8个IPv4和64端口、总JSON24576字节，规范化networks，并添加接收时间、Session/revision与过期信息。不完整或异常结果不假装检测成功。
+3. `vendor_test:false` 不执行Shell。用户明确测试FNR100才允许 `swconfig list`（2秒）与固定 `swconfig dev switch0 get dump_arl`（3秒）；先检查br0及eth0/vlan3/ath0/ath1成员，再确认switch0及严格ARL格式。测试只作用于参考设备，不写ARP/FDB、VLAN、接口、配置或进程。stdout摘要最多4096字节，失败只失去预设验证，不影响基础发现。
+4. CONFIG_APPLY的neighbor_probe增加可选 `fdb_preset:"fnr100"`，与自定义fdb_command互斥。Server只向具备neighbors_v1及neighbors_inspect_v1的Probe发送预设。型号匹配不等于验证；已明确选入模板的预设运行于**所有应用该版本的设备**，每次采集重新核对环境/switch0/ARL，失败回退内核FDB并标记不可用。PORTMAP 0x02/04/08/10/20映射lan1/2/3/4/wan，0x01 CPU排除，未知位拒绝，冲突不选最后一条；只使用已验证br0的VID3行，不泄漏其他VLAN记录。
+5. neighbors EVENT每行可选 `active_age_ms`（0～60000）；不是在线期限，而是距实际主动ARP响应的年龄，连同采样age在Server换算active_at。后续被动刷新不会把同一次回复的新鲜度重置为60秒。旧Probe缺此字段时Server保留已知首次主动时间，采用保守新鲜度，不延长已有证据。
+6. neighbor_scan RESULT stdout保留既有统计，可选响应 `rows`（仍需同接口、已请求IP与合法ARP校验）；Server按原派发Session/revision接受一次并生成公开新增/更新统计。Probe扫描最终根据接口全部IPv4前缀检查目标子范围，选匹配的源IPv4；仍为/24～/32、最多256地址、约16请求/秒、总期限30秒。不自动重扫。
+7. 有界24小时近期记录属于Server Device Service投影视图，不回传Probe，不扩展配置文件/外部数据库，也不是跨Server重启任务恢复；最新快照与60秒证据新鲜度独立。
+
+具体HTTP字段与兼容性见API的ADR-057章节；使用与验证见[智能邻居配置](NEIGHBOR_SMART_CONFIGURATION.md)。
+
 ## 邻居发现（ADR-056，2026-09-10）
 
 REGISTER新增可选能力 `neighbors_v1`。声明该能力的新Probe支持以下结构化EVENT、两个TASK类型和运行模板 `neighbor_probe`；Server只对支持的当前Probe派发。旧Probe应用含此配置的模板时记录 `unsupported_neighbors`，不静默丢弃此功能；无此配置的模板保持原行为。沿用当前64KiB以上控制帧协商下限。

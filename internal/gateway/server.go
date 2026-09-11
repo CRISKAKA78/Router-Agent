@@ -339,8 +339,16 @@ func (s *Server) dispatchExec(active *session, spec task.Spec) (uint64, error) {
 }
 
 func (s *Server) dispatchChecked(active *session, spec task.Spec, requireCurrent bool) (uint64, error) {
-	if e := s.requireManaged(active.deviceID); e != nil {
-		return 0, e
+	if spec.Type != "neighbor_inspect" {
+		if e := s.requireManaged(active.deviceID); e != nil {
+			return 0, e
+		}
+	}
+	if spec.Type == "neighbor_inspect" {
+		if !slices.Contains(active.capabilities, "neighbors_inspect_v1") {
+			return 0, routerconfig.ErrUnsupported
+		}
+		requireCurrent = true
 	}
 	if spec.Type == "neighbor_scan" || spec.Type == "neighbor_cancel" {
 		if !slices.Contains(active.capabilities, "neighbors_v1") {
@@ -733,6 +741,7 @@ func (s *Server) handleConnection(conn net.Conn) {
 						_ = s.sendError(writer, frame.Header.MessageID, "INVALID_PAYLOAD", err.Error())
 						return
 					}
+					previousResult, _ := s.tasks.Snapshot(result.TaskID)
 					if err := s.tasks.HandleResult(active.deviceID, result); err != nil {
 						if errors.Is(err, task.ErrTaskNotFound) {
 							// A surviving Probe replays cached results after Server restart.
@@ -747,6 +756,9 @@ func (s *Server) handleConnection(conn net.Conn) {
 						return
 					}
 					lastSeen = s.recordActivity(active)
+					if previousResult.Result == nil {
+						s.observeNeighborResult(active, result)
+					}
 					s.config.Logger.Printf("received=TASK_RESULT device_id=%s task_id=%s status=%s exit_code=%d", active.deviceID, result.TaskID, result.Status, result.ExitCode)
 				default:
 					_ = s.sendError(writer, frame.Header.MessageID, "UNSUPPORTED_TYPE", fmt.Sprintf("message type 0x%02X is not supported", frame.Header.Type))

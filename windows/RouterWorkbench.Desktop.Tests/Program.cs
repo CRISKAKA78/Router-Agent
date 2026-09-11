@@ -272,6 +272,7 @@ internal static partial class Program
             await api.ExecuteAsync(new("archive version", $"tools/{tool.ToolId}/versions/1.0/archive")); await api.ExecuteAsync(new("archive asset", $"assets/{asset.AssetId}/archive"));
             Check((await api.GetAsync<Asset>($"assets/{asset.AssetId}")).Archived, "archive preserves original identity");
             await NeighborChecks(window);
+            await NeighborInteractionChecks(window,api,connection,controlPort);
             await InvokeAsync(window, "Disconnect"); Check(!connection.Synchronized || connection.Token.IsCancellationRequested, "native disconnect cancels old connection");
             Check(((DataGrid)window.FindName("DevicesGrid")).Items.Count == 0, "disconnect clears native snapshot");
             Check(((TextBlock)window.FindName("StatusText")).Text == "已断开连接。" && ((TextBlock)window.FindName("ConnectionText")).Text == "未连接" && Field<TextBlock>((DeviceSummary)window.FindName("Summary"), "title").Text == "工作区" && Field<FlexibleSummaryPanel>((DeviceSummary)window.FindName("Summary"), "metadata").Visibility == Visibility.Collapsed, "disconnect updates status and clears selected-device properties");

@@ -1,6 +1,14 @@
 # 项目状态
 
-2026-09-10 用户已明确授权将当前累计源码、测试和文档提交并推送到 GitHub `CRISKAKA78/Router-Agent` 的 `main`。本次仅整理提交：核对远端基线、文件范围和 `git diff --check`，不重跑全量产品测试；构建包、运行数据和本地配置留在本机。下文各轮“未提交/推送”为当时记录，当前提交号与推送结果以 Git 为准；ARM、sanitizer 和实机验收缺口保持。
+## 当前：ADR-057智能邻居配置已实现，产品验收有明确缺口
+
+工作分支核对为 `GPT6API-TEST`。生成器智能/高级配置、公开能力协商与只读网络检测、显式FNR100预设、WPF默认直连扫描和Server1024条/24小时近期视图已接通；主动响应60秒后转近期，不推断上级、不把历史说成在线。仅邻居配置模板的应用校验遗漏已修复。没有新阶段、数据库或Tunnel改造。
+
+本轮Windows Go/vet、生成器189项（0跳过）、WPF572项/69份布局与独立构建通过；最终Linux15项CTest、真实Probe Phase1～5全量/vet/build及核心包/邻居集成race通过。浏览器完整交互、物理DPI、ARM/uClibc/FNR100实机及缺库sanitizer未验收，不沿用旧测试冒充。详见[实施、验证、产物与限制](NEIGHBOR_SMART_CONFIGURATION.md)。未提交/推送/部署，用户Server/Probe进程和数据未替换。
+
+## 此前记录（非本轮授权与验证）
+
+历史整理任务（不构成本轮授权）：2026-09-10 用户已明确授权将当时累计源码、测试和文档提交并推送到 GitHub `CRISKAKA78/Router-Agent` 的 `main`。本次仅整理提交：核对远端基线、文件范围和 `git diff --check`，不重跑全量产品测试；构建包、运行数据和本地配置留在本机。下文各轮“未提交/推送”为当时记录，当前提交号与推送结果以 Git 为准；ARM、sanitizer 和实机验收缺口保持。
 
 2026-09-10 **ADR-056邻居发现已实现**：LAN下接与本机广播域两份清单允许重叠，已按用户纠正取消上级分类；Probe被动读取/限速ARP扫描及取消、Server公开API、WPF两页、生成器配置/发布闭环已接通。Windows/Linux Go、真实Linux Probe完整回归/race、15项CTest、生成器176项/浏览器14组、WPF557项/67份布局及独立发布通过记录见[邻居发现](NEIGHBOR_DISCOVERY.md)。成品为 `build/neighbors/router-server.exe` 和 `build/windows-desktop-neighbors/win-x64/RouterWorkbench.exe`。ARM交互认证后的首轮GCC5.2构建在`std::snprintf`处失败；一键构建的远端副本适配已补为`::snprintf`并通过脚本语法、转换结果、适配后核心编译及原始Probe 15项CTest，真实GCC5.2复跑仍需交互密码。C++sanitizer仍缺库；FNR100未部署新Probe，保留用户生产进程/数据，无Git提交/推送。下方“最新”为历史轮次。
 

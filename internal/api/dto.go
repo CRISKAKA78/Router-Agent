@@ -40,14 +40,14 @@ func session(v *device.Session) any {
 	return object{"active_template": active, "presentation": presentation, "applied_revision": v.ConfigRevision, "source_ip": v.Registration.SourceIP, "effective_metrics": device.EffectiveMetrics(*v, time.Now()), "session_id": v.ID, "registration": registration(v.Registration), "runtime": runtimeDTO(v.Runtime), "started_at": timestamp(v.StartedAt), "last_seen_at": timestamp(v.LastSeenAt), "ended_at": timestamp(v.EndedAt), "end_reason": v.EndReason}
 }
 func deviceDTO(v device.Snapshot) object {
-	return object{"neighbors": device.NeighborSnapshot(v, time.Now()), "source_ip": v.LatestSession.Registration.SourceIP, "effective_metrics": device.EffectiveMetrics(v.LatestSession, time.Now()), "device_id": v.Registration.DeviceID, "registration": registration(v.Registration), "runtime": runtimeDTO(v.LatestSession.Runtime), "status": v.Status, "first_seen_at": timestamp(v.FirstSeenAt), "last_seen_at": timestamp(v.LastSeenAt), "last_online_at": timestamp(v.LastOnlineAt), "last_offline_at": timestamp(v.LastOfflineAt), "current_session": session(v.CurrentSession), "latest_session": session(&v.LatestSession), "total_sessions": v.TotalSessions, "evicted_sessions": v.EvictedSessions}
+	return object{"neighbor_discovery": device.NeighborDiscoverySnapshot(v, time.Now()), "recent_neighbors": device.RecentNeighborSnapshot(v, time.Now()), "neighbors": device.NeighborSnapshot(v, time.Now()), "source_ip": v.LatestSession.Registration.SourceIP, "effective_metrics": device.EffectiveMetrics(v.LatestSession, time.Now()), "device_id": v.Registration.DeviceID, "registration": registration(v.Registration), "runtime": runtimeDTO(v.LatestSession.Runtime), "status": v.Status, "first_seen_at": timestamp(v.FirstSeenAt), "last_seen_at": timestamp(v.LastSeenAt), "last_online_at": timestamp(v.LastOnlineAt), "last_offline_at": timestamp(v.LastOfflineAt), "current_session": session(v.CurrentSession), "latest_session": session(&v.LatestSession), "total_sessions": v.TotalSessions, "evicted_sessions": v.EvictedSessions}
 }
 func taskDTO(v task.Snapshot) object {
 	var last any
 	if len(v.Dispatches) > 0 {
 		last = v.Dispatches[len(v.Dispatches)-1].SessionID
 	}
-	return object{"task_id": v.Spec.ID, "device_id": v.Spec.DeviceID, "type": v.Spec.Type, "state": v.State, "created_at": time.Unix(v.Spec.CreatedAt, 0).UTC(), "timeout_seconds": v.Spec.Timeout, "command": v.Spec.Command, "cwd": v.Spec.Cwd, "env": v.Spec.Env, "params": v.Spec.Params, "last_session_id": last, "dispatch_count": len(v.Dispatches), "result": resultDTO(v.Result)}
+	return object{"neighbor_summary": v.NeighborSummary, "task_id": v.Spec.ID, "device_id": v.Spec.DeviceID, "type": v.Spec.Type, "state": v.State, "created_at": time.Unix(v.Spec.CreatedAt, 0).UTC(), "timeout_seconds": v.Spec.Timeout, "command": v.Spec.Command, "cwd": v.Spec.Cwd, "env": v.Spec.Env, "params": v.Spec.Params, "last_session_id": last, "dispatch_count": len(v.Dispatches), "result": resultDTO(v.Result)}
 }
 func resultDTO(v *task.Result) any {
 	if v == nil {

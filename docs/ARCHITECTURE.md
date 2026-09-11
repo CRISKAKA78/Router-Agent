@@ -1,10 +1,14 @@
 # 路由器远程运维平台架构基线
 
-## 邻居发现（ADR-056）
+## 邻居发现（ADR-056 / ADR-057）
 
-Probe的SystemSampler惰性持有进程级Neighbors采集器；其独立有界worker读取内核邻居/FDB、可选租约及厂商只读表，不阻塞控制连接。LiveTelemetry绑定已应用配置修订，TaskManager复用同一采集器执行原生ARP扫描；取消在任务准入时处理。控制会话释放/重配置清空采样并请求停止扫描。无AI逻辑、新数据库或新数据面。
+Probe的SystemSampler惰性持有进程级Neighbors采集器；其有界worker读取内核邻居/FDB、可选租约和显式选择的厂商表。TaskManager复用采集器执行原生ARP扫描/取消，并用原生neighbor_inspect任务读取sysfs及RTM_GETADDR。普通检测无Shell；显式FNR100测试及预设使用固定只读命令和环境/格式核验，失败回退内核。控制会话释放或重配置请求停止扫描，不引入AI、外部依赖服务或数据面。
 
-Gateway校验结构化neighbors EVENT与当前Session，Device Service验证域/端口/配置并持有最新快照；Management组合查询/扫描能力，HTTP Adapter只调用Application。WPF NeighborView经公开Client显示LAN下接与本机广播域两页，两份清单可重叠，不推断上级方向。Blazor生成器通过可选neighbor_probe编辑、校验、导入导出和版本发布。规范与使用见[邻居发现](NEIGHBOR_DISCOVERY.md)、ADR-056及API/PROTOCOL对应章节。
+Gateway校验EVENT/RESULT与派发Session/revision，Device Service验证域、端口和配置，并持有最新快照、90秒只读检测与每设备1024条/24小时的近期发现。近期数据放在设备记录，不复制进历史Session；配置修订、Session替换清空，离线保留至到期，Server重启不恢复。不将历史、缓存或租约作为在线状态。Task Service保留派发前统计基线与扫描完成summary，重复/迟到结果不重复合并。
+
+Management组合只读查询、检测及扫描；HTTP Adapter经公开Application/Service工作。WPF NeighborView默认近期清单，自动推导直连范围，保留高级自定义；Blazor NeighborEditor默认智能配置，使用公开参考设备/能力接口，保留离线高级编辑。两客户端只共享无状态C#地址规范化/显示模型（shared/NeighborNetworks.cs），不复制设备业务状态机。Server能力协商与Probe能力、模板版本/应用修订分开。继续保持LAN按证据筛选、广播域全量且允许重叠，不推断上级方向。
+
+规范、操作与本轮证据：[智能邻居配置](NEIGHBOR_SMART_CONFIGURATION.md)、API/PROTOCOL ADR-057章节。原始验证保留在[邻居发现](NEIGHBOR_DISCOVERY.md)。
 
 ## 四个操作工作区（ADR-055，紧凑操作台）
 

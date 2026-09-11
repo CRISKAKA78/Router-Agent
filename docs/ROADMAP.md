@@ -1,6 +1,15 @@
 # 项目路线图
 
-2026-09-10 用户已明确授权将当前累计源码、测试和文档提交并推送到 GitHub `CRISKAKA78/Router-Agent` 的 `main`。本次仅整理提交：核对远端基线、文件范围和 `git diff --check`，不重跑全量产品测试；构建包、运行数据和本地配置留在本机。下文各轮“未提交/推送”为当时记录，当前提交号与推送结果以 Git 为准；ARM、sanitizer 和实机验收缺口保持。
+## 当前产品迭代：ADR-057（不新增Phase）
+
+- [x] 智能/高级邻居配置、公开只读检测与能力协商、显式FNR100预设、直连扫描范围和Server有界近期记录实现；保留ADR-056两域重叠/不推断上级。
+- [x] Windows Go/vet、生成器189项（0跳过）、WPF572项/69份布局、自包含构建；最终Linux15项CTest、真实Probe全量/vet/build及核心包/邻居集成race通过。证据详见[专项记录](NEIGHBOR_SMART_CONFIGURATION.md)。
+- [ ] 本轮Blazor真实浏览器宽窄/主题/键盘交互、物理WPF输入/DPI、ARM/uClibc/GCC5.2及新版Probe的FNR100实机验收；执行策略/认证/部署授权和sanitizer缺库限制见专项记录。不将代码交付当作Phase6产品验收。
+- [-] 新阶段、认证/TLS/RBAC、数据库、AI/MCP、新Tunnel保持暂缓；本轮不提交、不推送、不部署、不替换用户运行实例。
+
+## 此前记录（非本轮授权与验证）
+
+历史整理任务（不构成本轮授权）：2026-09-10 用户已明确授权将当时累计源码、测试和文档提交并推送到 GitHub `CRISKAKA78/Router-Agent` 的 `main`。本次仅整理提交：核对远端基线、文件范围和 `git diff --check`，不重跑全量产品测试；构建包、运行数据和本地配置留在本机。下文各轮“未提交/推送”为当时记录，当前提交号与推送结果以 Git 为准；ARM、sanitizer 和实机验收缺口保持。
 
 - [x] 2026-09-10 ADR-056实现与本机验证：LAN下接与本机广播域分开显示且允许重叠，被动邻居/FDB/租约、原生IPv4扫描/取消、API及模板编辑/发布闭环完成；Windows/Linux、真实Probe、Go race、15项CTest、生成器176项/浏览器14组及WPF557项/67份布局证据见[邻居发现](NEIGHBOR_DISCOVERY.md)。不新增阶段。
 - [ ] ADR-056配套ARM/uClibc编译、FNR100升级及真实终端/外壳映射/VLAN/NDP验收；首轮交互认证已进入GCC5.2编译，旧uClibc的`std::snprintf`适配遗漏已修复并完成本地转换/编译回归，真实工具链仍需交互密码复跑。生产进程与设备配置保留，C++sanitizer缺库未通过，见专项记录。

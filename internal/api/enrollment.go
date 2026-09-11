@@ -42,6 +42,7 @@ func (a *Server) managedDTO(d device.Snapshot) object {
 		out["presentation"] = t.Presentation
 		if t.NeighborProbe != nil {
 			out["neighbor_domains"] = t.NeighborProbe.Domains
+			out["neighbor_configuration"] = t.NeighborProbe
 		}
 		out["active_template"] = object{"template_id": t.ID, "name": t.Name, "version": t.Version}
 	}
@@ -95,7 +96,8 @@ func (a *Server) enrollmentRoutes() {
 	})
 }
 
-// Device views receive collection metadata, never executable commands.
+// This template summary contains collection metadata only. Applied neighbor settings
+// are exposed separately as neighbor_configuration for explicit editor import.
 func templateSummary(t *probetemplate.Template) any {
 	if t == nil {
 		return nil

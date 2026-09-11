@@ -1,6 +1,14 @@
 # 项目接管手册
 
-2026-09-10 用户已明确授权将当前累计源码、测试和文档提交并推送到 GitHub `CRISKAKA78/Router-Agent` 的 `main`。本次仅整理提交：核对远端基线、文件范围和 `git diff --check`，不重跑全量产品测试；构建包、运行数据和本地配置留在本机。下文各轮“未提交/推送”为当时记录，当前提交号与推送结果以 Git 为准；ARM、sanitizer 和实机验收缺口保持。
+## 当前接管：智能邻居配置（ADR-057）
+
+先读[本轮操作、代码导航和验证](NEIGHBOR_SMART_CONFIGURATION.md)、ADR-057及API/PROTOCOL增量。核心新增在Device Service的neighbor_discovery/近期记录、Probe原生neighbor_inspect与FNR100解析、共享CIDR模型、Blazor NeighborEditor/NeighborPublishing和WPF NeighborView；仍通过公开API/既有TASK与EVENT。local/lan可共用br0，近期视图不等于在线。
+
+分支 `GPT6API-TEST`；本轮明确禁止提交/推送/部署及替换运行Server/Probe。生成器189项、WPF572项/69份布局和Windows构建已通过，最终Linux15项CTest、真实Probe全量与核心包/邻居集成race已通过。后续只能在新授权下补浏览器实际交互、ARM/uClibc/FNR100部署验证；sanitizer缺库，用户实例与运行数据保持。历史“推送main”或旧成品不适用于本轮。
+
+## 此前记录（非本轮授权与验证）
+
+历史整理任务（不构成本轮授权）：2026-09-10 用户已明确授权将当时累计源码、测试和文档提交并推送到 GitHub `CRISKAKA78/Router-Agent` 的 `main`。本次仅整理提交：核对远端基线、文件范围和 `git diff --check`，不重跑全量产品测试；构建包、运行数据和本地配置留在本机。下文各轮“未提交/推送”为当时记录，当前提交号与推送结果以 Git 为准；ARM、sanitizer 和实机验收缺口保持。
 
 2026-09-10 本轮入口为[邻居发现](NEIGHBOR_DISCOVERY.md)与ADR-056：用户明确第二类为本机广播域全部记录，不是上级；不能固化FNR100的LAN1接线。LAN按配置转发端口证据筛选，和broadcast可以重叠。新增各层neighbors模块、Probe Neighbors、WPF NeighborView与生成器NeighborEditor；协议/API使用既有传输与幂等。配套Windows成品、557项WPF/67份布局及其他测试证据、通用模板示例见专项说明。厂商ARM首轮交互认证已进入GCC5.2编译，暴露旧uClibc不导出`std::snprintf`；`scripts/build-probe-gcc52.sh`现仅在远端副本增加`<stdio.h>`并改用`::snprintf`，本地转换/编译/15项CTest通过，真实GCC5.2仍需交互密码复跑。当前生产实例未替换。此前Server重连修复与ADR-053～055展示改动保留，不回退已有工作区，也未提交/推送。
 

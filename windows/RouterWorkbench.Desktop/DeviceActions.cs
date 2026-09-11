@@ -66,7 +66,7 @@ public partial class MainWindow
         var current=device.ActiveTemplate is {TemplateId:not "builtin"} active?$"{active.Name} · v{active.Version}":device.ActiveTemplate==null?"尚未确认生效":"内置采集";
         var note=Ui.Text($"设备：{device.DisplayName}\n当前生效：{current}",true);note.TextWrapping=TextWrapping.Wrap;
         var next=Ui.Text("",true);next.TextWrapping=TextWrapping.Wrap;
-        void Selection(){next.Text=list.SelectedItem is ProbeTemplate t?$"应用版本：{t.Name} · {(t.Version==0?"内置":$"v{t.Version}")}\n"+(device.Online?"确认后重新应用，等待探针确认。":"设备离线，将在下次连接时应用。")+(profile.Monitoring!=null||profile.PropertyIntervals?.Count>0?"\n原非接口采样覆盖恢复为模板设置，接口设置保留。":""):"请选择要应用的模板。";}
+        void Selection(){next.Text=list.SelectedItem is ProbeTemplate t?$"应用版本：{t.Name} · {(t.Version==0?"内置":$"v{t.Version}")}\n"+(device.Online?"确认后重新应用，等待探针确认。":"设备离线，将在下次连接时应用。")+(t.NeighborCapabilityError(device.Registration.Capabilities) is {} capabilityError?"\n⚠ "+capabilityError:"")+(profile.Monitoring!=null||profile.PropertyIntervals?.Count>0?"\n原非接口采样覆盖恢复为模板设置，接口设置保留。":""):"请选择要应用的模板。";}
         list.SelectionChanged+=(_,_)=>Selection();Selection();
         search.TextChanged+=(_,_)=>{var selected=list.SelectedItem;list.ItemsSource=choices.Where(t=>t.ToString().Contains(search.Text,StringComparison.OrdinalIgnoreCase)).ToArray();if(list.Items.Contains(selected))list.SelectedItem=selected;};
         var content=Ui.Page(new StackPanel {Children={note,Ui.Labeled("搜索模板名称或 ID",search)}},list,Ui.Note(""));
@@ -74,6 +74,7 @@ public partial class MainWindow
         new ActionWindow(this,"选择设备模板",content,"应用",async()=>{
             if(owner!=connection||closing||selectedDevice!=device.DeviceId)throw new OperationCanceledException();
             if(list.SelectedItem is not ProbeTemplate target)throw new InvalidOperationException("请从列表选择模板。");
+            if(target.NeighborCapabilityError(device.Registration.Capabilities) is {} capabilityError)throw new InvalidOperationException(capabilityError);
             await SaveProfile(device,"managed",profile.Name,profile.ModelId,target.TemplateId,target.Version,true,profile.Monitoring,profile.PropertyIntervals);
         }).ShowDialog();
     }
