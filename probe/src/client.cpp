@@ -1,5 +1,6 @@
 #include "rmp/file_manager.h"
 #include "rmp/tunnel.h"
+#include "rmp/forwarding.h"
 #include "rmp/priority_gate.h"
 #include "rmp/pending_heartbeats.h"
 #include "rmp/client.h"
@@ -131,7 +132,7 @@ std::string RegisterPayload(const ClientConfig& config) {
         output<<','<<EscapeJsonString(i->first)<<':'<<EscapeJsonString(i->second);
     output << ",\"arch\":" << EscapeJsonString(config.arch)
            << ",\"boot_id\":" << EscapeJsonString(config.boot_id)
-           << ",\"capabilities\":[\"exec\",\"file\",\"tunnel\",\"router_config\",\"telemetry_v2\",\"managed_config_v1\",\"port_counters_v1\",\"neighbors_v1\"]}";
+           << ",\"capabilities\":[\"exec\",\"file\",\"tunnel\",\"router_config\",\"telemetry_v2\",\"managed_config_v1\",\"port_counters_v1\",\"neighbors_v1\"" << (ForwardingManager::Available()?",\"forwarding_v1\"":"") << "]}";
     return output.str();
 }
 
@@ -284,6 +285,7 @@ bool HandleOnlineFrames(const std::vector<Frame>& frames,
                         TaskManager* task_worker,
                         FileManager* files,
                         TunnelManager* tunnels,
+                        ForwardingManager* forwarding,
  LiveTelemetry* telemetry,
                         std::uint32_t file_chunk_size,
                         std::uint32_t max_payload,
@@ -299,6 +301,7 @@ bool HandleOnlineFrames(const std::vector<Frame>& frames,
             return false;
         }
         if(frame->header.type==0x07){if(frame->header.flags!=0||!telemetry->Apply(std::string(frame->payload.begin(),frame->payload.end()),frame->header.message_id,error))return false;*last_seen=SteadyClock::now();continue;}
+ if(frame->header.type==0x50){if(!forwarding->Feed(*frame,error))return false;*last_seen=SteadyClock::now();continue;}
  if (frame->header.type==kTypeTunnelConnect || frame->header.type==kTypeTunnelClose) {
             if(!tunnels->Feed(*frame,error))return false;
             *last_seen=SteadyClock::now();continue;
@@ -449,6 +452,7 @@ SessionResult RunSession(int socket_fd, const ClientConfig& config, TaskManager&
     writer.SetLimit(register_ack.max_control_payload);
     task_worker.BeginSession();
     FileManager files(task_worker,[&writer](std::uint8_t t,std::uint16_t f,const std::string&p,std::uint64_t*id){return writer.Send(t,f,p,id);},[socket_fd]{shutdown(socket_fd,SHUT_RDWR);},register_ack.file_chunk_size);
+    ForwardingManager forwarding(register_ack.session_id,[&writer](const std::string& p){std::uint64_t id=0;return writer.Send(0x51,0,p,&id);});
     TunnelManager tunnels(register_ack.session_id,config.tunnel_connections,[&writer](const std::string& p){std::uint64_t id=0;return writer.Send(kTypeTunnelStatus,0,p,&id);});
     const std::chrono::seconds heartbeat_interval(register_ack.heartbeat_interval);
     SteadyClock::time_point last_seen = SteadyClock::now();
@@ -457,7 +461,7 @@ SessionResult RunSession(int socket_fd, const ClientConfig& config, TaskManager&
     while (true) {
         if (!frames.empty()) {
             if (!HandleOnlineFrames(frames, &expected_server_message_id, &pending_heartbeats,
-                                    &writer, &task_worker, &files, &tunnels, &telemetry, register_ack.file_chunk_size, register_ack.max_control_payload, &last_seen, &validation_error)) {
+                                    &writer, &task_worker, &files, &tunnels, &forwarding, &telemetry, register_ack.file_chunk_size, register_ack.max_control_payload, &last_seen, &validation_error)) {
                 std::cerr << "state=PROTOCOL_ERROR detail=" << validation_error << std::endl;
                 return result;
             }
@@ -503,7 +507,7 @@ SessionResult RunSession(int socket_fd, const ClientConfig& config, TaskManager&
                 }
                 if (!frames.empty() &&
                     !HandleOnlineFrames(frames, &expected_server_message_id, &pending_heartbeats,
-                                        &writer, &task_worker, &files, &tunnels, &telemetry, register_ack.file_chunk_size, register_ack.max_control_payload, &last_seen, &validation_error)) {
+                                        &writer, &task_worker, &files, &tunnels, &forwarding, &telemetry, register_ack.file_chunk_size, register_ack.max_control_payload, &last_seen, &validation_error)) {
                     std::cerr << "state=PROTOCOL_ERROR detail=" << validation_error << std::endl;
                     return result;
                 }

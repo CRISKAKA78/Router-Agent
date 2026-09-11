@@ -47,6 +47,7 @@ func accepted(id string, data object, err error) response {
 }
 func emptyBody(r *http.Request) bool { var q struct{}; return decode(r, &q) == nil }
 func (a *Server) routes() {
+	a.forwardingRoutes()
 	a.templateRoutes()
 	a.enrollmentRoutes()
 	a.routerConfigRoutes()

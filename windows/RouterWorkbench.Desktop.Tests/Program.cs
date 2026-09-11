@@ -170,7 +170,7 @@ internal static partial class Program
             await Eventually(() => Task.FromResult(connection.Synchronized && connection.Snapshot.Devices.Length == 8), "native window HTTP/WS snapshot with eight test peers");
             await Task.Delay(150);
             var pages = ((TabControl)window.FindName("WorkspaceTabs")).Items.Cast<TabItem>().Select(t => (string)t.Tag).ToArray();
-            Check(pages.SequenceEqual(new[] { "overview", "maintenance", "files", "config", "tools" }), "customer navigation exposes file exchange and read-only repository tools");
+            Check(pages.SequenceEqual(new[] { "overview", "maintenance", "forwarding", "serial", "files", "config", "tools" }), "customer navigation exposes file exchange and read-only repository tools");
             Check(window.GetType().Assembly.GetReferencedAssemblies().All(a => !a.Name!.Contains("WebView2")), "native customer executable has no WebView2 dependency");
             Check(connection.Snapshot.Tools.Length == 0, "customer snapshot no longer loads tool management");
             Check(((DataGrid)window.FindName("DevicesGrid")).Items.Count == 8, "native device table bound to server inventory");
@@ -180,7 +180,7 @@ internal static partial class Program
             var props = Field<PropertyRow[]>(window, "propertyRows").ToArray();
             Check(props.Count(p => p.Key.StartsWith("property_") && p.Group == "其他信息" && p.Value != "—") == 30 && props.Count(p => p.Key is "signal" or "wan_ip" && p.Value == "—" && p.ValueTip.Contains("采集")) == 2 && props.Any(p => p.Value.Contains(new string('X', 800))), "all template attributes, failures and full multiline values reach native table");
             await VerifyRuntime(window, connection, peers[1], api);
-            await PropertyInspectorChecks(window);
+            await PropertyInspectorChecks(window); await ForwardingUiChecks(window);
             await DetailsLayoutChecks(window);
             devices.SelectedItem = devices.Items.Cast<Device>().Single(d => d.DeviceId == "desktop-router-03");
             Check(Field<PropertyRow[]>(window, "propertyRows").Count(p => p.Key.StartsWith("property_") && p.Group == "其他信息" && p.Value != "—") == 1, "switching templates removes previous device attributes");
@@ -249,7 +249,7 @@ internal static partial class Program
             await AppearanceChecks(window, profileFile);
             foreach (var theme in new[] { "Light", "Dark" }) {
                 Theme.Apply(theme);
-                foreach (var page in new[] { "overview", "maintenance", "files", "config", "tools" }) {
+                foreach (var page in new[] { "overview", "maintenance", "forwarding", "serial", "files", "config", "tools" }) {
                     Invoke(window, "Navigate", page); if(page=="overview")Field<TabControl>(window,"overviewTabs").SelectedIndex=0; await Task.Delay(150); await InvokeAsync(window,"RefreshDetails");
                     Render(window, theme.ToLowerInvariant()+"-"+page+"-1480.png");
                     if(page=="overview") {foreach(var pair in new[]{("storageMetrics","storage"),("networkMetrics","network")}) {var table=Field<DataGrid>(window,pair.Item1);var tabs=Field<TabControl>(window,"overviewTabs");var tab=tabs.Items.Cast<TabItem>().Single(t=>t.Header?.ToString()==(pair.Item2=="storage"?"存储空间":"接口状态"));tabs.SelectedItem=tab;if(pair.Item2=="network")Field<TabControl>(window,"interfaceTabs").SelectedIndex=1;await Task.Delay(80);Render(window,theme.ToLowerInvariant()+"-"+pair.Item2+"-1480.png");tabs.SelectedIndex=0;}}

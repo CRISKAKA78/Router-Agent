@@ -1,8 +1,17 @@
 # 路由器探针 TCP 长连接控制协议
 
+## Forwarding可选管理控制（2026-09-12产品接入）
+
+- 新版Probe检测到可执行侧车时上报REGISTER能力forwarding_v1。旧设备不发新消息，基础管理兼容。
+- Server→Probe 0x50 FORWARDING_COMMAND、Probe→Server 0x51 FORWARDING_STATUS，沿用控制帧封装，负载UTF-8 JSON；不承载持续业务字节，不复用Task RESULT或RMT1。
+- command：id(32随机字节的64hex管理相关ID)、session_id、op(inventory/create/close)、request(见API)；create另含relay(host:port)、secret、certificate(固定CA PEM)、listen。内部配置不能进入公开列表/UI。Server队列32、设备队列16、侧车行64KiB，只处理当前Session。
+- status：id、session_id、state、可选reason/source_ip/inventory。state=inventory/running/closed/failed；侧车异常退出可报空id的helper_failed，关闭该Session所有映射。inventory为interfaces[{name,address(CIDR)}]、serials[]、backend，不是目标在线探测。running只表示子进程启动，Server仍需BIND成功才能公开active，不保证物理UART已打开。
+- inventory8秒/create20秒超时；租期默认240分钟、0不限时仍会话撤销。关闭确认独立于Server释放，迟到报告不复活条目。断线/替换/父进程退出回收，不恢复旧通道。
+- 外部串口注册仍按下节，串口无UDP；Relay固定证书TLS不代表现有控制链路整体安全性已升级。
+
 ## 串口外部 TCP 注册协议 v1（ADR-060）
 
-这是新串口入口的外部数据协议，**不是Probe控制协议或旧RMT1帧**。`internal/serialauth`已实现并通过隔离测试；产品API、Probe监管和WPF尚未接入，不表示现有Server已开放此端口。
+这是新串口入口的外部数据协议，**不是Probe控制协议或旧RMT1帧**。`internal/serialauth`已接入产品API、Probe监管及WPF；本轮未替换生产实例，不表示线上Server已开放此端口。
 
 1. TCP连接建立后5秒内发送ASCII `AUTH ` + 64位小写hex凭据 + CRLF；也接受LF。认证行含换行最多512字节，只有一次尝试，不接受BOM、多余空格或大小写变体；空闲/慢速分片不延长期限。
 2. 无欢迎包。收到完整正确注册行后，服务端先取得该条目独占权，再连接预配置的literal loopback TCP后端；成功回复`OK\r\n`，客户端从此发送任意原始二进制字节。响应之前同包携带的数据会暂存于有界读取缓冲，成功后才转发；注册行自身永不转发。

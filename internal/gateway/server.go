@@ -11,6 +11,7 @@ import (
 	"log"
 	"net"
 	"routerprobe/internal/enrollment"
+	"routerprobe/internal/forwarding"
 	"routerprobe/internal/routerconfig"
 	"slices"
 	"sync"
@@ -71,18 +72,19 @@ type SessionEvent struct {
 }
 
 type session struct {
-	configDone    chan struct{}
-	appliedConfig uint64
-	sentConfig    enrollment.Configuration
-	configMessage uint64
-	capabilities  []string
-	tunnelQueue   chan tunnelMessage
-	tunnelDone    chan struct{}
-	lifetime      chan struct{}
-	done          chan struct{}
-	deviceID      string
-	sessionID     string
-	transport     *connectionWriter
+	configDone      chan struct{}
+	appliedConfig   uint64
+	sentConfig      enrollment.Configuration
+	configMessage   uint64
+	capabilities    []string
+	forwardingQueue chan forwardingMessage
+	tunnelQueue     chan tunnelMessage
+	tunnelDone      chan struct{}
+	lifetime        chan struct{}
+	done            chan struct{}
+	deviceID        string
+	sessionID       string
+	transport       *connectionWriter
 }
 
 type connectionWriter struct {
@@ -105,17 +107,18 @@ var ErrDispatchUncertain = errors.New("task dispatch outcome is uncertain")
 type Server struct {
 	config Config
 
-	mu           sync.Mutex
-	listener     net.Listener
-	sessions     map[string]*session
-	connections  map[net.Conn]struct{}
-	closed       bool
-	events       chan SessionEvent
-	tasks        *task.Service
-	files        *filetransfer.Service
-	devices      *device.Service
-	wg           sync.WaitGroup
-	tunnelStatus func(string, tunnel.Status) error // configured before Serve
+	mu               sync.Mutex
+	listener         net.Listener
+	sessions         map[string]*session
+	connections      map[net.Conn]struct{}
+	closed           bool
+	events           chan SessionEvent
+	tasks            *task.Service
+	files            *filetransfer.Service
+	devices          *device.Service
+	wg               sync.WaitGroup
+	forwardingStatus func(string, forwarding.Status) error
+	tunnelStatus     func(string, tunnel.Status) error // configured before Serve
 }
 
 func New(config Config) (*Server, error) {
@@ -602,6 +605,10 @@ func (s *Server) handleConnection(conn net.Conn) {
 						return
 					}
 					previous := s.sessions[register.DeviceID]
+					if slices.Contains(register.Capabilities, "forwarding_v1") {
+						candidate.forwardingQueue = make(chan forwardingMessage, 32)
+						go s.runForwardingControl(candidate)
+					}
 					for _, capability := range register.Capabilities {
 						if capability == "tunnel" {
 							candidate.tunnelQueue = make(chan tunnelMessage, 64)
@@ -670,6 +677,17 @@ func (s *Server) handleConnection(conn net.Conn) {
 						}
 					}
 					lastSeen = s.recordTelemetry(active, group, values)
+				case protocol.TypeForwardingStatus:
+					var status forwarding.Status
+					if frame.Header.Flags != 0 || !protocol.ValidUnicodeJSON(frame.Payload) || json.Unmarshal(frame.Payload, &status) != nil {
+						return
+					}
+					if s.forwardingStatus != nil {
+						if err := s.forwardingStatus(active.sessionID, status); err != nil {
+							return
+						}
+					}
+					lastSeen = s.recordActivity(active)
 				case protocol.TypeTunnelStatus:
 					var status tunnel.Status
 					if frame.Header.Flags != 0 || !protocol.ValidUnicodeJSON(frame.Payload) || json.Unmarshal(frame.Payload, &status) != nil || s.tunnelStatus == nil {

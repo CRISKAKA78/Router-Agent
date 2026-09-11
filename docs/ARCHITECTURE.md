@@ -1,5 +1,11 @@
 # 路由器远程运维平台架构基线
 
+## 2026-09-12 Forwarding产品增量
+
+独立internal/forwarding.Service持有映射、租期、持久端口隔离、Session撤销和公开状态；Management组合，API/WS只经Application访问。Gateway只提供当前Session有界管理运输；Probe C++ ForwardingManager通过私有管道监管Linux Go侧车router-forwarding-agent，由侧车检查直连IPv4/串口白名单并持有GOST。缺侧车不影响基础Probe。
+
+数据不走控制或旧RMT1：每映射独立TLS Relay/随机内部凭据，设备主动连接并固定证书验证；LAN绑定本机源IP代理目标，串口TCP经serialauth.Gate认证后才连loopback反向后端。进程/Session退出撤销，不恢复0租期条目。外部串口仍明文注册，不隐含全局控制TLS/API认证已完成。旧Maintenance固定目标/正租期不变。详见[产品接入](FORWARDING_IMPLEMENTATION.md)。
+
 ## 新串口鉴权入口（ADR-060，独立模块已实现，产品调用链未接入）
 
 `internal/serialauth`负责一条映射的外部TCP注册、凭据摘要校验、连接准入/独占和固定loopback后端的双向字节复制。验证入口在`tests/poc/gostv3/registration`，默认loopback且只允许loopback监听，避免PoC自行暴露公网；它不是正式Server启动入口。

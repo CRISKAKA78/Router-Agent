@@ -1,6 +1,12 @@
 # 项目状态
 
-2026-09-11 **SSH20007实机续测完成，run06为45项44通过，仍非完整准入。** FNR100补丁版TCP、单路0～65000字节UDP、PTY两档双向、注册首包剥离/认证前零写入/独占/断线及5轮快速重接通过；新增8来源32000字节UDP压力仅6/8成功。修复API缓冲数值类型配置及Linux串口Close阻塞，原版回归失败、修复后WSL/ARM各10轮通过；补丁重现及ARM vet通过。RSS约17.0～23.3MiB超候选16MiB，真实UART/不同网关LAN/长稳及API/Probe/WPF尚未完成。详见[GOST报告§4.5](GOST_V3_POC.md#45-ssh20007设备续测与串口回收修复2026-09-11最新)；自有进程退出，Probe PID32540和路由保持，原worktree不写、未提交/推送/部署。
+## 2026-09-12 当前增量：穿透功能/UI完成，生产实机验收待执行
+
+- 最新授权放行UDP问题与RSS门槛后，完成Forwarding Service/API→Probe侧车监管→GOST与WPF两页。LAN直连IPv4源地址代理TCP/UDP；串口只TCP首包鉴权；240分钟默认/0不限时/Session撤销与端口隔离。
+- Windows定向测试/vet、Linux既有release、15项CTest及7包race、真实Probe+GOST+PTY和实际1分钟到期通过；WPF574项、自包含与Windows/Linux/ARM后端发布通过；厂商GCC5.2 Probe编译成功。[证据与交付包](FORWARDING_IMPLEMENTATION.md)。
+- 未部署生产、未提交推送/合main；UDP旧问题仍在，物理UART/真实不同默认网关LAN/长期稳定性未验收。独立worktree工作；下方PoC-only为历史状态。
+
+2026-09-12 **SSH20001已恢复登录，UDP压力超时已取得迟到证据；RSS不再作为当前准入阻塞。** 本轮只增强隔离PoC计数/逐包定位：实机5轮×8来源×32000字节共40个全部原样返回，其中27个在3秒内、13个3秒后返回，最慢4.821秒；目标socket drops=0，每轮双向16条Relay事件。原3秒失败判定不变，未据此宣布完整准入。Windows回环20轮157/160，仍需定位其未到报文及分离SSH承载影响。fixture Linux两项测试各10轮通过，Linux AMD64/ARM build/vet与Python语法检查通过。详见[GOST报告§4.6](GOST_V3_POC.md#46-udp突发定位与ssh20001恢复2026-09-12)。此前run06首包鉴权/PTY快速重开证据保持，真实UART/不同网关LAN/长稳及产品API/Probe/WPF未完成。隔离进程清理确认，Probe PID32540/路由保持；独立worktree续作，原工作目录不写。
 
 2026-09-11 迁移运行状态：已实测 47.119.168.150 上 Server 常驻运行、FNR100 Probe 在线；维护故障定位为 Probe 到 Server 9001/TCP 数据连接不可达，用户随后确认已解决，解决后的端到端连接未由 Agent 复测。本轮按用户授权整理既有 ADR-057/058 迁移改动并合入本地 main、删除迁移分支；实际提交与分支状态以 Git 为准，不推送远端。仅进行差异、凭据排除及合并完整性检查，不重跑产品测试；下文未常驻/未提交为历史记录。
 

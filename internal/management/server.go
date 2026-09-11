@@ -6,6 +6,7 @@ import (
 	"net"
 	"path/filepath"
 	"routerprobe/internal/enrollment"
+	"routerprobe/internal/forwarding"
 	"routerprobe/internal/gateway"
 	"routerprobe/internal/probetemplate"
 	"routerprobe/internal/repository"
@@ -14,12 +15,14 @@ import (
 )
 
 type Config struct {
+	Forwarding          *forwarding.Config
 	TemplateFile        string
 	Tunnel              *tunnel.Config // nil disables the optional data listener
 	RepositoryDirectory string
 	Gateway             gateway.Config
 }
 type Server struct {
+	forwarding   *forwarding.Service
 	enrollment   *enrollment.Service
 	enrollmentMu sync.Mutex
 	templates    *probetemplate.Service
@@ -95,13 +98,36 @@ func New(config Config) (*Server, error) {
 		}
 		g.SetTunnelStatus(maintenance.Report)
 	}
-	return &Server{enrollment: catalog, Service: NewService(r, g.Devices(), g), gateway: g, repo: r, maintenance: maintenance, templates: templates}, nil
+	var forwards *forwarding.Service
+	if config.Forwarding != nil {
+		fc := *config.Forwarding
+		if fc.StateFile == "" {
+			fc.StateFile = filepath.Join(r.Directory(), "forwarding-ports.json")
+		}
+		forwards, e = forwarding.New(fc, g)
+		if e != nil {
+			if maintenance != nil {
+				maintenance.Close()
+			}
+			g.Close()
+			catalog.Close()
+			templates.Close()
+			r.Close()
+			return nil, e
+		}
+		g.SetForwardingStatus(forwards.Report)
+	}
+	return &Server{forwarding: forwards, enrollment: catalog, Service: NewService(r, g.Devices(), g), gateway: g, repo: r, maintenance: maintenance, templates: templates}, nil
 }
+func (s *Server) Forwarding() *forwarding.Service        { return s.forwarding }
 func (s *Server) ProbeTemplates() *probetemplate.Service { return s.templates }
 func (s *Server) Maintenance() *tunnel.Service           { return s.maintenance }
 func (s *Server) Serve(l net.Listener) error             { return s.gateway.Serve(l) }
 func (s *Server) Close() error {
 	s.once.Do(func() {
+		if s.forwarding != nil {
+			s.forwarding.Close()
+		}
 		if s.maintenance != nil {
 			s.maintenance.Close()
 		}

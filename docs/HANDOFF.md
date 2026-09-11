@@ -1,6 +1,10 @@
 # 项目接管手册
 
-2026-09-11 使用独立`C:/Users/Administrator/Desktop/router-agent-gostv3-poc` / `codex/gostv3-device-poc`，原工作目录不写入。SSH最新为`admin@47.119.168.150:20007`，凭据沿用且不落库。先读[GOST报告§4.5](GOST_V3_POC.md#45-ssh20007设备续测与串口回收修复2026-09-11最新)：修复版ARM首包鉴权和PTY快速重开通过，45项中只剩8来源大UDP压力失败（6/8）；RSS约17.0～23.3MiB。原版Close阻塞回归失败、修复后WSL/ARM各10轮通过。下一步定位UDP丢失位置及资源预算、实际UART/不同网关LAN/长期监管，再推进产品调用链。新包/日志在a6隔离目录；测试已退出，仅清理自有上传压缩中间包，/tmp余56216KiB；不重复询问注册方案、不恢复旧20001入口。
+## 2026-09-12 最新：穿透产品与WPF完成，未部署
+
+用户暂停UDP丢包定位及RSS门槛并授权完成产品。独立codex/gostv3-device-poc工作树已接通LAN TCP/UDP、TCP串口首包鉴权、Forwarding Service/API、0x50/0x51 Probe监管和WPF两页。默认240分钟、0不限时但Session撤销。WPF574项、15项CTest、7包Go race、真实Probe/GOST/PTY链路及1分钟到期回归通过，厂商ARM/uClibc构建成功。成品/安装参数/日志/限制见[产品接入](FORWARDING_IMPLEMENTATION.md)。UDP未修复；未替换生产；物理UART/不同网关/长稳待实机验收；未提交推送或合main。下方A-only/未接入为历史事实，不再是当前停止条件。
+
+上一轮PoC诊断记录（下述停止/下一步语句已被顶部产品进度取代）：2026-09-12 继续使用独立 `C:/Users/Administrator/Desktop/router-agent-gostv3-poc` / `codex/gostv3-device-poc`，不写原工作目录/main。用户最新SSH入口改回 `admin@47.119.168.150:20001`，已成功登录同一FNR100；20007不是当前入口。用户明确暂不以GOST RSS作准入限制，仍记录资源，不放开队列/租期等安全边界。先读[GOST报告§4.6](GOST_V3_POC.md#46-udp突发定位与ssh20001恢复2026-09-12)：5轮40个32000字节UDP最终全部原样返回，27个≤3秒、13个迟到（最慢4.821秒），设备目标socket drops=0；原3秒压力检查仍失败，不误报全通过。Windows本机另有157/160结果，未到包问题未完全定位。下一步分离SSH测试承载的延迟与GOST直接Relay性能；实际UART/不同网关LAN/长期监管及产品调用链仍待验证/接入。a7～a9测试进程均已退出，Probe PID32540/路由保持，/tmp余31284KiB。本轮仅改诊断与文档，无新GOST业务补丁、提交、推送或生产部署。GOST历史分支ADR-059/060在main统一为062/063，本轮不另占ADR编号。
 
 2026-09-11 接管更新：用户确认迁移后的维护连接问题已解决；排查证据为 Probe 到 47.119.168.150:9001 的 SYN 未到达服务器网卡，未确认具体网络规则及修复方式。Server 已实际常驻、Probe 在线；不要将下文短时部署记录当成当前运行状态。本轮将既有迁移改动整理进本地 main 并删除迁移分支，不推送远端，提交和分支结果以 Git 为准；凭据、构建包和运行数据仍留本机。
 

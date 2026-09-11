@@ -1,5 +1,23 @@
 # Management Server API
 
+## 内网穿透与串口透传（2026-09-12）
+
+经Application Forwarding服务；沿用data/error信封、分页、Idempotency-Key写规则，和旧Maintenance分离，不放宽其固定目标或正租期。
+
+| 方法与路径（前缀/api/v1） | 请求/结果 |
+| --- | --- |
+| GET /devices/{id}/forwarding-capabilities | 当前Session查询interfaces[{name,address(CIDR)}]、serials[]、backend；无能力/超时503 |
+| GET /forwardings?device_id={id} | 分页快照/设备过滤，无注册包或内部Relay凭据 |
+| POST /forwardings | 201 data={mapping,registration?}，Location指映射；initial creating，不保证已就绪 |
+| GET /forwardings/{id} | 当前快照，不存在404 |
+| POST /forwardings/{id}/close | 空body，幂等关闭；released=true只保证Server释放 |
+
+创建共有device_id、kind、protocol、lease_minutes；kind=lan要求interface/target_ip/target_port、protocol=tcp/udp；kind=serial要求serial、protocol=tcp，baud默认115200、data_bits仅8、stop_bits仅1、parity=none/odd/even。lease_minutes缺省240，0无限，范围0..525600；目标仅IPv4直连所选接口，设备最终校验。无效400、容量409、后端不可用503、其他冲突409。
+
+快照包含id、请求字段、session_id、state(creating/active/failed/closed)、reason、host/port、source_ip、created_at/expires_at/closed_at/reusable_after、released、device_released和串口serial_auth统计。active需实际BIND/设备子进程启动，不保证UART打开；expires_at=null仍受Session监管。
+
+串口registration含真实CRLF的AUTH首行，只在创建响应及同幂等重放返回，GET/WS不返回；客户端不存设置、切设备/Server清空。结果不确定保留原幂等键/请求字节，不自动重建。WS新增forwardings主题，首连/重连回查公开快照；不能把WS当唯一真相。全局API认证/控制TLS未在本轮改变。
+
 ## 邻居发现（ADR-056，2026-09-10）
 
 新增路由均通过Management Application进入Device/Task/Gateway服务，前端不访问连接表。路径前缀 `/api/v1`，响应继续使用data/error信封，写请求需要Idempotency-Key。
