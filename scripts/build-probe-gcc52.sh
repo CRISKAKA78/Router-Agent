@@ -84,22 +84,17 @@ cmake -S "$run/src/probe" -B "$run/build" \
     -DCMAKE_TOOLCHAIN_FILE="$run/toolchain.cmake" \
     -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=OFF -DRMP_NETWORK_INTERFACES="$interfaces"
 cmake --build "$run/build" --parallel 2
-"$strip" -o "$run/output/router-agent" "$run/build/router-probe"
+"$strip" -o "$run/output/router-agent-armv7" "$run/build/router-probe"
 cp "$run/input/probe/third_party/mbedtls/LICENSE" "$run/output/MBEDTLS-LICENSE.txt"
 cp "$run/input/probe/third_party/mbedtls/README.router-agent.md" "$run/output/THIRD-PARTY.md"
 {
-    file "$run/output/router-agent"
-    stat -c 'size=%s bytes' "$run/output/router-agent"
-    readelf -h "$run/output/router-agent"
-    readelf -A "$run/output/router-agent"
-    readelf -l "$run/output/router-agent" | grep interpreter
-    readelf -d "$run/output/router-agent" | grep -E 'NEEDED|RPATH|RUNPATH'
+    file "$run/output/router-agent-armv7"
+    stat -c 'size=%s bytes' "$run/output/router-agent-armv7"
+    readelf -h "$run/output/router-agent-armv7"
+    readelf -A "$run/output/router-agent-armv7"
+    readelf -l "$run/output/router-agent-armv7" | grep interpreter
+    readelf -d "$run/output/router-agent-armv7" | grep -E 'NEEDED|RPATH|RUNPATH'
 } | tee "$run/verification.log"
 
-# Preserve the last successful executable if upload, configuration or compilation fails.
-cp "$run/output/MBEDTLS-LICENSE.txt" "$run/output/THIRD-PARTY.md" "$root/"
-cp "$run/output/router-agent" "$run/publish-router-agent"
-mv -f "$run/publish-router-agent" "$root/router-agent"
-printf '%s\n' "$run" > "$run/latest-build.txt"
-mv -f "$run/latest-build.txt" "$root/latest-build.txt"
-printf '\nSUCCESS: %s/router-agent\nBuild records: %s\n' "$root" "$run"
+# Publication is owned by build-probe-all.sh after both architectures succeed.
+printf '\nARMv7 staged: %s/output/router-agent-armv7\n' "$run"

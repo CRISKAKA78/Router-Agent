@@ -1,5 +1,11 @@
 # 项目接管手册
 
+## 本次交付：双架构构建与目录修复提交
+
+- 用户明确授权将主工作区保留的23个文件（双架构Probe构建、FTV300目录兼容及配套文档）提交并推送GitHub `CRISKAKA78/Router-Agent` 的main，同时同步本地此前已合入但未推送的AT/邻居/日志/GOST/EasyTier提交。
+- 此授权取代下方各轮“未提交/不推送”的历史限制，仅涉及Git源码交付；不安装设备、不发布构建包、不重启运行服务。凭据、运行数据和build产物继续留本地。
+- 本轮核对提交范围、差异/本地链接、凭据与产物排除及远端快进条件；不重复全量产品构建或设备验收。历史验证见双架构、目录修复和组网专项文档，当前提交/远端同步结果以Git为准。
+
 ## 本轮更新合入
 
 - 用户已授权将新增组网修复合入本地main，源码快照f723973；Windows完整Go测试/vet/build、Linux相关六包race/真实Probe文件与仓库及组网定向race/vet/build通过。命令与结果见[第二轮集成](OVERLAY_INTEGRATION.md#第二轮实机修复更新合入)。
@@ -12,6 +18,18 @@
 - ARM/MIPS/mipsel core入库为包集合 `2.6.4-r1`；Management接入本机Web。双向ICMP、TCP/UDP echo、管理停机期间30/30 ping及MTU样本复测通过，见[实机证据、回退和遗留](OVERLAY_LIVE_VERIFICATION.md)。
 - 上传完成判断、异步启动只读等待修复已有Windows定向回归/vet/build与Linux五包race。原加入记录仍uncertain：上游空路由回读丢失开关，不强制确认；实际网络保持运行。
 - Web回环绑定/默认密码更换待用户确认；二层、中继、双路由器、长期稳定性及WPF交互未追加验收。接线见[组网文档](OVERLAY_NETWORK.md)。
+
+## 配套工作接管：FTV300 文件目录已修复
+
+- 本次用户授权排查47.119.168.150:20004设备文件读取。根因为固件缺stat；仅修复客户端列目录兼容、空错误反馈和脚本行尾，不安装设备命令或替换Server/Probe。
+- 先看[实机与回归证据](REMOTE_DIRECTORY_FIX_VERIFICATION.md)。FTV300真实目录/下载、FNR100目录、631项桌面与8组Shell验证通过；新包`build/windows-desktop-filefix/win-x64/RouterWorkbench.exe`。
+- 用户旧客户端仍运行，需切换到新包才生效。未提交推送；上次双架构构建未提交改动完整保留，本轮不改变其设备升级验收状态。
+
+## 前次接管：统一 Probe ARMv7 / MIPS 构建
+
+- 用户明确授权将 GCC5.4 合入 `probe-build.cmd`；当前执行一次即输出10.1.1.128上 `/root/router-agent/router-agent-armv7` 与 `router-agent-mipsel`。ADR-065局部取代ADR-058单架构/旧文件名要求，旧gcc54入口仅为别名。
+- 本轮真实双 GCC 编译、产物一致性与10项针对性回归通过，成功run为 `20260912-012702-aa9ec5c9`；SDK缓存复用、失败保护、中文路径修复和参数见[双架构说明](PROBE_BUILD_VERIFICATION.md)。原产物与历史runs保留，不把旧单架构路径视为最新交付。
+- 未自动安装/启动设备，未提交推送；设备新版本运行验收仍需用户后续授权执行。下方集成结论保留为前次基线，不因此改变产品阶段。
 
 ## 前次接管：异地组网已合入本地main（历史记录）
 

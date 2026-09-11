@@ -1,5 +1,11 @@
 # 项目路线图
 
+## 本次里程碑：提交与GitHub同步
+
+- [x] 用户授权提交双架构Probe构建与FTV300目录修复的23个文件，并同步本地已合入的AT/邻居/日志/GOST/EasyTier源码。
+- [x] 核对当前源码范围及远端快进条件；排除凭据、运行数据和build产物，不新增功能或替代历史验收。
+- Git提交与推送结果以main及origin/main实际记录为准；下方各轮未提交/不推送为历史状态，不限制本次授权。
+
 ## 本轮更新合入
 
 - [x] 用户已授权将新增组网修复合入本地main，源码快照f723973；Windows完整Go测试/vet/build、Linux相关六包race/真实Probe文件与仓库及组网定向race/vet/build通过。命令与结果见[第二轮集成](OVERLAY_INTEGRATION.md#第二轮实机修复更新合入)。
@@ -13,6 +19,19 @@
 - [ ] 解决官方API空路由回读丢失开关、原uncertain操作可信回查及WPF完整交互验收。
 - [ ] Web回环绑定/默认密码更换待用户确认；中继、长期稳定性、设备重启恢复与完整MTU验收。
 - [-] 本轮用户要求不测试20004、不升级其Probe，不实施二层或桥接LAN。
+
+## 配套工作里程碑：FTV300 远程目录读取修复
+
+- [x] 2026-09-12：确认无stat固件失败原因，客户端元数据回退、未知值/空错误提示及LF脚本修复。
+- [x] FTV300目录与文件下载实测、FNR100兼容实测，631项桌面检查、8组Linux Shell回归与独立发布通过，见[专项验证](REMOTE_DIRECTORY_FIX_VERIFICATION.md)。
+- [ ] 用户关闭旧客户端并切换到`build/windows-desktop-filefix/win-x64/RouterWorkbench.exe`进行界面确认；无需更新Server/Probe。不作为Phase6最终验收。
+
+## 前次里程碑：统一双架构 Probe 构建
+
+- [x] 按ADR-065将GCC5.4合入probe-build.cmd，单次源码上传后构建ARMv7和MIPS小端，使用/root/router-agent下两个分名产物。
+- [x] 修复中文目录AskPass失败，统一完整SFTP、双架构失败保护及CRLF处理；6项Windows回归、4项编译机发布回归通过。
+- [x] 真实GCC5.2/GCC5.4 Release、strip、ELF/cmp与默认接口检查通过，成功run为20260912-012702-aa9ec5c9，见[验证](PROBE_BUILD_VERIFICATION.md)。
+- [ ] 新双架构产物在各目标设备的运行验收；本轮不自动安装、启动或推进其他阶段。
 
 ## 前次里程碑：异地组网本地审核与合入（历史记录）
 

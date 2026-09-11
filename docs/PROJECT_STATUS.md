@@ -1,5 +1,11 @@
 # 项目状态
 
+## 本次源码交付
+
+- 双架构Probe一键构建、FTV300无stat目录读取/空错误反馈/LF脚本修复及相关23个文件，已获本次用户明确的提交与GitHub main推送授权；此前已合入的14个本地提交一并同步。
+- 本轮是源码整理交付，不新增产品实现、不再次执行设备部署或重跑全量构建。检查范围为Git差异、文件/凭据排除、本地链接和远端快进/提交一致性；源码提交与推送结果以实际Git记录为准。
+- 下方未提交/未推送描述属于各轮历史，不覆盖本次授权。Probe新双架构设备运行、组网uncertain可信回查/安全收口与二层等未完成项保持原状态。
+
 ## 本轮更新合入
 
 - 用户已授权将新增组网修复合入本地main，源码快照f723973；Windows完整Go测试/vet/build、Linux相关六包race/真实Probe文件与仓库及组网定向race/vet/build通过。命令与结果见[第二轮集成](OVERLAY_INTEGRATION.md#第二轮实机修复更新合入)。
@@ -12,6 +18,18 @@
 - ARM `FE7140555489`（用户更新SSH入口20001）与Server的10.144.144.2 ↔ 10.144.144.1双向ICMP、TCP/UDP echo、管理停机30/30 ping、MTU1360复测通过。20004不再测试。
 - 上传Released判断及异步运行轮询修复经定向回归、构建和Linux五包race；原uncertain加入记录保留，上游空路由回读缺陷未掩盖，不能宣称UI完整闭环。
 - [证据与限制](OVERLAY_LIVE_VERIFICATION.md)：安全收口待确认，未测二层/中继/双路由器/设备重启恢复/长期稳定性；当前网络保留运行。
+
+## 配套工作：FTV300 远程目录读取修复（2026-09-12）
+
+- 实机确认 FTV300/FJB130161591 缺少 stat，而旧客户端列目录依赖该命令；失败任务退出码2且stderr为空。客户端增加无stat的只读元数据回退、未知值显示“未提供”、空错误诊断及Shell脚本LF归一化；API/Probe不变。
+- 真机FTV300目录与29字节文件下载/SSH字节比对通过，FNR100原stat路径通过；WPF631项检查、81份布局输出及自包含发布通过，WSL 8组Shell回归通过，见[专项验证](REMOTE_DIRECTORY_FIX_VERIFICATION.md)。
+- 新程序：`build/windows-desktop-filefix/win-x64/RouterWorkbench.exe`；正在运行的旧客户端未替换，需关闭旧窗口后使用新包。未重启或部署Server/Probe，未提交/推送；其他工作区改动保留。
+
+## 前次：Probe 双架构构建已完成（2026-09-12）
+
+- ADR-065：`probe-build.cmd` 一次构建 ARMv7/GCC5.2 与 MIPS小端/GCC5.4，产物统一为 `/root/router-agent/router-agent-armv7`（965240字节）和 `router-agent-mipsel`（1231440字节）。旧 gcc54 入口只转发；旧产物/SDK/runs 保留。
+- 中文路径 AskPass 启动失败及 CopyTo 管道异常已修复；先 SSH 登录检查、完整 SFTP 上传、两架构成功后发布。本机6项回归、编译机4项发布/失败保护回归、真实双 GCC 构建和 ELF/cmp/默认接口/CRLF 检查通过；记录 `20260912-012702-aa9ec5c9`，见[专项验证](PROBE_BUILD_VERIFICATION.md)。
+- 本轮未更改产品业务逻辑、未部署设备或启动 Probe，未重跑 Server/WPF 全量测试，未提交/推送。既有 collection.cpp 编译警告仍保留；设备运行验收与异地组网服务接线/互通仍待完成。
 
 ## 前次：异地组网已合入本地main（历史记录）
 

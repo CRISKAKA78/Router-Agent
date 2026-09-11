@@ -56,6 +56,7 @@ ADR-037 之后只维护新版 WPF 主工作台与 Blazor 模板生成器，旧 R
 
 | 改动范围 | 必要验证 |
 | --- | --- |
+| Probe 构建入口、SDK 驱动与产物命名 | `python tests/probe_build_gcc54_test.py`；Linux `tests/probe_build_publication_test.py`；远端双 GCC 实际构建、ELF/产物/日志检查与 CRLF 归一化；命令和环境见 [双架构验证](PROBE_BUILD_VERIFICATION.md)。不改业务代码时无需重跑全量产品测试 |
 | 纯文档/治理 | `git diff --check`，差异、相对链接与规则一致性，无需产品构建 |
 | WPF 文案、样式与普通 UI | `windows/build-desktop.ps1 -BuildOnly`；受影响页面、错误/空态、主题/窗口检查；有行为时加相关回归，不为静态文案写镜像测试 |
 | C# Client、Core、WPF 状态、文件保存或发布 | `windows/build-desktop.ps1 -BuildOnly -Verify`，构建当前 Go Server 并运行 Desktop.Tests；覆盖受影响的错误、不确定响应、断线/重连、重复操作、切换/退出与发布 EXE 启停 |

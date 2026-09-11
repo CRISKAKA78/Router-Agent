@@ -18,9 +18,7 @@ Phase 0～5 已验收。当前提供原生 C# / WPF Windows 工作台和 C# / Bl
 
 ## 系统关系
 
-Probe 一键交叉编译：双击 [probe-build.cmd](probe-build.cmd)，默认采集 `br0,eth0,eth1,usb0`，默认在 `root@10.1.1.128` 使用原 GCC 5.2 编译，从根目录 `password.txt` 自动读取 SSH 登录密码。成品为 `/root/router-agent/router-agent`，见 [部署说明 §5.3](docs/DEPLOYMENT.md#53-mipsel--arm--arm64-交叉编译)。
-
-MIPS/uClibc GCC5.4 一键编译：使用 [probe-build-gcc54.cmd](probe-build-gcc54.cmd)，从脚本同目录 `password.txt` 读取编译机密码，首次安装桌面SDK，输出到 `/root/router-probe-gcc54/output/router-probe`。FM160-CN真实AT验证与使用方法见[说明](docs/GCC54_AT_DEVICE_VERIFICATION.md)。
+Probe 双架构一键交叉编译：双击 [probe-build.cmd](probe-build.cmd)，从根目录 `password.txt` 自动读取 SSH 密码，在 `root@10.1.1.128` 同时生成 GCC5.2 ARMv7 和 GCC5.4 MIPS 小端成品：`/root/router-agent/router-agent-armv7`、`/root/router-agent/router-agent-mipsel`。两份默认采集 `br0,eth0,eth1,usb0`；旧 gcc54 入口仅为统一入口别名。使用、SDK 缓存与本轮验证见[双架构构建说明](docs/PROBE_BUILD_VERIFICATION.md)，历史 FM160-CN 实机 AT 证据见[实机记录](docs/GCC54_AT_DEVICE_VERIFICATION.md)。
 
 Windows Server 一键重建并运行：双击 [server-windows.cmd](server-windows.cmd)。专用构建目录每次清空，运行数据独立保留；监听及 IPv6 域名配置见 [部署说明](docs/DEPLOYMENT.md)。
 

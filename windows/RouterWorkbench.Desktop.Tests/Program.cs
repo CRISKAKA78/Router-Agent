@@ -29,6 +29,7 @@ internal static partial class Program
     }
     [STAThread] private static int Main(string[] args)
     {
+        if (args.FirstOrDefault() == "--directory-shell-command") { Console.Write(RemoteDirectory.Command(args[1])); return 0; }
         if (args.FirstOrDefault() is not ("--components" or "--compact-preview")) RenderOptions.ProcessRenderMode = System.Windows.Interop.RenderMode.SoftwareOnly;
         output = Path.GetFullPath(args.Length > 1 ? args[1] : "build/windows-desktop/verification"); Directory.CreateDirectory(output);
         var app = new Application { ShutdownMode = ShutdownMode.OnExplicitShutdown };
@@ -61,6 +62,7 @@ internal static partial class Program
     }
     private static async Task ClientChecks()
     {
+        await RemoteDirectoryFailureChecks();
         await NullableSessionChecks();
         await DeviceLogClientChecks();
         foreach (var (seconds, expected) in new (long?, string)[] {
@@ -75,6 +77,18 @@ internal static partial class Program
         var parsed = RemoteDirectory.Parse("f\0" + "12\0" + "1700000000\0" + "a\nb\0");
         Check(parsed.Entries[0].Name == "a\nb" && parsed.Entries[0].Size == 12, "NUL directory records preserve embedded newline");
         Check(RemoteDirectory.Parse("LIMIT\0").Limited, "directory cap reported");
+        Check(!RemoteDirectory.Command("/tmp/root").Contains('\r'), "directory shell script uses LF regardless of Windows source checkout");
+        Check(RemoteDirectory.Command("/tmp/carriage\r\nreturn").StartsWith("cd '/tmp/carriage\r\nreturn'"), "line-ending normalization does not mutate directory path bytes");
+        var noStat = RemoteDirectory.Parse(string.Join('\0', "f", "29", "", "data.txt", "")).Entries.Single();
+        Check(noStat.Size == 29 && noStat.Modified == null && noStat.ModifiedText == "未提供", "stat-less directory preserves size and explicitly marks unknown modification time");
+        var unknown = RemoteDirectory.Parse(string.Join('\0', "f", "", "", "special", "")).Entries.Single();
+        Check(unknown.Size == null && unknown.SizeText == "未提供", "unknown special-file size is not fabricated as zero");
+        var zero = RemoteDirectory.Parse(string.Join('\0', "f", "0", "0", "empty", "")).Entries.Single();
+        Check(zero.Size == 0 && zero.Modified == 0 && zero.ModifiedText != "未提供", "zero bytes and Unix epoch remain real metadata");
+        foreach (var fields in new[] { new[] { "f", "-1", "", "bad", "" }, new[] { "f", "1", "253402300800", "bad", "" }, new[] { "f", "", "bad", "bad", "" } }) {
+            try { RemoteDirectory.Parse(string.Join('\0', fields)); throw new Exception("accepted invalid optional metadata"); }
+            catch (InvalidDataException) { Check(true, "optional directory metadata still rejects malformed non-empty values"); }
+        }
         foreach (var bad in new[] { "f\0", "f\0x\00\0name\0", "f\01\00\0../bad\0", "f\01\00\0name" }) {
             try { RemoteDirectory.Parse(bad); throw new Exception("accepted malformed directory"); } catch (InvalidDataException) { Check(true, "reject malformed directory"); }
         }

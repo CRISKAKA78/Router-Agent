@@ -25,53 +25,13 @@
 
 未执行模组重启、拨号重启、USB拔插或修改系统tty节点。真实重枚举/长期业务零影响仍未验收；ttyUSB2→ttyUSB9改号恢复已有上一轮PTY回归，不能写成这次物理热插拔通过。此次证明FM160-CN当前固件的通用身份查询，无厂商专用适配，SIM/信号/基站字段未扩展。
 
-## 后续一键编译
+## 当前一键编译入口（2026-09-12 更新）
 
-在本worktree根目录：
+按用户授权与 ADR-065，GCC5.4 已合入 [probe-build.cmd](../probe-build.cmd)。它一次构建 ARMv7 与 MIPS 小端，正式产物分别为 `/root/router-agent/router-agent-armv7`、`/root/router-agent/router-agent-mipsel`；旧 gcc54 `.cmd/.ps1` 仅是同一流程的兼容别名。
 
-1. 放置一个名为 `password.txt` 的文件，内容为 **10.1.1.128编译机root账号密码**，单行纯文本；可有末尾换行，不能含其他说明。无需在脚本填写密码。
-2. 首次安装SDK需桌面有 `gcc-5.4.tar.gz`。本次已经安装成功，以后默认复用，不需再次上传；不覆盖主机已有 `/root/gcc-5.4`。
-3. 双击 [probe-build-gcc54.cmd](../probe-build-gcc54.cmd)。它调用 [PowerShell入口](../probe-build-gcc54.ps1)；无密码或接口选择提示。窗口末尾的pause仅用于保留结果。
-4. 查看 `SUCCESS` 和退出码。脚本只编译，不自动上传设备、重启拨号或替换运行探针。
+原密码辅助 `.cmd` 在中文仓库路径下启动失败的问题已改为英文临时目录原生 AskPass；SSH 登录先检查、完整归档 SFTP 上传、两份编译和检查成功后才发布。原已安装 GCC5.4 SDK 可只读复用，历史产物、缓存和 runs 不删除。当前参数、完整目录结构、默认接口、日志和实际双架构验证见 [统一构建说明](PROBE_BUILD_VERIFICATION.md)。
 
-```powershell
-# 在仓库根目录运行；默认与双击入口相同
-powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\probe-build-gcc54.ps1
-
-# 可选参数：外置密码文件、SDK压缩包或独立产物根目录
-powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\probe-build-gcc54.ps1 -PasswordFile C:\private\password.txt -ToolchainArchive C:\SDK\gcc-5.4.tar.gz -RemoteRoot /root/router-probe-gcc54
-```
-
-默认账号 `root@10.1.1.128`、SSH端口22，可通过 `-SshTarget`、`-Port` 调整；仍是该MIPS/uClibc GCC5.4专用入口，不是架构自动选择器。旧 [probe-build.cmd](../probe-build.cmd) 保持GCC5.2 ARM用途，本轮不改变其含义。
-
-### 输出位置
-
-```text
-/root/router-probe-gcc54/
-  output/router-probe              最近成功的MIPS可执行文件
-  output/MBEDTLS-LICENSE.txt
-  output/THIRD-PARTY.md
-  latest-build.txt                 指向最近成功运行目录
-  toolchain/gcc-5.4/               来自桌面压缩包的独立SDK缓存
-  runs/<时间-随机标识>/
-    input/probe/                  本次上传源码（包含未提交更新）
-    src/probe/                    兼容处理后的实际编译副本
-    gcc54-compat.patch            兼容修改证据
-    build-driver.sh               去除CR后的脚本
-    toolchain.cmake
-    build.log
-    verification.log
-    output/router-probe           本次独立产物
-```
-
-每次使用独立run，不删除历史记录。远端flock串行化SDK安装/构建及输出发布；成功后才原子更新固定产物和latest-build指针，失败返回非零。首次SDK压缩包保留在对应安装run内。SDK缓存固定使用本次安装的工具链；若要另换SDK，使用新 `-RemoteRoot`，不要以为更换本地压缩包就自动覆盖既有缓存。
-
-### 密码与主机身份
-
-- `password.txt` 已加入仓库根 `.gitignore`，源包仅打包Probe和构建驱动，不上传该文件、Git目录或运行数据。忽略规则不等于加密；密码文件应只授权本机用户读取。
-- [askpass助手](../scripts/ssh-password-file.cmd) 从文件读取密码供OpenSSH认证，密码不写入脚本、命令行或构建日志，不创建远端密码文件。本轮为验证创建的临时密码文件已删除，未替用户永久保存密码。
-- 使用Windows自带OpenSSH/PowerShell/tar，无额外SSH库。首次主机密钥按TOFU保存到 `build/gcc54/known_hosts`，后续身份变化会拒绝，不自动删除或跳过校验。首次连接未做独立带外指纹认证，不声称已验证对端组织身份。
-- 默认免交互流程已真实运行：从脚本同目录password.txt读取密码；SDK缓存存在时，本地SDK路径故意不存在仍编译成功。错误密码不循环重试，缺失/空/多行密码在上传前报错。
+下方 GCC5.4 编译及 FM160-CN 实机内容保留为 2026-09-11 的历史证据，不代表本轮新组合产物已在设备运行。
 
 ## 编译事实与兼容处理
 

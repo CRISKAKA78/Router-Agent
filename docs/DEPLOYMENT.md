@@ -287,18 +287,15 @@ ldd build/probe/router-probe
 
 ### 5.3 mipsel / ARM / ARM64 交叉编译
 
-**MIPS/uClibc GCC5.4 新入口（2026-09-11）：** [probe-build-gcc54.cmd](../probe-build-gcc54.cmd) 从同目录password.txt读取编译机root密码，默认10.1.1.128，首次使用桌面gcc-5.4.tar.gz安装独立SDK；成品 `/root/router-probe-gcc54/output/router-probe`。已在MT7621/Fibocom FM160-CN设备验证自动串口、ATI/IMEI、占用跳过和恢复；未重启模组或替换生产实例。完整目录、参数、安全边界及证据见[GCC54实机说明](GCC54_AT_DEVICE_VERIFICATION.md)。下方GCC5.2入口保持原ARM用途。
+**统一双架构一键入口（ADR-065，2026-09-12）：** 在 Windows 双击 [probe-build.cmd](../probe-build.cmd)，使用 `root@10.1.1.128:22` 和根目录 `password.txt` 自动认证，分别通过 GCC5.2 构建 ARMv7、GCC5.4 构建 MIPS 小端。完整源码归档 SFTP 上传，原生 AskPass 使用英文临时路径，解包后统一处理三份 Bash 驱动的 CRLF；不再使用旧 GCC54 的 CopyTo 流式上传。
 
-**已配置的 GCC 5.2 一键入口（ADR-058）：** 在 Windows 双击仓库根目录 [probe-build.cmd](../probe-build.cmd)，使用 `root@10.1.1.128:22` 账号密码认证，密码从根目录 `password.txt` 自动读取，不使用私钥、不交互询问。Windows 需要 `ssh.exe`、`sftp.exe`、`tar.exe`、Windows PowerShell及系统.NET Framework编译器；远端使用已有 CMake、make、Python 3、binutils 及 `/root/gcc-5.2`。
+- 最终产物：`/root/router-agent/router-agent-armv7` 和 `/root/router-agent/router-agent-mipsel`，同目录附许可说明；历史 `router-agent` 及旧 GCC54 产物不覆盖、不删除。
+- 同一源码快照、两套 SDK 兼容副本和独立构建日志，均在 `/root/router-agent/runs/<时间-随机标识>/{armv7,mipsel}/`。两份编译和 ELF 检查均成功后逐文件更新分名产物及共同 `latest-build.txt`；编译或校验失败保留之前成功产物。
+- GCC5.4 优先根目录下的 SDK 缓存，也可复用旧 `/root/router-probe-gcc54/toolchain/gcc-5.4`；均不存在时使用桌面 `gcc-5.4.tar.gz` 安装。原 `/root/gcc-5.2` 保持。
+- 高级入口 `powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\probe-build.ps1` 支持 `-SshTarget`、`-Port`、`-RemoteRoot`、`-Toolchain`（ARM）、`-NetworkInterfaces`、`-PasswordFile`、`-ToolchainArchive`。旧 `probe-build-gcc54.cmd/.ps1` 仅转发到相同双架构流程。
+- 本轮已通过实际 Windows → SSH/SFTP → 双 GCC Release/strip/ELF；ARMv7 965240 字节、MIPS 1231440 字节，run 为 `20260912-012702-aa9ec5c9`。详细依赖、日志、失败回归与限制见[双架构构建验证](PROBE_BUILD_VERIFICATION.md)。未自动安装或启动设备 Probe；动态库兼容性及厂商设备运行仍须单独验收。
 
-脚本将当前工作区 `probe` 源码（包含尚未提交的更新）压缩后经SFTP上传到 `root@10.1.1.128`，再通过SSH解包，先将上传的 Bash 脚本从 CRLF 规范化为 LF，再自动应用该 SDK 所需的整数转字符串、strtoull 和声明头兼容处理，执行 Release 交叉编译及 ELF 检查。兼容处理仅作用于远端副本，仓库产品代码不改动。Windows临时源码压缩包与无凭据的AskPass辅助程序在结束时清理，不复制或上传password.txt。
-
-- 固定成品：`/root/router-agent/router-agent`（785556字节，本轮实际产物）；第三方许可随成品放在同目录。
-- 每次输入源码、兼容副本、补丁、临时文件、构建和日志：专用目录下 `runs/<时间-随机标识>/`；`build.log` 是构建日志，`verification.log` 是 ELF/依赖记录。
-- `latest-build.txt` 指向最近成功构建目录。上传、配置或编译失败返回非零状态，保留上一份成功成品；窗口会保留结果。各次记录不自动清理。
-- 输出为 ARMv7 小端 / EABI5 / uClibc 动态链接程序。目标需要兼容的 `/lib/ld-uClibc.so.0`、libpthread/libstdc++/libm/libgcc_s/libc，以及线程库依赖的 libdl；编译通过不代表目标固件运行验收。
-
-高级调用为 `powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\probe-build.ps1`；可传 `-SshTarget root@10.1.1.128 -RemoteRoot /root/router-agent -Toolchain /root/gcc-5.2` 调整构建主机或目录，仍要求对应 GCC 5.2 ARM/uClibc SDK。此入口不是通用的其他架构构建器。
+**以下为旧单架构入口的历史证据，不代表当前输出路径：**
 
 2026-09-11 本轮验证：`powershell.exe -NoProfile -ExecutionPolicy Bypass -File probe-build.ps1` 完成密码认证、SFTP源码上传、GCC5.2 Release编译、strip及ELF验证；产物 `/root/router-agent/router-agent`，ARMv7小端/EABI5/uClibc，785556字节。成功记录 `/root/router-agent/runs/20260911-182649-f30c50be`，本地日志 `build/probe-router-agent-build.log`。本轮首次旧标准输入流上传报gzip错误，改为完整压缩包上传后通过。默认接口仍为br0,eth0,eth1,usb0，运行连接47.119.168.150:9000；原collection.cpp的seconds警告保留，未安装或运行到厂商路由器。脚本AST、真实远端Bash执行与差异检查通过；本轮仅改构建入口，没有重跑产品全量测试。
 

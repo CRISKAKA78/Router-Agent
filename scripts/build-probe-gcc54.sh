@@ -3,13 +3,18 @@ set -euo pipefail
 umask 077
 run=${1:?Usage: build-probe-gcc54.sh RUN ROOT}
 root=${2:?Missing dedicated build root}
-[[ "$root" =~ ^/root/[A-Za-z0-9_-]+$ && "$run" =~ ^$root/runs/[A-Za-z0-9_-]+$ ]] || exit 2
+interfaces=${3:-br0,eth0,eth1,usb0}
+[[ "$interfaces" == "-" ]] && interfaces=""
+[[ "$interfaces" =~ ^[A-Za-z0-9_,.-]*$ ]] || exit 2
+[[ "$root" =~ ^/root/[A-Za-z0-9_-]+$ && "$run" == "$root"/runs/* ]] || exit 2
 for cmd in cmake make python3 file readelf flock diff; do command -v "$cmd" >/dev/null; done
 mkdir -p "$root/toolchain" "$run/output" "$run/tmp"
-# Serialize SDK install and output publication for repeated double-clicks.
-exec 9>"$root/build.lock"
-flock 9
+# The parent driver owns the lock; reuse the previously installed SDK read-only.
 sdk="$root/toolchain/gcc-5.4"
+if [[ ! -f "$sdk/.router-agent-installed" && -f /root/router-probe-gcc54/toolchain/gcc-5.4/.router-agent-installed ]]; then
+    sdk=/root/router-probe-gcc54/toolchain/gcc-5.4
+fi
+printf 'GCC 5.4 SDK: %s\n' "$sdk"
 if [[ ! -f "$sdk/.router-agent-installed" ]]; then
     [[ ! -e "$sdk" ]] || { echo 'SDK directory exists without installation marker; refusing to overwrite it.' >&2; exit 1; }
     mkdir "$run/sdk-stage"
@@ -95,23 +100,18 @@ set(CMAKE_FIND_ROOT_PATH_MODE_INCLUDE ONLY)
 set(CMAKE_FIND_ROOT_PATH_MODE_PACKAGE ONLY)
 set(CMAKE_EXE_LINKER_FLAGS_INIT "-Wl,-rpath-link,$sdk/lib")
 EOF
-cmake -S "$run/src/probe" -B "$run/build" -DCMAKE_TOOLCHAIN_FILE="$run/toolchain.cmake" -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=OFF
+cmake -S "$run/src/probe" -B "$run/build" -DCMAKE_TOOLCHAIN_FILE="$run/toolchain.cmake" -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=OFF -DRMP_NETWORK_INTERFACES="$interfaces"
 cmake --build "$run/build" --target router-probe --parallel 2
-"$sdk/bin/mipsel-openwrt-linux-uclibc-strip" -o "$run/output/router-probe" "$run/build/router-probe"
+"$sdk/bin/mipsel-openwrt-linux-uclibc-strip" -o "$run/output/router-agent-mipsel" "$run/build/router-probe"
 cp "$run/input/probe/third_party/mbedtls/LICENSE" "$run/output/MBEDTLS-LICENSE.txt"
 cp "$run/input/probe/third_party/mbedtls/README.router-agent.md" "$run/output/THIRD-PARTY.md"
 {
- file "$run/output/router-probe"
- stat -c 'size=%s bytes' "$run/output/router-probe"
- readelf -h "$run/output/router-probe"
- readelf -A "$run/output/router-probe"
- readelf -l "$run/output/router-probe" | grep interpreter
- readelf -d "$run/output/router-probe" | grep -E 'NEEDED|RPATH|RUNPATH'
+ file "$run/output/router-agent-mipsel"
+ stat -c 'size=%s bytes' "$run/output/router-agent-mipsel"
+ readelf -h "$run/output/router-agent-mipsel"
+ readelf -A "$run/output/router-agent-mipsel"
+ readelf -l "$run/output/router-agent-mipsel" | grep interpreter
+ readelf -d "$run/output/router-agent-mipsel" | grep -E 'NEEDED|RPATH|RUNPATH'
 } | tee "$run/verification.log"
-mkdir -p "$root/output"
-cp "$run/output/MBEDTLS-LICENSE.txt" "$run/output/THIRD-PARTY.md" "$root/output/"
-cp "$run/output/router-probe" "$run/publish-router-probe"
-mv -f "$run/publish-router-probe" "$root/output/router-probe"
-printf '%s\n' "$run" > "$run/latest-build.txt"
-mv -f "$run/latest-build.txt" "$root/latest-build.txt"
-printf '\nSUCCESS: %s/output/router-probe\nBuild records: %s\n' "$root" "$run"
+# Publication is owned by build-probe-all.sh after both architectures succeed.
+printf '\nMIPS little-endian staged: %s/output/router-agent-mipsel\n' "$run"
