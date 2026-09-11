@@ -45,3 +45,26 @@ func TestNetworkTaskConfigServerRedacted(t *testing.T) {
 		t.Fatalf("task params leak %s %v", b, e)
 	}
 }
+func TestNetworkExplicitPasswordAndNewProfile(t *testing.T) {
+	_, _, base, _ := fixture(t, Config{})
+	created := request(t, base, "POST", "/api/v1/networks", "new-profile", `{"name":"profile","password":"user-chosen","mtu":1380,"peer_urls":["tcp://et.criskaka.com"]}`, 201)
+	n := created["data"].(map[string]any)
+	id := n["network_id"].(string)
+	if n["profile"] != float64(2) || n["mtu"] != float64(1380) {
+		t.Fatal(n)
+	}
+	got := request(t, base, "GET", "/api/v1/networks/"+id+"/password", "", "", 200)
+	if got["data"].(map[string]any)["password"] != "user-chosen" {
+		t.Fatal("password changed")
+	}
+	for _, path := range []string{"/api/v1/networks", "/api/v1/networks/" + id, "/api/v1/networks/" + id + "/topology", "/api/v1/networks/" + id + "/operations"} {
+		r := request(t, base, "GET", path, "", "", 200)
+		raw, _ := json.Marshal(r)
+		if strings.Contains(string(raw), "user-chosen") {
+			t.Fatal("secret leaked", path)
+		}
+	}
+	request(t, base, "POST", "/api/v1/networks/"+id+"/members/batch", "empty-batch", `{"members":[]}`, 400)
+	request(t, base, "POST", "/api/v1/networks/"+id+"/members/batch", "no-anchor", `{"members":[{"device_id":"a"}]}`, 409)
+	request(t, base, "PUT", "/api/v1/networks/"+id+"/members/none/config", "member-config", `{"revision":0,"config":{"hostname":"a","enable_manual_routes":true}}`, 404)
+}

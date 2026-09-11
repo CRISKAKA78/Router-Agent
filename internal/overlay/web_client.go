@@ -165,19 +165,26 @@ func (w *WebClient) Confirm(ctx context.Context, machine, instance string, expec
 	if e := w.call(ctx, "GET", machinePath(machine)+"/config/"+instance, nil, &actual); e != nil {
 		return e
 	}
+	matched := true
 	for key, value := range expected {
-		a, e := json.Marshal(value)
-		if e != nil {
-			return ErrInvalid
+		if expected["dhcp"] == true && (key == "virtual_ipv4" || key == "network_length") {
+			continue
 		}
-		var canonical any
-		if json.Unmarshal(actual[key], &canonical) != nil {
-			return ErrUncertain
+		var actualValue any
+		if json.Unmarshal(actual[key], &actualValue) != nil || !valuesEqual(value, actualValue) {
+			matched = false
+			break
 		}
-		b, _ := json.Marshal(canonical)
-		if !bytes.Equal(a, b) {
-			return ErrUncertain
-		}
+	}
+	if matched {
+		return nil
+	}
+	raw, e := w.runtimeConfig(ctx, machine, instance)
+	if e != nil {
+		return e
+	}
+	if !rawConfigMatches(raw, expected) {
+		return ErrUncertain
 	}
 	return nil
 }

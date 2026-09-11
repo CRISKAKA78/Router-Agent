@@ -9,10 +9,12 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net"
 	"net/netip"
 	"net/url"
 	"os"
 	"path"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -120,6 +122,7 @@ func ValidUUID(s string) bool {
 }
 
 type Spec struct {
+	MTU      int      `json:"mtu,omitempty"`
 	Name     string   `json:"name"`
 	CIDR     string   `json:"cidr"`
 	PeerURLs []string `json:"peer_urls"`
@@ -138,9 +141,20 @@ func (q *Spec) Validate() error {
 	if e != nil || !p.Addr().Is4() || !p.Addr().IsPrivate() || p.Bits() < 16 || p.Bits() > 29 || p.Masked().String() != q.CIDR {
 		return ErrInvalid
 	}
-	for _, s := range q.PeerURLs {
+	if q.MTU != 0 && (q.MTU < 576 || q.MTU > 9000) {
+		return ErrInvalid
+	}
+	for i, s := range q.PeerURLs {
 		u, e := url.Parse(s)
-		if e != nil || len(s) > 256 || u.User != nil || u.Hostname() == "" || u.Port() == "" || u.RawQuery != "" || u.Fragment != "" || (u.Scheme != "tcp" && u.Scheme != "udp" && u.Scheme != "ws" && u.Scheme != "wss" && u.Scheme != "quic") || strings.ContainsAny(s, "\x00\r\n \t") {
+		if e != nil || len(s) > 256 || u.User != nil || u.Hostname() == "" || u.RawQuery != "" || u.Fragment != "" || (u.Scheme != "tcp" && u.Scheme != "udp" && u.Scheme != "ws" && u.Scheme != "wss" && u.Scheme != "quic") || strings.ContainsAny(s, "\x00\r\n \t") {
+			return ErrInvalid
+		}
+		if u.Port() == "" {
+			u.Host = net.JoinHostPort(u.Hostname(), "11010")
+			q.PeerURLs[i] = u.String()
+		}
+		port, e := strconv.Atoi(u.Port())
+		if e != nil || port < 1 || port > 65535 {
 			return ErrInvalid
 		}
 	}
@@ -160,33 +174,40 @@ func (q *Spec) Validate() error {
 }
 
 type Member struct {
-	DeviceID        string `json:"device_id"`
-	MachineID       string `json:"machine_id"`
-	InstanceID      string `json:"instance_id"`
-	VirtualIP       string `json:"virtual_ip"` // Empty preserves official DHCP default.
-	Desired         string `json:"desired"`
-	AppliedRevision uint64 `json:"applied_revision"`
-	OperationID     string `json:"operation_id,omitempty"`
+	Config                *MemberConfig `json:"config,omitempty"`
+	ConfigRevision        uint64        `json:"config_revision"`
+	AppliedConfigRevision uint64        `json:"applied_config_revision"`
+	DeviceID              string        `json:"device_id"`
+	MachineID             string        `json:"machine_id"`
+	InstanceID            string        `json:"instance_id"`
+	VirtualIP             string        `json:"virtual_ip"` // Empty preserves official DHCP default.
+	Desired               string        `json:"desired"`
+	AppliedRevision       uint64        `json:"applied_revision"`
+	OperationID           string        `json:"operation_id,omitempty"`
 }
 type Network struct {
-	ID string `json:"network_id"`
+	Profile int    `json:"profile,omitempty"`
+	ID      string `json:"network_id"`
 	Spec
 	Revision  uint64    `json:"revision"`
 	CreatedAt time.Time `json:"created_at"`
 	Members   []Member  `json:"members"`
 }
 type Operation struct {
-	ID        string    `json:"operation_id"`
-	NetworkID string    `json:"network_id"`
-	DeviceID  string    `json:"device_id"`
-	Action    string    `json:"action"`
-	Revision  uint64    `json:"revision"`
-	State     string    `json:"state"`
-	Step      string    `json:"step"`
-	TaskIDs   []string  `json:"task_ids"`
-	Error     string    `json:"error,omitempty"`
-	CreatedAt time.Time `json:"created_at"`
-	UpdatedAt time.Time `json:"updated_at"`
+	SupersededBy   string    `json:"superseded_by,omitempty"`
+	Recovery       bool      `json:"recovery,omitempty"`
+	MemberRevision uint64    `json:"member_revision"`
+	ID             string    `json:"operation_id"`
+	NetworkID      string    `json:"network_id"`
+	DeviceID       string    `json:"device_id"`
+	Action         string    `json:"action"`
+	Revision       uint64    `json:"revision"`
+	State          string    `json:"state"`
+	Step           string    `json:"step"`
+	TaskIDs        []string  `json:"task_ids"`
+	Error          string    `json:"error,omitempty"`
+	CreatedAt      time.Time `json:"created_at"`
+	UpdatedAt      time.Time `json:"updated_at"`
 }
 type JoinRequest struct {
 	DeviceID  string `json:"device_id"`
@@ -208,5 +229,33 @@ type Status struct {
 func EngineConfig(n Network, m Member, secret string) map[string]any {
 	p, _ := netip.ParsePrefix(n.CIDR)
 	c := map[string]any{"instance_id": m.InstanceID, "network_name": n.ID, "network_secret": secret, "dhcp": m.VirtualIP == "", "virtual_ipv4": m.VirtualIP, "network_length": p.Bits(), "networking_method": 1, "peer_urls": n.PeerURLs, "listener_urls": []string{"tcp://0.0.0.0:11010", "udp://0.0.0.0:11010"}, "enable_manual_routes": true, "routes": n.Routes, "bind_device": true, "multi_thread": true}
+	if n.MTU > 0 {
+		c["mtu"] = n.MTU
+	}
+	if n.Profile >= 2 || m.Config != nil {
+		cfg := DefaultMemberConfig(m.DeviceID)
+		if m.Config != nil {
+			cfg = *m.Config
+		}
+		c["hostname"] = cfg.Hostname
+		c["mtu"] = n.MTU
+		if n.MTU == 0 {
+			c["mtu"] = 1380
+		}
+		c["dev_name"] = "et0"
+		c["multi_thread"] = false
+		c["enable_private_mode"] = true
+		c["disable_sym_hole_punching"] = true
+		c["disable_upnp"] = true
+		c["proxy_forward_by_system"] = cfg.SystemForward
+		c["lazy_p2p"] = cfg.LazyP2P
+		c["need_p2p"] = cfg.NeedP2P
+		c["p2p_only"] = cfg.P2POnly
+		c["disable_p2p"] = cfg.DisableP2P
+		c["proxy_cidrs"] = cfg.ProxyCIDRs
+		c["enable_manual_routes"] = cfg.ManualRoutes
+		// Web protobuf requires a repeated field; gen_config emits routes only for manual mode.
+		c["routes"] = cfg.Routes
+	}
 	return c
 }

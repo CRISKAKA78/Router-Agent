@@ -33,19 +33,21 @@ type catalog struct {
 	Operations map[string]Operation     `json:"operations"`
 }
 type Service struct {
-	mu           sync.Mutex
-	path         string
-	lock         *os.File
-	config       Config
-	controller   Controller
-	driver       Driver
-	data         catalog
-	observations map[string]map[string]Observation
-	ctx          context.Context
-	cancel       context.CancelFunc
-	wg           sync.WaitGroup
-	closed       bool
-	revision     atomic.Uint64
+	mu            sync.Mutex
+	path          string
+	lock          *os.File
+	config        Config
+	controller    Controller
+	driver        Driver
+	data          catalog
+	observations  map[string]map[string]Observation
+	ctx           context.Context
+	cancel        context.CancelFunc
+	wg            sync.WaitGroup
+	closed        bool
+	revision      atomic.Uint64
+	active        map[string]bool
+	recoveryAfter map[string]time.Time
 }
 
 func clone[T any](v T) T { b, _ := json.Marshal(v); var out T; _ = json.Unmarshal(b, &out); return out }
@@ -87,7 +89,7 @@ func Open(file string, c Config, driver Driver, controller Controller) (*Service
 		return fail(ErrInvalid)
 	}
 	for id, sn := range data.Networks {
-		if !ValidUUID(id) || sn.Network.ID != id || sn.Network.Spec.Validate() != nil || len(sn.Secret) != 64 || len(sn.Network.Members) > 64 {
+		if !ValidUUID(id) || sn.Network.ID != id || sn.Network.Spec.Validate() != nil || (len(sn.Secret) < 1 || len(sn.Secret) > 128) || len(sn.Network.Members) > 64 {
 			return fail(ErrInvalid)
 		}
 		for _, m := range sn.Network.Members {
@@ -179,7 +181,8 @@ func (s *Service) Get(id string) (Network, error) {
 	}
 	return clone(n.Network), nil
 }
-func (s *Service) Create(q Spec) (Network, error) {
+func (s *Service) Create(q Spec) (Network, error) { return s.create(q, "", 0) }
+func (s *Service) create(q Spec, password string, profile int) (Network, error) {
 	if e := q.Validate(); e != nil {
 		return Network{}, e
 	}
@@ -198,9 +201,12 @@ func (s *Service) Create(q Spec) (Network, error) {
 	if _, e := rand.Read(secret[:]); e != nil {
 		return Network{}, e
 	}
-	n := Network{id, q, 1, time.Now().UTC(), []Member{}}
+	n := Network{ID: id, Spec: q, Profile: profile, Revision: 1, CreatedAt: time.Now().UTC(), Members: []Member{}}
+	if password == "" {
+		password = hex.EncodeToString(secret[:])
+	}
 	data := clone(s.data)
-	data.Networks[id] = storedNetwork{n, hex.EncodeToString(secret[:])}
+	data.Networks[id] = storedNetwork{n, password}
 	return clone(n), s.commit(data)
 }
 func (s *Service) busy(n Network) bool {
@@ -221,7 +227,7 @@ func (s *Service) Update(id string, q Spec, revision uint64) (Network, error) {
 	if !ok {
 		return Network{}, ErrNotFound
 	}
-	if revision != old.Network.Revision || s.busy(old.Network) {
+	if s.closed || revision != old.Network.Revision || s.busy(old.Network) {
 		return Network{}, ErrConflict
 	}
 	for other, n := range s.data.Networks {
@@ -238,6 +244,17 @@ func (s *Service) Update(id string, q Spec, revision uint64) (Network, error) {
 			}
 		}
 	}
+	if old.Network.Profile >= 2 {
+		if len(q.Routes) > 0 {
+			return Network{}, ErrInvalid
+		}
+		if len(q.PeerURLs) == 0 {
+			q.PeerURLs = []string{"tcp://47.119.168.150:11010", "udp://47.119.168.150:11010"}
+		}
+		if q.MTU == 0 {
+			q.MTU = 1380
+		}
+	}
 	old.Network.Spec = q
 	old.Network.Revision++
 	data := clone(s.data)
@@ -245,6 +262,9 @@ func (s *Service) Update(id string, q Spec, revision uint64) (Network, error) {
 	return clone(old.Network), s.commit(data)
 }
 func (s *Service) Start(id string, q JoinRequest, action string) (Operation, error) {
+	return s.start(id, q, action, false)
+}
+func (s *Service) start(id string, q JoinRequest, action string, recovery bool) (Operation, error) {
 	if action != "start" && action != "stop" {
 		return Operation{}, ErrInvalid
 	}
@@ -262,10 +282,11 @@ func (s *Service) Start(id string, q JoinRequest, action string) (Operation, err
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	sn, ok := s.data.Networks[id]
+	sn = clone(sn)
 	if !ok {
 		return Operation{}, ErrNotFound
 	}
-	if len(s.data.Operations) >= 2048 {
+	if s.closed || len(s.data.Operations) >= 2048 {
 		return Operation{}, ErrConflict
 	}
 	index := -1
@@ -274,12 +295,18 @@ func (s *Service) Start(id string, q JoinRequest, action string) (Operation, err
 			index = i
 		}
 	}
+	if recovery && (index < 0 || sn.Network.Members[index].Desired != "start" || sn.Network.Members[index].AppliedRevision == 0) {
+		return Operation{}, ErrConflict
+	}
 	if index < 0 && action == "stop" {
 		return Operation{}, ErrNotFound
 	}
 	if index >= 0 {
 		op := s.data.Operations[sn.Network.Members[index].OperationID]
-		if op.State == "queued" || op.State == "running" || op.State == "uncertain" {
+		if op.State == "queued" || op.State == "running" || s.active[op.ID] {
+			return Operation{}, ErrConflict
+		}
+		if op.State == "uncertain" && (action != "stop" || !s.evidenceReadable(op)) {
 			return Operation{}, ErrConflict
 		}
 	}
@@ -314,26 +341,44 @@ func (s *Service) Start(id string, q JoinRequest, action string) (Operation, err
 		}
 		machineID := s.data.Machines[q.DeviceID]
 		if machineID == "" {
-			machineID = UUID()
+			machineID = MachineID(q.DeviceID)
 		}
-		sn.Network.Members = append(sn.Network.Members, Member{DeviceID: q.DeviceID, MachineID: machineID, InstanceID: UUID(), VirtualIP: q.VirtualIP})
+		if sn.Network.Profile >= 2 && q.VirtualIP == "" && !hasAnchor(sn.Network, "") {
+			return Operation{}, ErrConflict
+		}
+		member := Member{DeviceID: q.DeviceID, MachineID: machineID, InstanceID: UUID(), VirtualIP: q.VirtualIP}
+		if sn.Network.Profile >= 2 {
+			cfg := DefaultMemberConfig(q.DeviceID)
+			if names, ok := s.driver.(interface{ DeviceName(string) string }); ok {
+				cfg.Hostname = names.DeviceName(q.DeviceID)
+			}
+			cfg.VirtualIP = q.VirtualIP
+			member.Config = &cfg
+			member.ConfigRevision = 1
+		}
+		sn.Network.Members = append(sn.Network.Members, member)
 		index = len(sn.Network.Members) - 1
 	} else if q.VirtualIP != "" && q.VirtualIP != sn.Network.Members[index].VirtualIP {
 		return Operation{}, ErrConflict
 	}
-	op := Operation{ID: UUID(), NetworkID: id, DeviceID: q.DeviceID, Action: action, Revision: sn.Network.Revision, State: "queued", Step: "queued", TaskIDs: []string{}, CreatedAt: time.Now().UTC(), UpdatedAt: time.Now().UTC()}
+	op := newOperation(sn.Network, sn.Network.Members[index], action)
+	op.Recovery = recovery
 	m := &sn.Network.Members[index]
+	previousOperation := m.OperationID
 	m.OperationID = op.ID
 	m.Desired = action
 	data := clone(s.data)
 	data.Networks[id] = sn
 	data.Operations[op.ID] = op
+	if old, ok := data.Operations[previousOperation]; ok && old.State == "uncertain" {
+		old.SupersededBy = op.ID
+		data.Operations[old.ID] = old
+	}
 	data.Machines[q.DeviceID] = m.MachineID
 	if e := s.commit(data); e != nil {
 		return Operation{}, e
 	}
-	s.wg.Add(1)
-	go s.run(op, clone(sn.Network), *m, sn.Secret)
+	s.launch(op, clone(sn.Network), *m, sn.Secret)
 	return op, nil
 }
 func (s *Service) report(id, step, taskID string) error {
@@ -343,6 +388,9 @@ func (s *Service) report(id, step, taskID string) error {
 	op, ok := data.Operations[id]
 	if !ok {
 		return ErrNotFound
+	}
+	if !s.currentOperation(op) {
+		return ErrConflict
 	}
 	op.State = "running"
 	op.Step = step
@@ -355,9 +403,13 @@ func (s *Service) report(id, step, taskID string) error {
 }
 func (s *Service) finish(id string, e error) {
 	s.mu.Lock()
+	delete(s.active, id)
 	defer s.mu.Unlock()
 	data := clone(s.data)
 	op := data.Operations[id]
+	if !s.currentOperation(op) {
+		return
+	}
 	op.State = "succeeded"
 	if e == nil {
 		op.Step = "complete"
@@ -385,6 +437,7 @@ func (s *Service) finish(id string, e error) {
 			if m.DeviceID == op.DeviceID && m.OperationID == op.ID {
 				if op.Action == "start" {
 					m.AppliedRevision = op.Revision
+					m.AppliedConfigRevision = op.MemberRevision
 				}
 			}
 		}
@@ -400,10 +453,14 @@ func (s *Service) finish(id string, e error) {
 }
 func (s *Service) run(op Operation, n Network, m Member, secret string) {
 	defer s.wg.Done()
+	defer func() { s.mu.Lock(); delete(s.active, op.ID); s.mu.Unlock() }()
 	ctx, cancel := context.WithTimeout(s.ctx, 3*time.Minute)
 	defer cancel()
 	report := func(step, id string) error { return s.report(op.ID, step, id) }
 	e := report("preparing", "")
+	if e == nil && op.Action == "start" && n.Profile >= 2 && m.VirtualIP == "" {
+		e = s.waitAnchor(ctx, n, m, report)
+	}
 	if e == nil && op.Action == "start" {
 		e = s.driver.Bootstrap(ctx, m, report)
 	}
@@ -428,12 +485,37 @@ func (s *Service) run(op Operation, n Network, m Member, secret string) {
 			}
 		}
 	}
+
+	if e == nil && op.Recovery {
+		r, x := s.controller.Collect(ctx, m.MachineID, m.InstanceID)
+		if x == nil && r.Running {
+			e = s.confirm(ctx, n, m, secret)
+			if e == nil && n.Profile >= 2 {
+				r, e = s.waitAddress(ctx, n, m, r)
+			}
+			s.setObservation(n.ID, m.DeviceID, r, nil)
+			s.finish(op.ID, e)
+			return
+		}
+		if x != nil && !errors.Is(x, ErrNotFound) {
+			e = x
+		}
+	}
 	if e == nil {
 		e = report("controller_apply", "")
 	}
 	if e == nil {
 		if op.Action == "start" {
-			e = s.controller.Apply(ctx, m.MachineID, m.InstanceID, EngineConfig(n, m, secret))
+			// Saving config is not hot reload. Stop only this instance before reapplying.
+			if m.AppliedRevision > 0 && !op.Recovery {
+				e = s.controller.Stop(ctx, m.MachineID, m.InstanceID)
+				if e == nil {
+					_, e = s.waitRuntime(ctx, m.MachineID, m.InstanceID, false)
+				}
+			}
+			if e == nil {
+				e = s.controller.Apply(ctx, m.MachineID, m.InstanceID, EngineConfig(n, m, secret))
+			}
 		} else {
 			e = s.controller.Stop(ctx, m.MachineID, m.InstanceID)
 		}
@@ -444,10 +526,19 @@ func (s *Service) run(op Operation, n Network, m Member, secret string) {
 			var r Running
 			r, e = s.waitRuntime(ctx, m.MachineID, m.InstanceID, op.Action == "start")
 			if e == nil {
+				if op.Action == "start" && n.Profile >= 2 {
+					r, e = s.waitAddress(ctx, n, m, r)
+				}
 				s.setObservation(n.ID, m.DeviceID, r, nil)
 			} else {
 				e = ErrUncertain
 			}
+		}
+	}
+	if e == nil && op.Action == "start" {
+		e = report("verify_configuration", "")
+		if e == nil {
+			e = s.confirm(ctx, n, m, secret)
 		}
 	}
 	s.finish(op.ID, e)
@@ -541,6 +632,7 @@ func (s *Service) poll() {
 			ctx, cancel := context.WithTimeout(s.ctx, 8*time.Second)
 			s.Refresh(ctx)
 			cancel()
+			s.maintain()
 		}
 	}
 }
@@ -566,7 +658,7 @@ func (s *Service) Reconcile(ctx context.Context, id string) (Operation, error) {
 		}
 	}
 	s.mu.Unlock()
-	if !s.driver.TasksSettled(op.TaskIDs) {
+	if m.OperationID != op.ID || !s.evidenceReadable(op) {
 		return Operation{}, ErrUncertain
 	}
 	r, e := s.controller.Collect(ctx, m.MachineID, m.InstanceID)
@@ -579,6 +671,11 @@ func (s *Service) Reconcile(ctx context.Context, id string) (Operation, error) {
 	s.setObservation(op.NetworkID, m.DeviceID, r, nil)
 	if r.Running != (op.Action == "start") || r.ErrorMessage != nil && *r.ErrorMessage != "" {
 		return op, ErrUncertain
+	}
+	if op.Action == "start" && sn.Network.Profile >= 2 {
+		if e := addressMatches(sn.Network, m, r); e != nil {
+			return op, e
+		}
 	}
 	// The original revision must still be present upstream. Runtime alone does
 	// not prove that a timed-out save/enable pair applied the requested config.
@@ -597,7 +694,7 @@ func (s *Service) Reconcile(ctx context.Context, id string) (Operation, error) {
 	defer s.mu.Unlock()
 	data := clone(s.data)
 	current := data.Operations[id]
-	if current.State != "uncertain" {
+	if current.State != "uncertain" || !s.currentOperation(current) || s.active[current.ID] {
 		return Operation{}, ErrConflict
 	}
 	current.State = "reconciled"
@@ -616,6 +713,7 @@ func (s *Service) Reconcile(ctx context.Context, id string) (Operation, error) {
 			member := &n.Network.Members[i]
 			if member.DeviceID == current.DeviceID && member.OperationID == current.ID {
 				member.AppliedRevision = current.Revision
+				member.AppliedConfigRevision = current.MemberRevision
 			}
 		}
 		data.Networks[current.NetworkID] = n
@@ -626,16 +724,23 @@ func (s *Service) RemoveMember(id, device string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	sn, ok := s.data.Networks[id]
+	sn = clone(sn)
 	if !ok {
 		return ErrNotFound
 	}
-	if s.busy(sn.Network) {
+	if s.closed {
 		return ErrConflict
 	}
 	index := -1
 	for i, m := range sn.Network.Members {
 		if m.DeviceID == device {
 			index = i
+			if s.memberBusy(m) {
+				return ErrConflict
+			}
+			if m.VirtualIP != "" && !hasAnchor(sn.Network, device) && hasDHCP(sn.Network, device) {
+				return ErrConflict
+			}
 			if m.Desired != "stop" {
 				return ErrConflict
 			}

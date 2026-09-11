@@ -1,5 +1,20 @@
 # 架构决策记录
 
+## ADR-066 组网成员独立配置、稳定身份与自动核实
+
+- 状态：Accepted，2026-09-12。依据用户对新建网络、批量成员、固定地址成员、左侧观察设备、实例重建的逐项确认，以及“就按照上述新方案，开始改造”。只授权本地实现与验证，不包含提交、推送、生产部署或重启。
+- Supersedes：局部取代 ADR-064 的新建默认配置、网络统一 routes、手动逐次回查与旧 WPF 组网呈现。保留 EasyTier 2.6.4、三层范围、API First、独立数据面、仓库兼容安装和不实现二层的约束；历史网络不静默迁移默认值。
+- 新网络使用 profile=2：用户密码、自动 network_id、虚拟地址网段、MTU 1380、初始节点。初始节点空值补服务器 TCP/UDP 11010；自定义必须有协议，省略端口时规范化为 11010。网络身份继续使用 network_id，显示名称修改不改变引擎网络身份。
+- 新成员默认 et0、TCP/UDP 11010、private_mode、bind_device、系统转发、disable_sym_hole_punching、disable_upnp、multi_thread=false。路由/代理/四种 P2P 标志按成员独立配置与修订号保存。运行成员保存后只重建该实例；停止成员只保存，不自动启动。共享网络配置编辑仍需显式逐成员应用。
+- 至少一名成员手工指定有效、唯一的固定虚拟 IPv4，首次批量加入先启动固定成员，其他 DHCP 成员等待固定成员实际运行与地址确认。删除/改为 DHCP 的最后固定成员，在其他 DHCP 成员仍保留时拒绝，须先转移固定地址职责或移除其余成员。
+- machine_id 使用 Server 持久化的 device_id 映射；已有值优先不变。新值按官方 parse_or_hash_machine_id / Rust DefaultHasher SipHash-1-3 生成（合法 UUID 直接使用），Probe 仍接收规范 UUID；instance_id 不因临时文件丢失而改变。
+- 对已成功配置、desired=start、管理在线但引擎缺失的成员，后台有退避地执行既有 inspect/install/start 恢复；保持 machine/instance ID。恢复再次检查运行实例，健康匹配实例不重复应用；desired=stop 优先且在持锁入口重检，不因观察快照滞后被恢复。未知结果写入不盲目重放，仍在执行的任务继续保护。
+- 正常完成和未知结果核实均要求运行状态及配置证据。上游结构化回读缺字段时使用官方 ShowNodeInfo 只读 RPC 的原始 TOML，不将 null 当 true。Web enable_manual_routes=true + 空列表在官方 TOML 表示为 routes=[]，不能用一个未被 TOML 解析器支持的布尔键替代此语义。
+- 暂态 Task 记录丢失仅在持久化操作已进入 controller_apply/verify_runtime/verify_configuration 后允许依赖当前引擎证据核实，不制造 Task RESULT。停止可替代已结束工作线程的未知结果操作，保留原记录并关联 superseded_by；成员移除不受其他成员的未知操作阻塞。
+- WPF 左侧设备是唯一观察设备；成员行选择仅决定操作目标。模式、协议、链路延迟/丢包均按观察来源显示；中继端到端延迟无证据时不推算。NAT 未知不映射 NAT4；外部节点非托管；流量动画只基于递增计数并在隐藏/最小化时停止。
+- 密码只经专用按需 GET 查询，不进入网络常规 DTO、操作、拓扑或 WS。沿用本地私有目录存储与现有管理 API 安全边界，不在本轮引入认证/TLS/RBAC 或对外部署；密码查询继承管理 API 的访问能力，不能宣称新增了账户隔离。
+- 证据与限制：[组网改造验证](OVERLAY_REDESIGN_VERIFICATION.md)。
+
 > 本次三工作树合入的编号整理：main 原 ADR-057（默认服务器）与 ADR-058（Probe 构建）保持。AT 分支原 057/058 分别改为 059（智能邻居）/060（AT）；日志原 059 改为 061；GOST 原 059/060 改为 062（提案）/063（注册鉴权）。仅消除编号碰撞，不改变决定内容、Accepted/Proposed 状态或功能逻辑；原编号及原文仍可在来源分支提交中追溯。用户已明确授权三者及 AT 前置智能邻居全部合入本地 main，GOST 后续由用户单独测试；本次不推送、不部署、不补做产品接入。
 
 ## ADR-065 Probe 统一双架构构建与分名产物

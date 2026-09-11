@@ -1,5 +1,11 @@
 # 路由器远程运维平台架构基线
 
+## 组网成员配置与恢复（ADR-066）
+
+`overlay.Service` 持有网络、成员配置/修订、期望状态、稳定设备映射与操作历史；WPF 不复制服务端状态机。成员工作线程独立串行，正常执行和周期性核实共享实际配置验证。`WebClient` 使用同机 Web 的结构化配置读取及 ShowNodeInfo 只读 RPC，TOML 仅在服务端内存解析，不公开原始配置或密码。
+
+管理驱动区分仍在执行的 Task 与 Server 重启丢失的暂态历史，复用既有 Probe inspect/install/start 和仓库/File链路恢复已成功配置但临时引擎丢失的在线成员；停止意图不会被后台恢复覆盖。成员配置变更重建单个网络实例，不重启 Probe 或整台设备。未变更 Probe TCP 指令和数据面协议。
+
 ## 新串口鉴权入口（ADR-063，独立模块已实现，产品调用链未接入）
 
 `internal/serialauth`负责一条映射的外部TCP注册、凭据摘要校验、连接准入/独占和固定loopback后端的双向字节复制。验证入口在`tests/poc/gostv3/registration`，默认loopback且只允许loopback监听，避免PoC自行暴露公网；它不是正式Server启动入口。

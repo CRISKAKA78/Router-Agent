@@ -68,7 +68,7 @@ public partial class MainWindow : Window
     {
         AddPage("overview", "设备详情", BuildOverview()); DiscoveryTab.Content=BuildDiscoveries(); ConfigureDeviceMenu(); AddPage("maintenance", "远程维护", BuildMaintenance());
         AddPage("files", "文件管理", BuildFiles()); AddPage("config", "配置管理", BuildConfig()); logWorkspace=new(()=>connection,()=>Device); AddPage("logs", "日志", logWorkspace); settingsContent = BuildSettings(); AddPage("tools", "仓库工具", BuildTools());
- networkWorkspace=new NetworkWorkspace(()=>connection); AddPage("networks","异地组网",networkWorkspace);
+ networkWorkspace=new NetworkWorkspace(()=>connection,()=>selectedDevice); AddPage("networks","异地组网",networkWorkspace);
     }
     private void AddPage(string key, string title, UIElement view) {
         // TabItem owns the content logically, so reset inherited header typography at its root.

@@ -60,6 +60,10 @@ func (v *IPValue) UnmarshalJSON(b []byte) error {
 	return nil
 }
 
+type NATInfo struct {
+	UDP int `json:"udp_nat_type"`
+	TCP int `json:"tcp_nat_type"`
+}
 type Running struct {
 	DevName      string  `json:"dev_name"`
 	Running      bool    `json:"running"`
@@ -69,6 +73,7 @@ type Running struct {
 		IP       IPValue `json:"virtual_ipv4"`
 		Version  string  `json:"version"`
 		Hostname string  `json:"hostname"`
+		NAT      NATInfo `json:"stun_info"`
 	} `json:"my_node_info"`
 	Peers []struct {
 		PeerID      uint32 `json:"peer_id"`
@@ -76,7 +81,10 @@ type Running struct {
 			PeerID uint32 `json:"peer_id"`
 			Closed bool   `json:"is_closed"`
 			Tunnel *struct {
-				Type string `json:"tunnel_type"`
+				Type   string `json:"tunnel_type"`
+				Remote struct {
+					URL string `json:"url"`
+				} `json:"remote_addr"`
 			} `json:"tunnel"`
 			Stats *struct {
 				RX      Counter `json:"rx_bytes"`
@@ -92,10 +100,13 @@ type Running struct {
 		NextHop    uint32   `json:"next_hop_peer_id"`
 		Cost       int      `json:"cost"`
 		Hostname   string   `json:"hostname"`
+		NAT        NATInfo  `json:"stun_info"`
+		InstanceID string   `json:"inst_id"`
 		ProxyCIDRs []string `json:"proxy_cidrs"`
 	} `json:"routes"`
 }
 type Link struct {
+	RemoteURL string   `json:"remote_url,omitempty"`
 	PeerID    uint32   `json:"peer_id"`
 	Transport string   `json:"transport"`
 	RX        *uint64  `json:"rx_bytes"`
@@ -104,6 +115,9 @@ type Link struct {
 	Loss      *float64 `json:"loss_rate"`
 }
 type Route struct {
+	Hostname   string   `json:"hostname"`
+	NAT        NATInfo  `json:"nat"`
+	InstanceID string   `json:"instance_id"`
 	PeerID     uint32   `json:"peer_id"`
 	VirtualIP  string   `json:"virtual_ip"`
 	NextHop    uint32   `json:"next_hop_peer_id"`
@@ -111,6 +125,8 @@ type Route struct {
 	ProxyCIDRs []string `json:"proxy_cidrs"`
 }
 type Observation struct {
+	Hostname  string    `json:"hostname"`
+	NAT       NATInfo   `json:"nat"`
 	DeviceID  string    `json:"device_id"`
 	State     string    `json:"state"`
 	PeerID    uint32    `json:"peer_id"`
@@ -126,7 +142,7 @@ type Observation struct {
 }
 
 func observe(device string, r Running, now time.Time) Observation {
-	o := Observation{DeviceID: device, State: "stopped", PeerID: r.MyNode.PeerID, VirtualIP: r.MyNode.IP.Address, Version: r.MyNode.Version, Interface: r.DevName, SampledAt: now, Links: []Link{}, Routes: []Route{}}
+	o := Observation{Hostname: r.MyNode.Hostname, NAT: r.MyNode.NAT, DeviceID: device, State: "stopped", PeerID: r.MyNode.PeerID, VirtualIP: r.MyNode.IP.Address, Version: r.MyNode.Version, Interface: r.DevName, SampledAt: now, Links: []Link{}, Routes: []Route{}}
 	if r.Running {
 		o.State = "running"
 	}
@@ -146,6 +162,7 @@ func observe(device string, r Running, now time.Time) Observation {
 			l := Link{PeerID: p.PeerID, Loss: c.Loss}
 			if c.Tunnel != nil {
 				l.Transport = c.Tunnel.Type
+				l.RemoteURL = c.Tunnel.Remote.URL
 			}
 			if c.Stats != nil {
 				rx, tx, lat := uint64(c.Stats.RX), uint64(c.Stats.TX), float64(c.Stats.Latency)/1000
@@ -169,19 +186,21 @@ func observe(device string, r Running, now time.Time) Observation {
 		if cidrs == nil {
 			cidrs = []string{}
 		}
-		o.Routes = append(o.Routes, Route{r.PeerID, r.IP.Address, r.NextHop, r.Cost, cidrs})
+		o.Routes = append(o.Routes, Route{PeerID: r.PeerID, VirtualIP: r.IP.Address, NextHop: r.NextHop, Cost: r.Cost, ProxyCIDRs: cidrs, Hostname: r.Hostname, NAT: r.NAT, InstanceID: r.InstanceID})
 	}
 	return o
 }
 
 type Node struct {
-	ID               string `json:"id"`
-	DeviceID         string `json:"device_id,omitempty"`
-	PeerID           uint32 `json:"peer_id"`
-	VirtualIP        string `json:"virtual_ip"`
-	State            string `json:"state"`
-	ManagementOnline bool   `json:"management_online"`
-	External         bool   `json:"external"`
+	Hostname         string  `json:"hostname"`
+	NAT              NATInfo `json:"nat"`
+	ID               string  `json:"id"`
+	DeviceID         string  `json:"device_id,omitempty"`
+	PeerID           uint32  `json:"peer_id"`
+	VirtualIP        string  `json:"virtual_ip"`
+	State            string  `json:"state"`
+	ManagementOnline bool    `json:"management_online"`
+	External         bool    `json:"external"`
 }
 type Edge struct {
 	Source        string    `json:"source"`
@@ -220,7 +239,7 @@ func topology(n Network, observations map[string]Observation, online func(string
 			ip = m.VirtualIP
 		}
 		id := "device:" + m.DeviceID
-		t.Nodes = append(t.Nodes, Node{id, m.DeviceID, o.PeerID, ip, state, online(m.DeviceID), false})
+		t.Nodes = append(t.Nodes, Node{ID: id, DeviceID: m.DeviceID, PeerID: o.PeerID, VirtualIP: ip, State: state, ManagementOnline: online(m.DeviceID), External: false, Hostname: o.Hostname, NAT: o.NAT})
 		known[id] = true
 		if o.PeerID != 0 && !o.Stale {
 			if previous, exists := peers[o.PeerID]; exists && previous != id {
@@ -231,6 +250,35 @@ func topology(n Network, observations map[string]Observation, online func(string
 			}
 		}
 		t.Limited = t.Limited || o.Limited
+	}
+	// Route-only nodes must remain visible, including nodes reached via relay.
+	for _, o := range t.Observations {
+		for _, r := range o.Routes {
+			if r.PeerID == 0 {
+				continue
+			}
+			id := peers[r.PeerID]
+			if id == "" && !o.Stale && r.InstanceID != "" {
+				for _, m := range n.Members {
+					if m.InstanceID == r.InstanceID {
+						id = "device:" + m.DeviceID
+						peers[r.PeerID] = id
+						break
+					}
+				}
+			}
+			if id == "" {
+				id = fmt.Sprintf("peer:%d", r.PeerID)
+			}
+			if !known[id] {
+				if len(t.Nodes) >= 512 {
+					t.Limited = true
+					break
+				}
+				known[id] = true
+				t.Nodes = append(t.Nodes, Node{ID: id, PeerID: r.PeerID, VirtualIP: r.VirtualIP, State: "observed_peer", External: true, Hostname: r.Hostname, NAT: r.NAT})
+			}
+		}
 	}
 	reported := map[string]bool{}
 	for _, o := range t.Observations {

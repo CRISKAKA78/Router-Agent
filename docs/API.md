@@ -1,5 +1,16 @@
 # Management Server API
 
+## 组网配置更新（ADR-066，2026-09-12）
+
+- `POST /api/v1/networks`：新增 `password`（1～128 UTF-8 字节，不允许 NUL/换行）与 `mtu`（默认1380，576～9000）；旧调用省略密码时生成随机值。新记录 `profile=2`，`peer_urls` 空时补 `tcp://47.119.168.150:11010` / `udp://47.119.168.150:11010`。`network_id` 由 Server 生成，作为稳定的 EasyTier network_name；`name` 是可编辑的显示名。新网络不接受非空网络级 routes。
+- `GET /api/v1/networks/{network}/password`：返回 `data.password`；仅此按需端点公开网络密码，所有响应沿用 `Cache-Control: no-store`。不是 EasyTier Web 账号密码，不通过普通网络 GET/list、WS、操作/拓扑传播。现有 API 尚未引入账户级鉴权，不将该端点声明为管理员权限隔离。
+- `POST /api/v1/networks/{network}/members/batch`：`{"members":[{"device_id":"A","virtual_ip":"10.144.144.1"},{"device_id":"B","virtual_ip":""}]}`，1～64项。结构/IP/重复项先校验，固定地址成员先受理；202 返回每个设备的 `operation` 或 `error`，允许部分受理，不回滚已经受理的其他成员。沿用公共幂等键保护整次批量请求，失败成员不自动创建替代写请求。
+- `PUT /api/v1/networks/{network}/members/{device}/config`：`{"revision":1,"config":{...}}`。revision 是成员 `config_revision`，不是网络修订。config 包含 `hostname`、`virtual_ip`（空表示DHCP）、`system_forward`、`lazy_p2p`、`need_p2p`、`p2p_only`、`disable_p2p`、`proxy_cidrs`、`enable_manual_routes`、`routes`。IPv4 CIDR 列表最多32项，拒绝非规范网段、重复项；manual=false 时 routes 必须空。
+- 成员新增 `config`、`config_revision`、`applied_config_revision`，操作新增 `member_revision`、`recovery`、`superseded_by`。成员配置与运行实例重建操作原子保存；停止成员不创建启动操作。旧成员无 config 时保持旧默认，显式保存后才使用新成员配置。
+- `uncertain` 是历史执行结果未完全证明；`reconciled` 仅表示当前运行状态/配置已核实，不伪造任务完成。后台自动只读核实；原操作被显式停止替代时保留 uncertain 与 Task IDs，并填写 superseded_by。RemoveMember 只检查目标成员，不采用整网未知操作锁。
+- 拓扑观察新增 `hostname`、`nat`（UDP/TCP枚举）、链路 `remote_url`、路由 `instance_id`。路由下一跳现有字段为 `next_hop_peer_id`（WPF 修正旧别名不匹配）；路由可见但非直接连接的节点也列入拓扑。没有观察值时返回缺失/未知，不提供虚构端到端 RTT、丢包率或流量。
+- 现有单成员加入、启动/停止、移除、网络更新和操作核实端点保留；新的约束、作用域和默认值以 ADR-066 为准。
+
 ## 设备日志（ADR-061）
 
 所有入口通过 Management/Application 层；写请求使用原有 `Idempotency-Key`，重试保留原键、请求字节和已知 task_id。新 Probe 声明 `device_logs_v1`，旧设备不下发新任务。响应仍为 `data` / `error` 信封。

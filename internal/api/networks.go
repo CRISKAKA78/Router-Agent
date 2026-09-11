@@ -9,11 +9,17 @@ func (a *Server) networkRoutes() {
 	a.route("GET /api/v1/network-settings", false, func(r *http.Request) response { return ok(a.app.Networks().Status(), nil) })
 	a.route("GET /api/v1/networks", false, func(r *http.Request) response { return paged(r, a.app.Networks().List()) })
 	a.route("POST /api/v1/networks", true, func(r *http.Request) response {
-		var q overlay.Spec
+		var q struct {
+			overlay.Spec
+			Password string `json:"password"`
+		}
 		if decode(r, &q) != nil {
 			return invalid()
 		}
-		v, e := a.app.Networks().Create(q)
+		if q.Password == "" {
+			q.Password = overlay.UUID()
+		}
+		v, e := a.app.Networks().CreateConfigured(q.Spec, q.Password)
 		if e != nil {
 			return failure(e)
 		}
@@ -37,6 +43,35 @@ func (a *Server) networkRoutes() {
 		}
 		return ok(object{}, a.app.Networks().Delete(r.PathValue("network")))
 	})
+	a.route("GET /api/v1/networks/{network}/password", false, func(r *http.Request) response {
+		v, e := a.app.Networks().Password(r.PathValue("network"))
+		return ok(map[string]string{"password": v}, e)
+	})
+	a.route("PUT /api/v1/networks/{network}/members/{device}/config", true, func(r *http.Request) response {
+		var q struct {
+			Config   overlay.MemberConfig `json:"config"`
+			Revision uint64               `json:"revision"`
+		}
+		if decode(r, &q) != nil {
+			return invalid()
+		}
+		v, e := a.app.Networks().ConfigureMember(r.PathValue("network"), r.PathValue("device"), q.Config, q.Revision)
+		return ok(v, e)
+	})
+	a.route("POST /api/v1/networks/{network}/members/batch", true, func(r *http.Request) response {
+		var q struct {
+			Members []overlay.JoinRequest `json:"members"`
+		}
+		if decode(r, &q) != nil {
+			return invalid()
+		}
+		v, e := a.app.Networks().JoinBatch(r.PathValue("network"), q.Members)
+		if e != nil {
+			return failure(e)
+		}
+		return response{status: 202, data: v}
+	})
+
 	a.route("GET /api/v1/networks/{network}/topology", false, func(r *http.Request) response {
 		v, e := a.app.Networks().Topology(r.PathValue("network"))
 		return ok(v, e)

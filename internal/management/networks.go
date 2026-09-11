@@ -10,6 +10,7 @@ import (
 	"routerprobe/internal/gateway"
 	"routerprobe/internal/overlay"
 	"routerprobe/internal/routerconfig"
+	"routerprobe/internal/task"
 
 	"slices"
 	"time"
@@ -184,4 +185,35 @@ func waitNetworkPackageRelease(ctx context.Context, snapshot func() (filetransfe
 		case <-ticker.C:
 		}
 	}
+}
+
+// Task history is transient; distinguish unavailable history from a live task.
+func (d *overlayDriver) TaskEvidence(ids []string) string {
+	missing := false
+	for _, id := range ids {
+		v, e := d.s.TaskSnapshot(id)
+		if errors.Is(e, task.ErrTaskNotFound) {
+			missing = true
+			continue
+		}
+		if e != nil || v.Result == nil {
+			return "pending"
+		}
+		if v.Spec.Type == "upload" {
+			f, e := d.s.FileSnapshot(id)
+			if e != nil || !f.Released {
+				return "pending"
+			}
+		}
+	}
+	if missing {
+		return "missing"
+	}
+	return "settled"
+}
+func (d *overlayDriver) DeviceName(id string) string {
+	if p, e := d.s.enrollment.Get(id); e == nil && p.Name != "" {
+		return p.Name
+	}
+	return id
 }

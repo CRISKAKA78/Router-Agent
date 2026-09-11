@@ -1,5 +1,12 @@
 # 项目接管手册
 
+## 当前接管：组网改造源码与本地验证
+
+- 用户最新“按照上述新方案开始改造”已执行，设计为ADR-066；先看[改造行为、验证与部署边界](OVERLAY_REDESIGN_VERIFICATION.md)，再看API的新批量/成员配置/密码端点。
+- 重点代码：internal/overlay的成员修订/自动核实/恢复、官方原始TOML验证；management网络驱动的任务证据分级；WPF NetworkWorkspace/NetworkDialogs/NetworkTopologyView。Probe协议未变，旧UUID和旧默认保留。
+- 官方EasyTier2.6.4真实隔离验证、Go/并发/真实Probe定向、WPF643项完整及18项末次组网页检查已有证据。新本地包为build/windows-desktop-networkv2/win-x64/RouterWorkbench.exe；Server包见专项文档。
+- 不把本轮源码改造当作生产修复完成：未上传、未重启、未改现网。下一步须获得部署授权，再备份现有目录、核实历史操作并进行两台实际设备验收；不要自动重放未知请求。
+
 ## 本次交付：双架构构建与目录修复提交
 
 - 用户明确授权将主工作区保留的23个文件（双架构Probe构建、FTV300目录兼容及配套文档）提交并推送GitHub `CRISKAKA78/Router-Agent` 的main，同时同步本地此前已合入但未推送的AT/邻居/日志/GOST/EasyTier提交。

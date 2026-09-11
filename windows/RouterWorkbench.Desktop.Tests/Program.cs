@@ -51,6 +51,7 @@ internal static partial class Program
         }
         app.Dispatcher.BeginInvoke(async () => {
             try {
+                if (args.FirstOrDefault()=="--network-checks") { await NetworkChecks(); Console.WriteLine($"PASS {checks} network checks; screenshots: {output}"); exit=0; return; }
                 await ComponentChecks();
                 if (args.FirstOrDefault() == "--component-checks") { Console.WriteLine($"PASS {checks} component checks; screenshots: {output}"); exit = 0; return; }
                 await NetworkChecks(); SummaryAllocationChecks(); await TelemetryChecks(); await ClientChecks(); await SourceSummaryChecks(); await FileExchangeRetryChecks(); await IntegrationChecks(args[0]);
