@@ -1,5 +1,13 @@
 # 路由器远程运维平台架构基线
 
+## 新串口鉴权入口（ADR-060，独立模块已实现，产品调用链未接入）
+
+`internal/serialauth`负责一条映射的外部TCP注册、凭据摘要校验、连接准入/独占和固定loopback后端的双向字节复制。验证入口在`tests/poc/gostv3/registration`，默认loopback且只允许loopback监听，避免PoC自行暴露公网；它不是正式Server启动入口。
+
+目标调用链仍为Client → 公开Application/API → 新Forwarding服务，数据另走“外部TCP → 注册鉴权入口 → 私有GOST反向TCP映射 → 设备GOST串口端”。鉴权成功之前不拨后端；旧Maintenance/RMT1保持不变。此模块不实现UART、GOST配置监管、公开HTTP API、设备Session绑定或持久化，以上必须由后续受监管的调用层接入并验收。Gate的context取消/到期/轮换回收已测试，不等于远端辅助进程和UART已确认回收。
+
+LAN TCP/UDP保持GOST数据面；PoC补丁只在忽略的第三方源码副本构建，可复现补丁及回归保存在`tests/poc/gostv3/patches`，不把GOST依赖并入产品go.mod。详见[GOST验证](GOST_V3_POC.md)。
+
 ## 默认部署与客户端偏好（ADR-057）
 
 Server CLI默认全接口监听，对外地址47.119.168.150，HTTP8888/控制9000/数据9001；内部Service缺省保持测试与嵌入用途。Windows本机交叉编译Linux AMD64，再由独立SFTP脚本上传Server和启动脚本，构建凭据不进入产品。WPF/Core移除SSH账号/密码与DPAPI存储职责，仅保存外部程序偏好，旧账号字段读取时忽略。关闭或失效维护隐藏公共地址，文件初始目录/tmp/root。模块/API/协议边界保持，见[验证与部署](SERVER_DEFAULTS_VERIFICATION.md)。

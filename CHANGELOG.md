@@ -1,5 +1,10 @@
 # 变更记录
 
+## 2026-09-11 串口首包鉴权契约（未接入产品界面）
+
+- 确认TCP串口采用文本注册包，Windows网络调试工具可直连；新增独立入口模块，错误注册/超时不连接后端，认证行不转发，支持独占和凭据轮换撤销。LAN仍保留TCP/UDP。
+- 外部数据握手约定见ADR-060和PROTOCOL；当前只有隔离测试入口，正式Server API、Probe监管及WPF未接入，未部署。旧Maintenance接口与协议不变。
+
 ## 2026-09-11 Probe 构建入口
 
 - Probe构建恢复到root@10.1.1.128，从本地password.txt读取登录密码；源码经SFTP上传后编译，成品为/root/router-agent/router-agent。管理服务器地址与Linux Server构建上传保持原设置。

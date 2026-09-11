@@ -1,0 +1,54 @@
+{
+  "module": "github.com/go-gost/x",
+  "version": "v0.16.0",
+  "files": {
+    "handler/forward/remote/forward.go": {
+      "before": "f9e97a0936f1ebfa9ac3159d3df2ab1d63350045bb0b766cbb61f806b007fb61",
+      "after": "92fee53e50c3688d0555ede5a9246fd91c7ab22abd783c6070e6f77a26560f07"
+    },
+    "internal/net/pipe.go": {
+      "before": "1d83f46e2699086be124b9f9db3b273b4b652f102b563e8b98fc70867590fba0",
+      "after": "86e7e7ee322cd329b2119e7c682e457c59891a92406a0f2c5590007259fc4afd"
+    },
+    "internal/net/registration_poc_test.go": {
+      "before": null,
+      "after": "5bbf14a243c9fd4054b06a89d695636450e89e6e8e64d32817ca4ce798933d9e"
+    },
+    "internal/util/relay/conn.go": {
+      "before": "200f6166f183ce70bfd3a21c8e1b551272b6cba68b2183090aa0946f4620db11",
+      "after": "968ee6d1679b82f9ada1cc475fc94a58abf75a2636fa14c2370965c03347cccf"
+    },
+    "internal/util/relay/registration_poc_test.go": {
+      "before": null,
+      "after": "112077c0a03a2c009ce984f3aff915da2e8e57aacb93ada9f0154d5db7a50f5d"
+    },
+    "internal/util/serial/registration_poc_linux_test.go": {
+      "before": null,
+      "after": "dcb11c7f1b7094f11cf704f9bd92c27e7dfbaa73967479cda2fc0cef3b6172fa"
+    },
+    "internal/util/serial/serial_linux.go": {
+      "before": "e0e9659f5ab3b2452645fd8c0218c139a3f5b2a354dcc4a82798f997f8a21de6",
+      "after": "fdd0fb915c049361c7c19a3df0d755832374a18a1c8628581693896adca203b3"
+    },
+    "limiter/conn/limiter.go": {
+      "before": "6acb70697c05f22c4c5da08872b3062d25cdf20a72c9c3f4859736b3818473ef",
+      "after": "f826662fcfe8598ce88aac383ba6a10525a22c039cca78921ca9b0a7f7ebb262"
+    },
+    "limiter/conn/registration_poc_test.go": {
+      "before": null,
+      "after": "5e690177d29956868427ac5b58d966627d9c382519921962d793d9617565ca86"
+    },
+    "limiter/conn/wrapper/listener.go": {
+      "before": "0fbec492ee3771c6da99f9bfbd3dde0ed26c47ea58ad9d158c94a043842c376f",
+      "after": "7acacc20c0021fa58d5649b288304e750e7d1c129189c073d3e9b5ab4d05d2a4"
+    },
+    "limiter/conn/wrapper/listener_test.go": {
+      "before": "10867695e6547d9b245db98af6b10ea7b50ff98839671e65755f5ef91c29dcd4",
+      "after": "4a1d46e065fb868e29106ae79b09fe532e9db981ac46334b31a0bed4032acb67"
+    },
+    "limiter/conn/wrapper/registration_poc_test.go": {
+      "before": null,
+      "after": "ff1ec9bbad4e95d88c03456a5bfcc424c4055552dfda1d654dc25bae1da71996"
+    }
+  }
+}

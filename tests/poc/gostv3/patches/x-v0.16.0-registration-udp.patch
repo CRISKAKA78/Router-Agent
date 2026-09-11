@@ -1,0 +1,650 @@
+--- a/handler/forward/remote/forward.go
++++ b/handler/forward/remote/forward.go
+@@ -79,7 +79,11 @@
+ 
+ 	t := time.Now()
+ 	log.Infof("%s <-> %s", conn.RemoteAddr(), target.Addr)
+-	if err := xnet.Pipe(ctx, conn, cc, xnet.WithReadTimeout(h.md.idleTimeout)); err != nil {
++	opts := []xnet.PipeOption{xnet.WithReadTimeout(h.md.idleTimeout)}
++	if network == "udp" || network == "udp4" || network == "udp6" {
++		opts = append(opts, xnet.WithDatagramBuffer())
++	}
++	if err := xnet.Pipe(ctx, conn, cc, opts...); err != nil {
+ 		log.Debugf("pipe: %v", err)
+ 	}
+ 	log.WithFields(map[string]any{
+--- a/internal/net/pipe.go
++++ b/internal/net/pipe.go
+@@ -19,6 +19,12 @@
+ 
+ type pipeOptions struct {
+ 	readTimeout time.Duration
++	bufferSize  int
++}
++
++// WithDatagramBuffer preserves full UDP datagrams without increasing TCP buffers.
++func WithDatagramBuffer() PipeOption {
++	return func(o *pipeOptions) { o.bufferSize = 65535 }
+ }
+ 
+ // WithReadTimeout sets an idle read timeout on each pipe half. When a read
+@@ -49,11 +55,11 @@
+ 
+ 	// 启动两个方向的传输
+ 	go func() {
+-		errCh <- pipeHalf(ctx, rw1, rw2, options.readTimeout)
++		errCh <- pipeHalf(ctx, rw1, rw2, options.readTimeout, options.bufferSize)
+ 	}()
+ 
+ 	go func() {
+-		errCh <- pipeHalf(ctx, rw2, rw1, options.readTimeout)
++		errCh <- pipeHalf(ctx, rw2, rw1, options.readTimeout, options.bufferSize)
+ 	}()
+ 
+ 	// 等待第一个错误或完成
+@@ -85,13 +91,17 @@
+ }
+ 
+ // pipeHalf 单向管道传输
+-func pipeHalf(ctx context.Context, src, dst io.ReadWriteCloser, readTimeout time.Duration) error {
++func pipeHalf(ctx context.Context, src, dst io.ReadWriteCloser, readTimeout time.Duration, sizes ...int) error {
+ 	defer func() {
+ 		// 传输完成后执行TCP半关闭
+ 		halfClose(src, dst)
+ 	}()
+ 
+-	buf := bufpool.Get(bufferSize / 2)
++	size := bufferSize / 2
++	if len(sizes) > 0 && sizes[0] > 0 {
++		size = sizes[0]
++	}
++	buf := bufpool.Get(size)
+ 	defer bufpool.Put(buf)
+ 
+ 	// 创建带超时的读取器
+--- /dev/null
++++ b/internal/net/registration_poc_test.go
+@@ -0,0 +1,39 @@
++package net
++
++import (
++	"bytes"
++	"context"
++	"io"
++	"testing"
++)
++
++type pocPackets struct {
++	packets [][]byte
++	written [][]byte
++}
++
++func (p *pocPackets) Read(b []byte) (int, error) {
++	if len(p.packets) == 0 {
++		return 0, io.EOF
++	}
++	v := p.packets[0]
++	p.packets = p.packets[1:]
++	return copy(b, v), nil
++}
++func (p *pocPackets) Write(b []byte) (int, error) {
++	p.written = append(p.written, append([]byte(nil), b...))
++	return len(b), nil
++}
++func (p *pocPackets) Close() error { return nil }
++func TestPOCPipeDatagramBuffer(t *testing.T) {
++	var opts pipeOptions
++	WithDatagramBuffer()(&opts)
++	src := &pocPackets{packets: [][]byte{nil, bytes.Repeat([]byte{9}, 65000), {1}}}
++	dst := &pocPackets{}
++	if e := pipeHalf(context.Background(), src, dst, 0, opts.bufferSize); e != nil {
++		t.Fatal(e)
++	}
++	if len(dst.written) != 3 || len(dst.written[0]) != 0 || len(dst.written[1]) != 65000 || !bytes.Equal(dst.written[2], []byte{1}) {
++		t.Fatal("datagram truncated or dropped")
++	}
++}
+--- a/internal/util/relay/conn.go
++++ b/internal/util/relay/conn.go
+@@ -1,8 +1,11 @@
+ package relay
+ 
+ import (
++	"fmt"
++	"io"
+ 	"net"
+ 	"strconv"
++	"sync"
+ 
+ 	"github.com/go-gost/gosocks5"
+ 	"github.com/go-gost/relay"
+@@ -33,7 +36,8 @@
+ 
+ type udpTunConn struct {
+ 	net.Conn
+-	taddr net.Addr
++	taddr   net.Addr
++	writeMu sync.Mutex
+ }
+ 
+ func UDPTunClientConn(c net.Conn, targetAddr net.Addr) net.Conn {
+@@ -73,18 +77,25 @@
+ 	header := gosocks5.UDPHeader{
+ 		Addr: &socksAddr,
+ 	}
+-	dgram := gosocks5.UDPDatagram{
+-		Header: &header,
+-		Data:   b,
+-	}
+-	_, err = dgram.ReadFrom(c.Conn)
+-	if err != nil {
++	// This stream extension uses RSV as payload length, including zero.
++	// UDPDatagram.ReadFrom treats RSV=0 as unframed SOCKS5 and consumes
++	// the next frame. Parse and drain exactly this frame instead.
++	if _, err = header.ReadFrom(c.Conn); err != nil {
+ 		return
+ 	}
+-
+-	n = len(dgram.Data)
+-	if n > len(b) {
+-		n = copy(b, dgram.Data)
++	if header.Frag != 0xff {
++		return 0, nil, fmt.Errorf("invalid UDP tunnel flag")
++	}
++	size := int(header.Rsv)
++	n = min(size, len(b))
++	if _, err = io.ReadFull(c.Conn, b[:n]); err != nil {
++		return
++	}
++	if size > n {
++		_, err = io.CopyN(io.Discard, c.Conn, int64(size-n))
++		if err != nil {
++			return
++		}
+ 	}
+ 	if net.ParseIP(socksAddr.Host) != nil {
+ 		addr, err = net.ResolveUDPAddr("udp", socksAddr.String())
+@@ -101,6 +112,12 @@
+ }
+ 
+ func (c *udpTunConn) WriteTo(b []byte, addr net.Addr) (n int, err error) {
++	if len(b) > 65535 {
++		return 0, fmt.Errorf("UDP tunnel payload too large")
++	}
++	// Header and payload are separate writes; serialize the whole frame.
++	c.writeMu.Lock()
++	defer c.writeMu.Unlock()
+ 	socksAddr := gosocks5.Addr{}
+ 	if err = socksAddr.ParseFrom(addr.String()); err != nil {
+ 		return
+@@ -116,7 +133,9 @@
+ 	dgram.Header.Rsv = uint16(len(dgram.Data))
+ 	dgram.Header.Frag = 0xff // UDP tun relay flag, used by shadowsocks
+ 	_, err = dgram.WriteTo(c.Conn)
+-	n = len(b)
++	if err == nil {
++		n = len(b)
++	}
+ 
+ 	return
+ }
+--- /dev/null
++++ b/internal/util/relay/registration_poc_test.go
+@@ -0,0 +1,73 @@
++package relay
++
++import (
++	"bytes"
++	"net"
++	"sync"
++	"testing"
++)
++
++func TestPOCDatagramFrames(t *testing.T) {
++	pc := newPipeConn()
++	c := UDPTunServerConn(pc)
++	addr := &net.UDPAddr{IP: net.IPv4(127, 0, 0, 1), Port: 1234}
++	for _, size := range []int{0, 1, 8192, 32000, 65000, 0, 19} {
++		payload := bytes.Repeat([]byte{byte(size)}, size)
++		if n, e := c.WriteTo(payload, addr); e != nil || n != size {
++			t.Fatalf("write %d %d %v", size, n, e)
++		}
++	}
++	for _, size := range []int{0, 1, 8192, 32000, 65000, 0, 19} {
++		b := make([]byte, 65535)
++		n, a, e := c.ReadFrom(b)
++		if e != nil || n != size || a.String() != addr.String() || !bytes.Equal(b[:n], bytes.Repeat([]byte{byte(size)}, size)) {
++			t.Fatalf("read %d %d %v %v", size, n, a, e)
++		}
++	}
++	c.WriteTo(bytes.Repeat([]byte{7}, 100), addr)
++	c.WriteTo([]byte("next"), addr)
++	b := make([]byte, 4)
++	if n, _, e := c.ReadFrom(b); n != 4 || e != nil {
++		t.Fatalf("truncate %d %v", n, e)
++	}
++	if n, _, e := c.ReadFrom(b); n != 4 || e != nil || string(b) != "next" {
++		t.Fatalf("next frame %d %v %q", n, e, b)
++	}
++	if _, e := c.WriteTo(make([]byte, 65536), addr); e == nil {
++		t.Fatal("oversize accepted")
++	}
++}
++func TestPOCConcurrentDatagramFrames(t *testing.T) {
++	a, b := net.Pipe()
++	defer a.Close()
++	defer b.Close()
++	tx, rx := UDPTunServerConn(a), UDPTunServerConn(b)
++	var wg sync.WaitGroup
++	const workers = 8
++	const frames = 20
++	for i := 0; i < workers; i++ {
++		wg.Add(1)
++		go func(i int) {
++			defer wg.Done()
++			for j := 0; j < frames; j++ {
++				_, e := tx.WriteTo(bytes.Repeat([]byte{byte(i)}, 1024), &net.UDPAddr{IP: net.IPv4(127, 0, 0, 1), Port: 1000 + i})
++				if e != nil {
++					t.Error(e)
++					return
++				}
++			}
++		}(i)
++	}
++	for i := 0; i < workers*frames; i++ {
++		buf := make([]byte, 65535)
++		n, addr, e := rx.ReadFrom(buf)
++		if e != nil {
++			t.Fatal(e)
++		}
++		port := addr.(*net.UDPAddr).Port - 1000
++		if n != 1024 || !bytes.Equal(buf[:n], bytes.Repeat([]byte{byte(port)}, 1024)) {
++			t.Fatal("frame interleaved")
++		}
++	}
++	wg.Wait()
++}
+--- /dev/null
++++ b/internal/util/serial/registration_poc_linux_test.go
+@@ -0,0 +1,89 @@
++//go:build linux
++
++package serial
++
++import (
++	"fmt"
++	"golang.org/x/sys/unix"
++	"io"
++	"testing"
++	"time"
++)
++
++func pocPTY(t *testing.T) (int, string) {
++	t.Helper()
++	fd, e := unix.Open("/dev/ptmx", unix.O_RDWR|unix.O_NOCTTY|unix.O_NONBLOCK, 0)
++	if e != nil {
++		t.Fatal(e)
++	}
++	t.Cleanup(func() { unix.Close(fd) })
++	if e = unix.IoctlSetPointerInt(fd, unix.TIOCSPTLCK, 0); e != nil {
++		t.Fatal(e)
++	}
++	n, e := unix.IoctlGetInt(fd, unix.TIOCGPTN)
++	if e != nil {
++		t.Fatal(e)
++	}
++	return fd, fmt.Sprintf("/dev/pts/%d", n)
++}
++func TestPOCSerialCloseUnblocksIdleRead(t *testing.T) {
++	master, path := pocPTY(t)
++	for i := 0; i < 3; i++ {
++		p, e := OpenPort(&Config{Name: path, Baud: 115200})
++		if e != nil {
++			t.Fatal(e)
++		}
++		if e = p.(*Port).Flush(); e != nil {
++			t.Fatal(e)
++		}
++		_, e = unix.Write(master, []byte{byte(i)})
++		if e != nil {
++			t.Fatal(e)
++		}
++		var b [1]byte
++		if n, e := p.Read(b[:]); n != 1 || e != nil || b[0] != byte(i) {
++			t.Fatalf("roundtrip %d %v", n, e)
++		}
++		read := make(chan error, 1)
++		go func() { var b [1]byte; _, e := p.Read(b[:]); read <- e }()
++		time.Sleep(30 * time.Millisecond)
++		closed := make(chan error, 1)
++		go func() { closed <- p.Close() }()
++		select {
++		case e := <-closed:
++			if e != nil {
++				t.Fatal(e)
++			}
++		case <-time.After(time.Second):
++			t.Fatal("Close blocked behind UART read")
++		}
++		select {
++		case e := <-read:
++			if e == nil {
++				t.Fatal("read was not cancelled")
++			}
++		case <-time.After(time.Second):
++			t.Fatal("old UART reader retained")
++		}
++	}
++}
++func TestPOCSerialReadTimeout(t *testing.T) {
++	master, path := pocPTY(t)
++	p, e := OpenPort(&Config{Name: path, Baud: 9600, ReadTimeout: 100 * time.Millisecond})
++	if e != nil {
++		t.Fatal(e)
++	}
++	defer p.Close()
++	var b [1]byte
++	start := time.Now()
++	n, e := p.Read(b[:])
++	if n != 0 || e != io.EOF || time.Since(start) < 80*time.Millisecond {
++		t.Fatalf("timeout %d %v", n, e)
++	}
++	if _, e = unix.Write(master, []byte("x")); e != nil {
++		t.Fatal(e)
++	}
++	if n, e = p.Read(b[:]); n != 1 || e != nil || b[0] != 'x' {
++		t.Fatalf("after timeout %d %v", n, e)
++	}
++}
+--- a/internal/util/serial/serial_linux.go
++++ b/internal/util/serial/serial_linux.go
+@@ -4,10 +4,11 @@
+ package serial
+ 
+ import (
++	"errors"
+ 	"fmt"
++	"io"
+ 	"os"
+ 	"time"
+-	"unsafe"
+ 
+ 	"golang.org/x/sys/unix"
+ )
+@@ -99,44 +100,55 @@
+ 	default:
+ 		return nil, ErrBadParity
+ 	}
+-	fd := f.Fd()
+-	vmin, vtime := posixTimeoutValues(readTimeout)
++	raw, err := f.SyscallConn()
++	if err != nil {
++		return nil, err
++	}
++	_, vtime := posixTimeoutValues(readTimeout)
+ 	t := unix.Termios{
+ 		Iflag:  unix.IGNPAR,
+ 		Cflag:  cflagToUse,
+ 		Ispeed: rate,
+ 		Ospeed: rate,
+ 	}
+-	t.Cc[unix.VMIN] = vmin
+-	t.Cc[unix.VTIME] = vtime
++	// Keep the descriptor in Go netpoll so Close cancels pending reads.
++	t.Cc[unix.VMIN] = 1
++	t.Cc[unix.VTIME] = 0
+ 
+-	if _, _, errno := unix.Syscall6(
+-		unix.SYS_IOCTL,
+-		uintptr(fd),
+-		uintptr(unix.TCSETS),
+-		uintptr(unsafe.Pointer(&t)),
+-		0,
+-		0,
+-		0,
+-	); errno != 0 {
+-		return nil, errno
++	var ioctlErr error
++	err = raw.Control(func(fd uintptr) { ioctlErr = unix.IoctlSetTermios(int(fd), unix.TCSETS, &t) })
++	if err != nil {
++		return nil, err
+ 	}
+-
+-	if err = unix.SetNonblock(int(fd), false); err != nil {
+-		return
++	if ioctlErr != nil {
++		return nil, ioctlErr
+ 	}
+-
+-	return &Port{f: f}, nil
++	// Do not call File.Fd or SetNonblock(false): both disable cancellable IO.
++	if err = f.SetReadDeadline(time.Time{}); err != nil {
++		return nil, err
++	}
++	return &Port{f: f, readTimeout: time.Duration(vtime) * 100 * time.Millisecond}, nil
+ }
+ 
+ type Port struct {
+ 	// We intentionly do not use an "embedded" struct so that we
+ 	// don't export File
+-	f *os.File
++	f           *os.File
++	readTimeout time.Duration
+ }
+ 
+ func (p *Port) Read(b []byte) (n int, err error) {
+-	return p.f.Read(b)
++	if p.readTimeout > 0 {
++		if err = p.f.SetReadDeadline(time.Now().Add(p.readTimeout)); err != nil {
++			return
++		}
++	}
++	n, err = p.f.Read(b)
++	// Retain the POSIX timeout contract: a timed-out zero-byte read yields EOF.
++	if n == 0 && errors.Is(err, os.ErrDeadlineExceeded) {
++		err = io.EOF
++	}
++	return
+ }
+ 
+ func (p *Port) Write(b []byte) (n int, err error) {
+@@ -147,17 +159,21 @@
+ // or data received but not read
+ func (p *Port) Flush() error {
+ 	const TCFLSH = 0x540B
+-	_, _, errno := unix.Syscall(
+-		unix.SYS_IOCTL,
+-		uintptr(p.f.Fd()),
+-		uintptr(TCFLSH),
+-		uintptr(unix.TCIOFLUSH),
+-	)
+-
+-	if errno == 0 {
+-		return nil
++	raw, err := p.f.SyscallConn()
++	if err != nil {
++		return err
+ 	}
+-	return errno
++	var ioctlErr error
++	err = raw.Control(func(fd uintptr) {
++		_, _, errno := unix.Syscall(unix.SYS_IOCTL, fd, uintptr(TCFLSH), uintptr(unix.TCIOFLUSH))
++		if errno != 0 {
++			ioctlErr = errno
++		}
++	})
++	if err != nil {
++		return err
++	}
++	return ioctlErr
+ }
+ 
+ func (p *Port) Close() (err error) {
+--- a/limiter/conn/limiter.go
++++ b/limiter/conn/limiter.go
+@@ -8,8 +8,9 @@
+ )
+ 
+ type llimiter struct {
++	// Keep the 64-bit atomic first for 8-byte alignment on 32-bit ARM.
++	current int64
+ 	limit   int
+-	current int64
+ }
+ 
+ // NewLimiter creates a Limiter that allows up to n concurrent connections.
+--- /dev/null
++++ b/limiter/conn/registration_poc_test.go
+@@ -0,0 +1,16 @@
++package conn
++
++import (
++	"testing"
++	"unsafe"
++)
++
++func TestPOCAtomicAlignment(t *testing.T) {
++	l := NewLimiter(1).(*llimiter)
++	if uintptr(unsafe.Pointer(&l.current))%8 != 0 {
++		t.Fatal("unaligned counter")
++	}
++	if !l.Allow(1) || l.Allow(1) || !l.Allow(-1) || !l.Allow(1) {
++		t.Fatal("limiter lifecycle")
++	}
++}
+--- a/limiter/conn/wrapper/listener.go
++++ b/limiter/conn/wrapper/listener.go
+@@ -1,7 +1,6 @@
+ package wrapper
+ 
+ import (
+-	"errors"
+ 	"net"
+ 
+ 	limiter "github.com/go-gost/core/limiter/conn"
+@@ -14,7 +13,7 @@
+ 
+ // WrapListener wraps a net.Listener with a ConnLimiter. Each accepted
+ // connection is checked against the limiter using the remote IP as the key.
+-// If the limit is exceeded, the connection is closed with an error. If
++// If the limit is exceeded, the connection is closed and Accept continues. If
+ // limiter is nil, the original listener is returned unchanged.
+ func WrapListener(limiter limiter.ConnLimiter, ln net.Listener) net.Listener {
+ 	if limiter == nil {
+@@ -28,19 +27,21 @@
+ }
+ 
+ func (ln *listener) Accept() (net.Conn, error) {
+-	c, err := ln.Listener.Accept()
+-	if err != nil {
+-		return nil, err
++	for {
++		c, err := ln.Listener.Accept()
++		if err != nil {
++			return nil, err
++		}
++
++		host, _, _ := net.SplitHostPort(c.RemoteAddr().String())
++		if lim := ln.limiter.Limiter(host); lim != nil {
++			if lim.Allow(1) {
++				return WrapConn(lim, c), nil
++			}
++			c.Close()
++			continue
++		}
++
++		return c, nil
+ 	}
+-
+-	host, _, _ := net.SplitHostPort(c.RemoteAddr().String())
+-	if lim := ln.limiter.Limiter(host); lim != nil {
+-		if lim.Allow(1) {
+-			return WrapConn(lim, c), nil
+-		}
+-		c.Close()
+-		return nil, errors.New("connection limit exceeded")
+-	}
+-
+-	return c, nil
+ }
+--- a/limiter/conn/wrapper/listener_test.go
++++ b/limiter/conn/wrapper/listener_test.go
+@@ -122,9 +122,9 @@
+ 
+ 	c, err := ln.Accept()
+ 	if err == nil {
+-		t.Fatal("expected error when limit exceeded")
++		t.Fatal("expected underlying listener exhaustion after rejecting connection")
+ 	}
+-	if !strings.Contains(err.Error(), "limit exceeded") {
++	if !strings.Contains(err.Error(), "no more conns") {
+ 		t.Fatalf("unexpected error: %v", err)
+ 	}
+ 	if c != nil {
+--- /dev/null
++++ b/limiter/conn/wrapper/registration_poc_test.go
+@@ -0,0 +1,64 @@
++package wrapper
++
++import (
++	limiter "github.com/go-gost/core/limiter/conn"
++	xconn "github.com/go-gost/x/limiter/conn"
++	"net"
++	"testing"
++	"time"
++)
++
++func TestPOCListenerSurvivesRejection(t *testing.T) {
++	raw, e := net.Listen("tcp", "127.0.0.1:0")
++	if e != nil {
++		t.Fatal(e)
++	}
++	defer raw.Close()
++	cl := &connLimiter{lims: map[string]limiter.Limiter{"127.0.0.1": xconn.NewLimiter(1)}}
++	ln := WrapListener(cl, raw)
++	first, e := net.Dial("tcp", raw.Addr().String())
++	if e != nil {
++		t.Fatal(e)
++	}
++	defer first.Close()
++	owned, e := ln.Accept()
++	if e != nil {
++		t.Fatal(e)
++	}
++	accepted := make(chan net.Conn, 1)
++	errs := make(chan error, 1)
++	go func() {
++		c, e := ln.Accept()
++		if e != nil {
++			errs <- e
++		} else {
++			accepted <- c
++		}
++	}()
++	second, e := net.Dial("tcp", raw.Addr().String())
++	if e != nil {
++		t.Fatal(e)
++	}
++	defer second.Close()
++	second.SetReadDeadline(time.Now().Add(time.Second))
++	var b [1]byte
++	if _, e = second.Read(b[:]); e == nil {
++		t.Fatal("second not closed")
++	} else if ne, ok := e.(net.Error); ok && ne.Timeout() {
++		t.Fatal("second not rejected")
++	}
++	owned.Close()
++	third, e := net.Dial("tcp", raw.Addr().String())
++	if e != nil {
++		t.Fatal(e)
++	}
++	defer third.Close()
++	select {
++	case c := <-accepted:
++		c.Close()
++	case e := <-errs:
++		t.Fatalf("listener stopped: %v", e)
++	case <-time.After(time.Second):
++		t.Fatal("new owner not accepted")
++	}
++}

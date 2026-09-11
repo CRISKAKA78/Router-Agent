@@ -545,31 +545,7 @@ func serialTests(gost string, server *exec.Cmd, payload []byte) {
 		stop(proc)
 		syscall.Close(fd)
 	}
-	// UDP raw-to-serial wiring: probe replies and ownership separately, no fake echo server.
-	fd, path := pty()
-	defer syscall.Close(fd)
-	proc := configProcess(gost, "serial-udp", serialConfig("serial-udp", "39202", path, 9600, "udp"))
-	defer stop(proc)
-	time.Sleep(time.Second)
-	u, e := net.Dial("udp", "127.0.0.1:39202")
-	must(e)
-	defer u.Close()
-	u.Write([]byte("serial-udp-A"))
-	got, re := ptyRead(fd, 12, 2*time.Second)
-	record("udp_to_pty_binary", re == nil && bytes.Equal(got, []byte("serial-udp-A")), fmt.Sprintf("got=%q error=%v", got, re))
-	if re == nil {
-		syscall.Write(fd, []byte("reply-A"))
-		u.SetDeadline(time.Now().Add(2 * time.Second))
-		b := make([]byte, 100)
-		n, e := u.Read(b)
-		record("pty_to_udp_reply", e == nil && bytes.Equal(b[:n], []byte("reply-A")), fmt.Sprintf("got=%q error=%v", b[:n], e))
-		u2, e := net.Dial("udp", "127.0.0.1:39202")
-		must(e)
-		defer u2.Close()
-		u2.Write([]byte("serial-udp-B"))
-		got, re = ptyRead(fd, 12, time.Second)
-		record("serial_udp_first_origin_exclusive", re != nil || !bytes.Contains(got, []byte("serial-udp-B")), fmt.Sprintf("second origin bytes=%q error=%v", got, re))
-	}
+	// Serial is TCP-only per the revised user scope; LAN UDP tests remain above.
 	_ = server
 }
 
@@ -578,7 +554,7 @@ func limited(cfg map[string]any) {
 	cfg["services"].([]any)[0].(map[string]any)["climiter"] = "exclusive"
 }
 func serialLimitedTests(gost string) {
-	for _, transport := range []string{"tcp", "udp"} {
+	for _, transport := range []string{"tcp"} {
 		fd, path := pty()
 		cfg := serialConfig("limited", "39203", path, 115200, transport)
 		limited(cfg)
@@ -681,7 +657,7 @@ func parentDeathTest(gost string) {
 // An extra local GOST service moves the connection limiter off the reverse listener.
 // This is a configuration-only candidate workaround, not a new custom backend.
 func serialBridgeTests(gost string) {
-	for _, transport := range []string{"tcp", "udp"} {
+	for _, transport := range []string{"tcp"} {
 		fd, path := pty()
 		cfg := serialConfig("remote", "39203", path, 115200, transport)
 		remote := cfg["services"].([]any)[0].(map[string]any)
