@@ -28,9 +28,11 @@ public sealed record PendingTemplateMutation(
     [property: JsonPropertyName("body")] string Body,
     [property: JsonPropertyName("key")] string Key);
 
-public sealed class TemplateApiException(string code, string message, int status)
+public sealed class TemplateApiException(string code, string message, int status, string? field=null, string? details=null)
     : Exception($"{Meaning(code)} [{code}, HTTP {status}] {message}")
 {
+    public string? Field {get;}=field;
+    public string? Details {get;}=details;
     public string Code { get; } = code;
     public int Status { get; } = status;
 
@@ -48,7 +50,7 @@ public sealed class TemplateApiException(string code, string message, int status
 }
 
 /// <summary>One browser circuit's connection and template operations, using only the public API.</summary>
-public sealed class TemplatePublishingService(HttpClient http) : IAsyncDisposable
+public sealed partial class TemplatePublishingService(HttpClient http) : IAsyncDisposable
 {
     private static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web)
     {
@@ -101,6 +103,7 @@ public sealed class TemplatePublishingService(HttpClient http) : IAsyncDisposabl
                 throw new InvalidOperationException("请先连接原服务器并处理响应不确定的请求，再切换服务器");
             await DisconnectCoreAsync();
             Origin = origin;
+            ServerCapabilities=[]; ReferenceDevices=[];
             lifetime = new CancellationTokenSource();
             Status = "正在连接…";
             Error = null;
@@ -132,6 +135,7 @@ public sealed class TemplatePublishingService(HttpClient http) : IAsyncDisposabl
         await IgnoreFailuresAsync(Task.WhenAll(inFlight.Concat(new[] { eventLoop, periodicLoop }.OfType<Task>())));
         previous.Dispose();
         Origin = null;
+        ServerCapabilities=[];ReferenceDevices=[];
         Templates = [];
         Status = "未连接";
         // Target and uncertain writes survive disconnect. They remain bound to their original origin.
@@ -186,6 +190,9 @@ public sealed class TemplatePublishingService(HttpClient http) : IAsyncDisposabl
             token.ThrowIfCancellationRequested();
             if (generation != epoch || Origin != origin) return;
             Templates = items;
+            await RefreshNeighborCapabilitiesAsync(origin, token);
+            token.ThrowIfCancellationRequested();
+            if(generation!=epoch||Origin!=origin)return;
             Synchronized = socketReady;
             Status = socketReady ? "已连接" : "等待连接恢复…";
             Error = null;
@@ -208,10 +215,12 @@ public sealed class TemplatePublishingService(HttpClient http) : IAsyncDisposabl
     public async Task<PublishedTemplate> PublishAsync(RuntimeTemplate template, bool update)
     {
         EnsureWritable();
+        if(template.CellularProbe is not null&&!ServerCapabilities.Contains("cellular_identity_v1"))throw new InvalidOperationException("当前Server不支持 cellular_identity_v1；请更新Server后再发布AT自动探测配置。");
+        if(template.NeighborProbe is not null&&!SupportsNeighbors)throw new InvalidOperationException(NeighborCompatibility);
         if (update && (Target is null || Target.Origin != Origin))
             throw new InvalidOperationException("当前工程未绑定此服务器模板，请另存为新模板或选择更新目标");
         var body = update
-            ? JsonSerializer.Serialize(new UpdateTemplate { NeighborProbe=template.NeighborProbe, Presentation=template.Presentation, SwitchProbe=template.SwitchProbe, Monitoring=template.Monitoring, Name = template.Name, Properties = template.Properties, Version = Target!.Version }, Json)
+            ? JsonSerializer.Serialize(new UpdateTemplate { CellularProbe=template.CellularProbe, NeighborProbe=template.NeighborProbe, Presentation=template.Presentation, SwitchProbe=template.SwitchProbe, Monitoring=template.Monitoring, Name = template.Name, Properties = template.Properties, Version = Target!.Version }, Json)
             : JsonSerializer.Serialize(template, Json);
         var request = NewMutation(update ? "更新模板" : "发布新模板", update ? "PUT" : "POST",
             update ? "probe-templates/" + Uri.EscapeDataString(Target!.Id) : "probe-templates", body);
@@ -278,7 +287,8 @@ public sealed class TemplatePublishingService(HttpClient http) : IAsyncDisposabl
                 try
                 {
                     PublishedTemplate? published = null;
-                    if(request.Path.StartsWith("device-models/",StringComparison.Ordinal)){await RequestAsync<DeviceModel>(request.Origin,request.Path,HttpMethod.Put,request.Body,request.Key,token);}
+                    if(request.Path.StartsWith("devices/",StringComparison.Ordinal)&&request.Path.EndsWith("/neighbor-inspections",StringComparison.Ordinal)){var accepted=await RequestAsync<InspectionAccepted>(request.Origin,request.Path,HttpMethod.Post,request.Body,request.Key,token);LastInspectionTaskId=accepted.TaskId;}
+ else if(request.Path.StartsWith("device-models/",StringComparison.Ordinal)){await RequestAsync<DeviceModel>(request.Origin,request.Path,HttpMethod.Put,request.Body,request.Key,token);}
  else if (request.Method == "DELETE")
                     {
                         var deletion = await RequestAsync<DeletedTemplate>(request.Origin, request.Path,
@@ -351,7 +361,7 @@ public sealed class TemplatePublishingService(HttpClient http) : IAsyncDisposabl
         if (!response.IsSuccessStatusCode)
         {
             if (string.IsNullOrWhiteSpace(envelope.Error?.Code)) throw new InvalidDataException("API 错误响应无法解析");
-            throw new TemplateApiException(envelope.Error.Code, envelope.Error.Message ?? "", (int)response.StatusCode);
+            throw new TemplateApiException(envelope.Error.Code, envelope.Error.Message ?? "", (int)response.StatusCode,envelope.Error.Field,envelope.Error.Details);
         }
         return envelope.Data ?? throw new InvalidDataException("API 响应缺少 data");
     }
@@ -465,7 +475,8 @@ public sealed class TemplatePublishingService(HttpClient http) : IAsyncDisposabl
             pending.Path.Length > "probe-templates/".Length && !pending.Path.Contains('?') &&
             !pending.Path.Contains('#') && !pending.Path["probe-templates/".Length..].Contains('/');
         var modelPath=pending.Path is not null&&pending.Path.StartsWith("device-models/",StringComparison.Ordinal)&&pending.Path.Length>"device-models/".Length&&!pending.Path.Contains('?')&&!pending.Path.Contains('#')&&!pending.Path["device-models/".Length..].Contains('/');
-        if (!((pending.Method=="PUT"&&modelPath)||(pending.Method == "POST" && pending.Path == "probe-templates") ||
+        var inspectionPath=pending.Path is not null && pending.Path.Split('/') is ["devices",{Length:>0},"neighbor-inspections"]&&!pending.Path.Contains('?')&&!pending.Path.Contains('#');
+        if (!((pending.Method=="POST"&&inspectionPath)||(pending.Method=="PUT"&&modelPath)||(pending.Method == "POST" && pending.Path == "probe-templates") ||
             (pending.Method is "PUT" or "DELETE" && itemPath)))
             throw new InvalidDataException("原请求不是受支持的模板或型号 API 操作");
         using var body = JsonDocument.Parse(pending.Body);
@@ -493,7 +504,7 @@ public sealed class TemplatePublishingService(HttpClient http) : IAsyncDisposabl
     }
 
     private sealed class ApiEnvelope<T> { public T? Data { get; set; } public ApiFailure? Error { get; set; } }
-    private sealed class ApiFailure { public string Code { get; set; } = ""; public string? Message { get; set; } }
+    private sealed class ApiFailure { public string? Field {get;set;} public string? Details {get;set;} public string Code { get; set; } = ""; public string? Message { get; set; } }
     private sealed class TemplatePage { public List<PublishedTemplate>? Items { get; set; } public int Total { get; set; } }
     private sealed class DeletedTemplate { public bool Deleted { get; set; } }
     private sealed class TemplateEvent { public string Type { get; set; } = ""; }

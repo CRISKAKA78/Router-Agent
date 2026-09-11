@@ -1,29 +1,88 @@
-<section class="editor-section config-section">
- <h3>LAN 与本机广播域邻居发现</h3>
- <label class="inline-check"><input type="checkbox" checked="@(State.Project.NeighborProbe is not null)" disabled="@State.Locked" @onchange="Toggle" />启用邻居采集</label>
+@using RouterAgent.Neighbors
+<section class="editor-section config-section neighbor-editor">
+ <h3>邻居发现</h3>
+ <label class="inline-check"><input type="checkbox" checked="@(State.Project.NeighborProbe is not null)" disabled="@State.Locked" @onchange="Toggle" />启用邻居发现 · 发现本机网络设备</label>
  @if(State.Project.NeighborProbe is {} n){
- <fieldset disabled="@State.Locked">
-  <label class="config-name">采集周期（秒）<input type="number" min="10" max="86400" @bind="n.IntervalSeconds" @bind:after="State.Touch" /></label>
-  @foreach(var d in n.Domains){
-   <section class="port-card" @key="d"><header><strong>@(d.Scope=="lan"?"LAN 下接设备":"本机广播域设备") · @d.Id</strong><button @onclick="()=>Remove(d)">删除此广播域</button></header><div class="field-grid">
-    <label>广播域标识<input aria-label="广播域标识" @bind="d.Id" @bind:after="State.Touch" /></label>
-    <label>分类<select aria-label="邻居分类" @bind="d.Scope" @bind:after="State.Touch"><option value="lan">LAN 下接设备</option><option value="broadcast">本机广播域设备</option></select></label>
-    <label>三层接口<input aria-label="邻居三层接口" placeholder="例如 br0 或 eth0.10" @bind="d.Interface" @bind:after="State.Touch" /></label>
-    </div>
-    <label>本机LAN转发端口（LAN清单必填，逗号分隔）<input aria-label="邻居转发端口" disabled="@(d.Scope!="lan")" value="@string.Join(',',d.Ports??[])" @onchange="e=>SetPorts(d,e.Value?.ToString()??string.Empty)" /></label>
-    <label>dnsmasq 租约文件（可选）<input aria-label="邻居租约文件" placeholder="例如 /tmp/dhcp.leases" @bind="d.LeaseFile" @bind:after="State.Touch" /></label>
-   </section>
+ <fieldset disabled="@(State.Locked || detecting)">
+  <legend>智能配置（推荐）</legend>
+  @if(!State.Publishing.Synchronized){<div class="field-grid"><label>Management Server<input aria-label="邻居配置Server地址" @bind="State.ServerUrl" /></label><button @onclick="State.ConnectAsync">连接Server</button></div>}
+  <div class="field-grid">
+   <label>参考设备<select aria-label="参考设备" value="@referenceId" @onchange="SelectReference"><option value="">选择在线参考设备</option>@foreach(var d in State.Publishing.ReferenceDevices){<option value="@d.DeviceId">@d.Label</option>}</select></label>
+   <label>采集网络（本机IP所在接口）<select aria-label="采集网络" value="@networkName" @onchange="SelectNetwork" disabled="@(Networks.Length==0)"><option value="">@(Networks.Length==0?"尚未设备验证":"请选择网络")</option>@foreach(var net in Networks){<option value="@net.Interface">@net.Label</option>}</select></label>
+   <label>刷新周期（秒）<input aria-invalid="@ErrorFlag("neighbor_probe.interval_seconds")" aria-describedby="neighbor-interval-help neighbor-errors" type="number" min="10" max="86400" @bind="n.IntervalSeconds" @bind:after="State.Touch" /></label>
+  </div>
+  <div class="inline-actions"><button disabled="@(Reference is null)" @onclick="()=>Inspect(false)">重新识别网络</button><button disabled="@(Reference?.NeighborConfiguration is null)" @onclick="UseApplied">使用设备当前已应用配置</button></div>
+  <p id="neighbor-interval-help">刷新周期只读取已有记录，不会自动重复主动扫描。主动发现由工作台手动点击。</p>
+  <div class="inline-actions">
+   <label class="inline-check"><input type="checkbox" checked="@ShowAll" disabled="@(SelectedNetwork is null)" @onchange="e=>SetViews(e.Value is true,ShowLan)" />显示同一网络全部设备</label>
+   <label class="inline-check"><input type="checkbox" checked="@ShowLan" disabled="@(SelectedNetwork is null || SelectedNetwork.Ports.Length==0)" @onchange="e=>SetViews(ShowAll,e.Value is true)" />按LAN端口筛选</label>
+  </div>
+  <p role="status" aria-live="polite">@DetectionStatus</p>
+  <p>物理端口识别：@(n.FdbPreset=="fnr100"?"FNR100 预设":SelectedNetwork is not null?"内核FDB":"自动 · 尚未设备验证")。@SelectedNetwork?.PortHint</p>
+  @if(Reference is {} reference){<p>Probe：@reference.Registration.ProbeVersion · @(reference.Registration.Capabilities.Contains("neighbors_v1")?"支持 neighbors_v1":"不支持 neighbors_v1；可保存模板，应用前须更新Probe")；当前已应用修订：@reference.AppliedRevision</p>}
+  @if(Reference?.Registration.Model.Equals("FNR100",StringComparison.OrdinalIgnoreCase)==true){
+   <div class="inline-actions"><button disabled="@(!CanInspect)" @onclick="()=>Inspect(true)">FNR100 物理端口只读测试</button><label class="inline-check"><input type="checkbox" checked="@(n.FdbPreset=="fnr100")" disabled="@(n.FdbPreset is null && (discovery?.PresetStatus!="verified" || discovery.Expired(DateTimeOffset.UtcNow)))" @onchange="Preset" />使用FNR100预设</label></div>
+   <p>只读测试仅在当前参考设备执行，核对switch0及输出格式；不修改接口或配置。未通过时物理端口待验证，仍可使用基础发现。</p>
   }
-  <button disabled="@(n.Domains.Count>=8)" @onclick="Add">添加广播域</button>
-  <label>厂商 MAC 转发表命令（可选）<textarea aria-label="MAC转发表命令" rows="5" @bind="n.FdbCommand" @bind:after="State.Touch"></textarea></label>
-  <p>输出格式：广播域标识、MAC、端口名称，以 Tab 分隔。</p>
+  @if(discovery is {RawSummary.Length:>0}){<details><summary>只读测试结果：@discovery.PresetStatus · 解析端口 @string.Join("、",discovery.Ports)</summary><pre>@discovery.RawSummary</pre></details>}
+  <p class="field-hint">缓存、租约和历史发现不代表设备当前在线。LAN清单依据本机端口证据筛选，和同一网络全部设备可以重叠；不推断上级方向。</p>
+  <p role="status">@State.Publishing.NeighborCompatibility · @State.Publishing.CapabilitySummary</p>
+  <div id="neighbor-errors" role="alert">@foreach(var error in State.Issues.Where(i=>i.Field.StartsWith("neighbor",StringComparison.OrdinalIgnoreCase))){<p class="field-error">@error.Message</p>}</div>
+  <details open="@HasDomainErrors"><summary>高级设置（保留完整能力）</summary>
+   <p>展开不会改变配置。只有显式使用检测结果、切换预设或删除域才改变内容。</p>
+   @foreach(var d in n.Domains){var index=n.Domains.IndexOf(d);var help="neighbor-domain-"+index;var path=$"neighbor_probe.domains[{index}].";
+    <section class="port-card" @key="d"><header><strong>@d.Id · @d.Interface</strong><button @onclick="()=>Remove(d)">删除此域</button></header>
+     <div class="field-grid">
+      <label>内部域ID<input aria-label="内部域ID" aria-invalid="@ErrorFlag(path+"id")" aria-describedby="@(help+" "+help+"-error")" @bind="d.Id" @bind:after="State.Touch" /></label>
+      <label>scope<select aria-label="邻居scope" aria-invalid="@ErrorFlag(path+"scope")" aria-describedby="@(help+" "+help+"-error")" @bind="d.Scope" @bind:after="State.Touch"><option value="lan">lan · 按端口筛选</option><option value="broadcast">broadcast · 全部记录</option></select></label>
+      <label>原始Linux接口名<input aria-label="原始Linux接口名" aria-invalid="@ErrorFlag(path+"interface")" aria-describedby="@(help+" "+help+"-error")" @bind="d.Interface" @bind:after="State.Touch" /></label>
+     </div>
+     <div id="@(help+"-error")" role="alert">@foreach(var issue in State.Issues.Where(i=>i.Field.StartsWith(path,StringComparison.OrdinalIgnoreCase))){<p class="field-error">@issue.Message</p>}</div>
+     <p id="@help">ID用于关联任务和结果，普通模式自动生成。接口是本机IP所在的网桥/VLAN/以太网接口，不是机壳插孔；不要选择桥成员。scope只决定这份结果的筛选。@(VerifiedInterface(d.Interface)?"✓ 已按参考设备核对接口":"⚠ 尚未设备验证")</p>
+     <label>计入LAN清单的端口<input aria-label="计入LAN清单的端口" aria-invalid="@ErrorFlag(path+"ports")" aria-describedby="@(help+"-ports "+help+"-error")" value="@string.Join(',',d.Ports??[])" @onchange="e=>SetPorts(d,e.Value?.ToString()??string.Empty)" /></label>
+     <p id="@(help+"-ports")">逗号分隔原始FDB端口或已验证预设端口；只影响本域LAN清单。未匹配记录不猜测；广播域清单不按此字段过滤。</p>
+     <label>dnsmasq租约文件（可选）<input aria-label="邻居租约文件" aria-invalid="@ErrorFlag(path+"lease_file")" aria-describedby="@(help+"-lease "+help+"-error")" @bind="d.LeaseFile" @bind:after="State.Touch" /></label><p id="@(help+"-lease")">设备上的绝对路径，作用于该域。是否存在由采集结果报告，未检查不表示有效；租约不是在线证明。</p>
+    </section>
+   }
+   <button disabled="@(SelectedNetwork is null || n.Domains.Count>6 || n.Domains.Any(d=>d.Interface==networkName))" @onclick="()=>SetViews(true,SelectedNetwork?.Ports.Length>0)">将所选网络加入配置</button>
+   <button disabled="@(n.Domains.Count>=8)" @onclick="Add">添加高级域</button>
+   @if(n.FdbPreset is not null){<button @onclick="ClearPreset">清除型号预设（保留现有域）</button>}
+   <label>物理端口识别命令（高级）<textarea aria-label="物理端口识别命令" aria-invalid="@ErrorFlag("neighbor_probe.fdb_command")" aria-describedby="neighbor-command-help neighbor-errors" rows="4" @bind="n.FdbCommand" @bind:after="State.Touch"></textarea></label>
+   <p id="neighbor-command-help">仅填写只读命令，输出为域ID、MAC、端口名称，以Tab分隔；最多5秒及32KiB。自定义命令未经设备验证，不与型号预设同时使用。此设置会在所有应用该模板版本的设备上执行，不仅是当前参考设备。</p>
+  </details>
+  @if(n.FdbPreset is not null){<p>此设置会在所有应用该模板版本的设备上执行，不仅是当前参考设备。每台设备独立检查环境；不匹配退回内核FDB。</p>}
  </fieldset>
+ @if(State.Publishing.Pending is not null){<p role="alert">检测或发布响应不确定；已保留原始请求字节与幂等键。</p><button @onclick="State.RetryPending">核对并重试原请求</button><button @onclick="State.AbandonPending">核对后放弃原请求</button>}
  }
 </section>
-@code{
- [Parameter,EditorRequired] public EditorWorkspace State{get;set;}=default!;
- private void Toggle(ChangeEventArgs e){State.Project.NeighborProbe=e.Value is true?new(){Domains=[new()]}:null;State.Touch();}
+@code {
+ [Parameter,EditorRequired] public EditorWorkspace State {get;set;}=default!;
+ private string referenceId="",networkName="",message="";
+ private NetworkDiscovery? discovery;
+ private bool detecting;
+ private string ErrorFlag(string path)=>State.FieldError(path) is null?"false":"true";
+ private bool HasDomainErrors=>State.Issues.Any(i=>i.Field.StartsWith("neighbor_probe.domains[",StringComparison.OrdinalIgnoreCase));
+ private NeighborReference? Reference=>State.Publishing.ReferenceDevices.FirstOrDefault(d=>d.DeviceId==referenceId);
+ private DetectedNetwork[] Networks=>discovery?.Networks.Where(n=>n.Eligible&&n.Master.Length==0).OrderByDescending(n=>n.Ipv4.Length>0).ThenByDescending(n=>n.Bridge).ThenBy(n=>n.Interface,StringComparer.Ordinal).ToArray()??[];
+ private DetectedNetwork? SelectedNetwork=>Networks.FirstOrDefault(n=>n.Interface==networkName);
+ private bool ShowAll=>State.Project.NeighborProbe?.Domains.Any(d=>d.Interface==networkName&&d.Scope=="broadcast")==true;
+ private bool ShowLan=>State.Project.NeighborProbe?.Domains.Any(d=>d.Interface==networkName&&d.Scope=="lan")==true;
+ private bool CanInspect=>Reference?.Registration.Capabilities.Contains("neighbors_inspect_v1")==true&&State.Publishing.ServerCapabilities.Contains("neighbors_inspect_v1");
+ private string DetectionStatus=>detecting?"⏳ 正在只读检测…":message.Length>0?"⚠ "+message:discovery is null?"⚠ 尚未设备验证；离线仍可编辑、导入工程并使用高级设置。":discovery.Expired(DateTimeOffset.UtcNow)||Reference?.CurrentSession?.SessionId!=discovery.SessionId||Reference?.AppliedRevision!=discovery.ConfigRevision?"⚠ 检测已过期或设备配置已变化，请重新识别。":$"✓ 检测于 {discovery.DetectedAt.ToLocalTime():HH:mm:ss}；{Networks.Length}个可用网络";
+ private bool VerifiedInterface(string name)=>discovery is not null&&!discovery.Expired(DateTimeOffset.UtcNow)&&Reference?.CurrentSession?.SessionId==discovery.SessionId&&Reference?.AppliedRevision==discovery.ConfigRevision&&Networks.Any(n=>n.Interface==name);
+ private void Toggle(ChangeEventArgs e){if(e.Value is true){State.Project.NeighborProbe=new();State.Touch();}else State.Confirm("关闭邻居发现","关闭将从此工程移除邻居配置；已应用到设备的版本不受影响。",()=>{State.Project.NeighborProbe=null;State.Touch();return Task.CompletedTask;},"关闭",true);}
+ private async Task SelectReference(ChangeEventArgs e){referenceId=e.Value?.ToString()??"";discovery=null;message="";if(Reference is {} r){discovery=r.NeighborDiscovery;if(discovery is null||discovery.Expired(DateTimeOffset.UtcNow))await Inspect(false);else {networkName=Networks.FirstOrDefault()?.Interface??"";if(State.Project.NeighborProbe?.Domains.Count==0&&SelectedNetwork is {} net)ApplySmart(net,true,net.Ports.Length>0);}}}
+ private async Task Inspect(bool vendor){if(Reference is not {} r)return;var original=referenceId;var origin=State.Publishing.Origin;detecting=true;message="";try{var d=await State.Publishing.InspectNeighborsAsync(r,vendor);if(referenceId!=original||origin!=State.Publishing.Origin)return;if(Reference?.CurrentSession?.SessionId!=d.SessionId||Reference.AppliedRevision!=d.ConfigRevision){message="参考设备的Session或配置已变化，请重新识别。";return;}discovery=d;networkName=Networks.FirstOrDefault(n=>n.Interface==networkName)?.Interface??Networks.FirstOrDefault()?.Interface??"";if(State.Project.NeighborProbe?.Domains.Count==0&&SelectedNetwork is {} net)ApplySmart(net,true,net.Ports.Length>0);if(vendor&&d.PresetStatus!="verified")message="物理端口待验证：环境、switch0或ARL格式不匹配，已保留内核FDB基础发现。";}catch(Exception e){message=e.Message;}finally{detecting=false;}}
+ private void SelectNetwork(ChangeEventArgs e){networkName=e.Value?.ToString()??"";if(SelectedNetwork is {} net&&!State.Project.NeighborProbe!.Domains.Any(d=>d.Interface==networkName))ReplaceSmart(net);}
+ private void ReplaceSmart(DetectedNetwork net){void Set()=>ApplySmart(net,true,net.Ports.Length>0);if(State.Project.NeighborProbe!.Domains.Count==0)Set();else State.Confirm("使用智能配置","将用所选网络的检测结果替换现有邻居域、租约和自定义命令。取消可保留全部高级配置。",()=>{Set();return Task.CompletedTask;});}
+ private void SetViews(bool all,bool lan){if(SelectedNetwork is not {} net)return;if(!all&&!lan){message="至少保留一类发现结果。";return;}State.Confirm("更新结果清单","仅更新当前网络的结果开关；已有高级域将被此网络的智能配置替代。",()=>{ApplySmart(net,all,lan,true);return Task.CompletedTask;});}
+ private void ApplySmart(DetectedNetwork net,bool all,bool lan,bool preserveOthers=false){var n=State.Project.NeighborProbe!;var keep=preserveOthers?n.Domains.Where(d=>d.Interface!=net.Interface).ToList():[];var multiple=keep.Count>0;
+  if(multiple)foreach(var d in keep){if(d.Id is "local" or "lan")d.Id=NeighborNetworks.DomainId(d.Scope,d.Interface,true);}
+  if(all)keep.Add(new(){Id=NeighborNetworks.DomainId("broadcast",net.Interface,multiple),Scope="broadcast",Interface=net.Interface});if(lan&&net.Ports.Length>0)keep.Add(new(){Id=NeighborNetworks.DomainId("lan",net.Interface,multiple),Scope="lan",Interface=net.Interface,Ports=net.Ports.ToList()});n.Domains=keep;n.FdbCommand=null;n.FdbPreset=null;State.Touch();}
+ private void UseApplied(){if(Reference?.NeighborConfiguration is not {} n)return;State.Confirm("使用设备当前已应用配置","将替换当前工程的邻居配置（包含高级命令）；只复制配置，不执行命令、不发布。",()=>{State.Project.NeighborProbe=n.Copy();State.Touch();return Task.CompletedTask;});}
+ private void Preset(ChangeEventArgs e){State.Confirm("物理端口识别预设","此设置会在所有应用该模板版本的设备上执行，不仅是当前参考设备。CPU口不计入LAN，wan与lan1～4均为可用外部口。",()=>{var n=State.Project.NeighborProbe!;n.FdbPreset=e.Value is true?"fnr100":null;n.FdbCommand=null;foreach(var d in n.Domains.Where(d=>d.Scope=="lan"&&d.Interface=="br0"))d.Ports=n.FdbPreset is null?SelectedNetwork?.Ports.ToList():["lan1","lan2","lan3","lan4","wan"];State.Touch();return Task.CompletedTask;});}
+ private void ClearPreset()=>State.Confirm("清除型号预设","将停止使用厂商预设并回退内核FDB；保留已填写的域和端口，请核对端口是否仍与内核路径匹配。不会在设备上立即执行或发布。",()=>{State.Project.NeighborProbe!.FdbPreset=null;State.Touch();return Task.CompletedTask;});
  private void Add(){var n=State.Project.NeighborProbe!;var i=1;while(n.Domains.Any(d=>d.Id=="domain_"+i))i++;n.Domains.Add(new(){Id="domain_"+i});State.Touch();}
- private void Remove(NeighborDomainSettings d){State.Project.NeighborProbe!.Domains.Remove(d);State.Touch();}
+ private void Remove(NeighborDomainSettings d)=>State.Confirm("删除邻居域",$"确认删除 {d.Id} 的接口、端口和租约配置？其他域保留。",()=>{State.Project.NeighborProbe!.Domains.Remove(d);State.Touch();return Task.CompletedTask;},"删除",true);
  private void SetPorts(NeighborDomainSettings d,string text){d.Ports=string.IsNullOrWhiteSpace(text)?null:text.Split(',').Select(p=>p.Trim()).ToList();State.Touch();}
 }

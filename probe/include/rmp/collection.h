@@ -10,6 +10,7 @@ struct CollectionTemplate {
  std::string raw_json;
  std::string switch_json;
  std::string neighbor_json;
+ std::string cellular_json;
  std::vector<std::string> network_interfaces;
  bool has_network_interfaces=false;
  std::string id,name; std::uint64_t version;

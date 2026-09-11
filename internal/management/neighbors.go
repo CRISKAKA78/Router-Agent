@@ -20,3 +20,7 @@ func (s *Server) CreateNeighbor(ctx context.Context, id string, p task.NeighborR
 	}
 	return s.gateway.CreateNeighbor(ctx, id, p, cancel)
 }
+
+func (s *Server) InspectNeighbors(ctx context.Context, id string, p task.NeighborInspectRequest) (string, error) {
+	return s.gateway.InspectNeighbors(ctx, id, p)
+}

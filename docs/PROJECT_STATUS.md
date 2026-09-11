@@ -1,5 +1,21 @@
 # 项目状态
 
+## 当前：ADR-060已完成GCC5.4/MIPS实机ATI/IMEI测试
+
+2026-09-11，工作仍在独立worktree `router-agent-at-discovery` / `codex/at-discovery`。用户追加授权后，已用桌面gcc-5.4.tar.gz在10.1.1.128编译，最新产物 `/root/router-probe-gcc54/output/router-probe`（1131344字节）。新增根目录probe-build-gcc54.cmd，默认读取同目录password.txt，无密码提示；密码不写入脚本，测试临时密码文件已删除。
+
+MT7621/Linux4.4/uClibc实机自动选择ttyUSB1，ATI识别Fibocom FM160-CN，AT+CGSN有效IMEI、周期上报/HTTP快照、真实占用跳过/释放恢复、关闭模板清空通过。原redial与Probe PID及启动时间不变，临时Probe/Server/SSH转发已停止；没有覆盖生产实例或Git提交/推送。4项脚本回归与远端bash/ELF检查通过，详见[GCC54实机证据及产物](GCC54_AT_DEVICE_VERIFICATION.md)。
+
+物理模块重启/USB热插拔重编号、长期业务共存、其他厂家与ARM/mipsel以外工具链仍需分别验收。首轮Windows/Go、生成器196项、WPF582项/72份布局、Linux16项CTest/全量与定向race是既有验证，本轮未改产品逻辑、不冒称重跑；浏览器策略与sanitizer缺库限制见[CELLULAR_AT](CELLULAR_AT.md)。SIM/驻网/信号未实现，不新增Phase。
+
+## 此前：ADR-059智能邻居配置（历史事实）
+
+工作分支核对为 `GPT6API-TEST`。生成器智能/高级配置、公开能力协商与只读网络检测、显式FNR100预设、WPF默认直连扫描和Server1024条/24小时近期视图已接通；主动响应60秒后转近期，不推断上级、不把历史说成在线。仅邻居配置模板的应用校验遗漏已修复。没有新阶段、数据库或Tunnel改造。
+
+本轮Windows Go/vet、生成器189项（0跳过）、WPF572项/69份布局与独立构建通过；最终Linux15项CTest、真实Probe Phase1～5全量/vet/build及核心包/邻居集成race通过。浏览器完整交互、物理DPI、ARM/uClibc/FNR100实机及缺库sanitizer未验收，不沿用旧测试冒充。详见[实施、验证、产物与限制](NEIGHBOR_SMART_CONFIGURATION.md)。未提交/推送/部署，用户Server/Probe进程和数据未替换。
+
+## 主分支既有记录
+
 2026-09-11 迁移运行状态：已实测 47.119.168.150 上 Server 常驻运行、FNR100 Probe 在线；维护故障定位为 Probe 到 Server 9001/TCP 数据连接不可达，用户随后确认已解决，解决后的端到端连接未由 Agent 复测。本轮按用户授权整理既有 ADR-057/058 迁移改动并合入本地 main、删除迁移分支；实际提交与分支状态以 Git 为准，不推送远端。仅进行差异、凭据排除及合并完整性检查，不重跑产品测试；下文未常驻/未提交为历史记录。
 
 2026-09-11 **ADR-058 Probe构建纠正已完成**：默认root@10.1.1.128，password.txt自动密码认证，经SFTP上传源码并使用原/root/gcc-5.2。真实构建产物 `/root/router-agent/router-agent`，785556字节、ARMv7/EABI5/uClibc；默认接口及管理地址保持ADR-057。记录和验证见[部署§5.3](DEPLOYMENT.md#53-mipsel--arm--arm64-交叉编译)。厂商运行验收仍未完成，无Git提交/推送。

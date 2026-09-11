@@ -1,5 +1,21 @@
 # 项目接管手册
 
+## 当前接管：GCC5.4实机验证与免输入密码构建
+
+2026-09-11用户追加授权编译/上传测试已执行。先读[GCC54实机说明](GCC54_AT_DEVICE_VERIFICATION.md)，通用AT架构仍见[CELLULAR_AT](CELLULAR_AT.md)/ADR-060。分支 `codex/at-discovery` 在 `C:\Users\Administrator\Desktop\router-agent-at-discovery`；未合并其他worktree变化、未提交或推送。
+
+新增 `probe-build-gcc54.cmd` → `.ps1` → `scripts/build-probe-gcc54.sh`；根目录password.txt读取10.1.1.128的root密码，已忽略且不上传，测试临时凭证已删除。默认SDK缓存来自桌面gcc-5.4.tar.gz，固定成品 `/root/router-probe-gcc54/output/router-probe`，最终run `20260911-230640-7e2480c9`。不要误用旧GCC5.2 ARM入口。
+
+实机FM160-CN/ttyUSB1通用ATI/IMEI、真实占用/恢复、当前Server/API和关闭模板通过；目标保留 `/tmp/router-at-test-20260911-230834/router-probe`，已停止，原Probe9339/redial1419保持。后续正式替换运行实例需按用户当前范围决定，不能因为本次临时测试就自动覆盖；模组重启/物理重编号和其他厂家尚未测试。4项脚本回归及真实编译通过，其他首轮产品回归为历史事实，证据路径在专项文档。下面记录属于历史任务，不构成本次新增授权。
+
+## 此前接管：智能邻居配置（ADR-059，历史入口）
+
+先读[本轮操作、代码导航和验证](NEIGHBOR_SMART_CONFIGURATION.md)、ADR-059及API/PROTOCOL增量。核心新增在Device Service的neighbor_discovery/近期记录、Probe原生neighbor_inspect与FNR100解析、共享CIDR模型、Blazor NeighborEditor/NeighborPublishing和WPF NeighborView；仍通过公开API/既有TASK与EVENT。local/lan可共用br0，近期视图不等于在线。
+
+分支 `GPT6API-TEST`；本轮明确禁止提交/推送/部署及替换运行Server/Probe。生成器189项、WPF572项/69份布局和Windows构建已通过，最终Linux15项CTest、真实Probe全量与核心包/邻居集成race已通过。后续只能在新授权下补浏览器实际交互、ARM/uClibc/FNR100部署验证；sanitizer缺库，用户实例与运行数据保持。历史“推送main”或旧成品不适用于本轮。
+
+## 主分支既有记录
+
 2026-09-11 接管更新：用户确认迁移后的维护连接问题已解决；排查证据为 Probe 到 47.119.168.150:9001 的 SYN 未到达服务器网卡，未确认具体网络规则及修复方式。Server 已实际常驻、Probe 在线；不要将下文短时部署记录当成当前运行状态。本轮将既有迁移改动整理进本地 main 并删除迁移分支，不推送远端，提交和分支结果以 Git 为准；凭据、构建包和运行数据仍留本机。
 
 2026-09-11 Probe最新入口为ADR-058：双击probe-build.cmd即可在10.1.1.128通过账号密码构建，password.txt由AskPass本地读取；不要改成47.119.168.150编译或使用私钥。产物/root/router-agent/router-agent；成功run为20260911-182649-f30c50be，构建/ELF通过，未替换设备Probe。完整规则及证据见[部署§5.3](DEPLOYMENT.md#53-mipsel--arm--arm64-交叉编译)。

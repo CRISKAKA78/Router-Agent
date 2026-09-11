@@ -13,6 +13,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"routerprobe/internal/api"
+	"routerprobe/internal/device"
 	"routerprobe/internal/gateway"
 	"routerprobe/internal/management"
 	"routerprobe/internal/probetemplate"
@@ -55,6 +56,7 @@ func TestNativeNeighborDiscovery(t *testing.T) {
 	defer exec.Command("ip", "link", "del", port).Run()
 	ip("link", "set", port, "master", bridge)
 	ip("addr", "add", "192.0.2.1/24", "dev", bridge)
+	ip("addr", "add", "198.51.100.1/25", "dev", bridge)
 	peerProcess := exec.Command("unshare", "-n", "sleep", "120")
 	if e := peerProcess.Start(); e != nil {
 		t.Fatal(e)
@@ -120,6 +122,40 @@ func TestNativeNeighborDiscovery(t *testing.T) {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 40*time.Second)
 	defer cancel()
+	d, _ := app.Devices().Get("neighbors")
+	inspection, e := app.InspectNeighbors(ctx, "neighbors", task.NeighborInspectRequest{SessionID: d.CurrentSession.ID, Revision: revision})
+	if e != nil {
+		t.Fatal(e)
+	}
+	if result, e := app.WaitTaskResult(ctx, inspection); e != nil || result.Status != "success" {
+		t.Fatalf("inspection: %+v %v", result, e)
+	}
+	until = time.Now().Add(2 * time.Second)
+	for time.Now().Before(until) {
+		d, _ = app.Devices().Get("neighbors")
+		if d.NeighborDiscovery != nil {
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	if d.NeighborDiscovery == nil {
+		t.Fatal("missing network discovery")
+	}
+	foundBridge, excludedMember := false, false
+	for _, network := range d.NeighborDiscovery.Networks {
+		if network.Interface == bridge {
+			foundBridge = network.Bridge && network.Eligible && len(network.Networks) == 2 && network.Networks[0] == "192.0.2.0/24"
+		}
+		if network.Interface == port {
+			excludedMember = network.Master == bridge && !network.Eligible
+		}
+	}
+	if !foundBridge || !excludedMember {
+		t.Fatalf("network topology: %+v", d.NeighborDiscovery)
+	}
+	if _, e := app.CreateNeighbor(ctx, "neighbors", task.NeighborRequest{DomainID: "local", CIDR: "198.51.100.0/24", Revision: revision}, false); e == nil {
+		t.Fatal("server allowed off-link scan")
+	}
 	adapter, e := api.New(app, api.Config{})
 	if e != nil {
 		t.Fatal(e)
@@ -155,6 +191,12 @@ func TestNativeNeighborDiscovery(t *testing.T) {
 	result, e := app.WaitTaskResult(ctx, id)
 	if e != nil || result.Status != "success" {
 		t.Fatalf("scan: %+v %v", result, e)
+	}
+	var scanRows struct {
+		Rows []device.NeighborRow `json:"rows"`
+	}
+	if json.Unmarshal([]byte(result.Stdout), &scanRows) != nil || len(scanRows.Rows) == 0 || scanRows.Rows[0].ActiveAgeMS == nil || *scanRows.Rows[0].ActiveAgeMS < 1000 {
+		t.Fatalf("response age must include receive wait, not restart at scan completion: %s", result.Stdout)
 	}
 	until = time.Now().Add(10 * time.Second)
 	found := false
@@ -212,13 +254,8 @@ func TestNativeNeighborDiscovery(t *testing.T) {
 	if e != nil || result.Status != "failed" || !strings.Contains(result.Stderr, "cancelled") {
 		t.Fatalf("cancelled scan: %+v %v", result, e)
 	}
-	id, e = app.CreateNeighbor(ctx, "neighbors", task.NeighborRequest{DomainID: "local", CIDR: "198.51.100.0/24", Revision: revision}, false)
-	if e != nil {
-		t.Fatal(e)
-	}
-	result, e = app.WaitTaskResult(ctx, id)
-	if e != nil || result.Status != "failed" || result.Stderr != "range_not_on_link" {
-		t.Fatalf("off-link scan: %+v %v", result, e)
+	if _, e = app.CreateNeighbor(ctx, "neighbors", task.NeighborRequest{DomainID: "local", CIDR: "198.51.100.0/24", Revision: revision}, false); e == nil {
+		t.Fatal("off-link scan passed Server final validation")
 	}
 	if _, e = app.CreateNeighbor(ctx, "neighbors", task.NeighborRequest{DomainID: "local", CIDR: "192.0.0.0/16", Revision: revision}, false); e == nil {
 		t.Fatal("unbounded scan accepted")

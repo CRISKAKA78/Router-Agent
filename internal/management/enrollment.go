@@ -121,7 +121,7 @@ func (s *Server) UpdateDevice(id string, q DeviceUpdate) (enrollment.Profile, er
 		}
 		t.Monitoring = &m
 	}
-	if e := probetemplate.Validate(probetemplate.Input{Name: t.Name, Properties: t.Properties, Monitoring: t.Monitoring, Presentation: t.Presentation, SwitchProbe: t.SwitchProbe}); e != nil {
+	if e := probetemplate.Validate(probetemplate.Input{Name: t.Name, Properties: t.Properties, Monitoring: t.Monitoring, Presentation: t.Presentation, SwitchProbe: t.SwitchProbe, NeighborProbe: t.NeighborProbe, CellularProbe: t.CellularProbe}); e != nil {
 		// The built-in empty template is a valid server-owned collection plan.
 		if t.ID != "builtin" || t.Monitoring != nil {
 			return p, e

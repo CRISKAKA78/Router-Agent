@@ -4,11 +4,22 @@
 
 Server CLI默认全接口监听，对外地址47.119.168.150，HTTP8888/控制9000/数据9001；内部Service缺省保持测试与嵌入用途。Windows本机交叉编译Linux AMD64，再由独立SFTP脚本上传Server和启动脚本，构建凭据不进入产品。WPF/Core移除SSH账号/密码与DPAPI存储职责，仅保存外部程序偏好，旧账号字段读取时忽略。关闭或失效维护隐藏公共地址，文件初始目录/tmp/root。模块/API/协议边界保持，见[验证与部署](SERVER_DEFAULTS_VERIFICATION.md)。
 
-## 邻居发现（ADR-056）
 
-Probe的SystemSampler惰性持有进程级Neighbors采集器；其独立有界worker读取内核邻居/FDB、可选租约及厂商只读表，不阻塞控制连接。LiveTelemetry绑定已应用配置修订，TaskManager复用同一采集器执行原生ARP扫描；取消在任务准入时处理。控制会话释放/重配置清空采样并请求停止扫描。无AI逻辑、新数据库或新数据面。
+## 通用 AT 身份采集增量（ADR-060，2026-09-11）
 
-Gateway校验结构化neighbors EVENT与当前Session，Device Service验证域/端口/配置并持有最新快照；Management组合查询/扫描能力，HTTP Adapter只调用Application。WPF NeighborView经公开Client显示LAN下接与本机广播域两页，两份清单可重叠，不推断上级方向。Blazor生成器通过可选neighbor_probe编辑、校验、导入导出和版本发布。规范与使用见[邻居发现](NEIGHBOR_DISCOVERY.md)、ADR-056及API/PROTOCOL对应章节。
+可选运行模板 cellular_probe 启用 Probe 的 CellularCollector：只枚举 USB-backed ttyUSB/ttyACM，经占用检查与短期独占发送固定 AT/ATI/IMEI 查询。采集在 TelemetryCollector 所有的可取消后台线程中运行，串口不进入 TCP Gateway；待发送结果合并为一份最新 EVENT，不以串口等待阻塞心跳。每轮重枚举，按 USB 父设备分组而非 tty 编号绑定，限额与共存边界见[CELLULAR_AT](CELLULAR_AT.md)。
+
+Gateway 校验有界事件与能力，Device Service 校验 Session/已应用 revision 并持有最新内存快照、派生观测年龄及 stale。HTTP Adapter 仅通过 Application/Device Service 查询；生成器管理模板开关/周期，WPF 通过公开 Device DTO 展示，不复制 AT 或设备状态机。无新数据库、任务类型、帧或数据面；SIM/射频/厂商适配未实现。
+
+## 邻居发现（ADR-056 / ADR-059）
+
+Probe的SystemSampler惰性持有进程级Neighbors采集器；其有界worker读取内核邻居/FDB、可选租约和显式选择的厂商表。TaskManager复用采集器执行原生ARP扫描/取消，并用原生neighbor_inspect任务读取sysfs及RTM_GETADDR。普通检测无Shell；显式FNR100测试及预设使用固定只读命令和环境/格式核验，失败回退内核。控制会话释放或重配置请求停止扫描，不引入AI、外部依赖服务或数据面。
+
+Gateway校验EVENT/RESULT与派发Session/revision，Device Service验证域、端口和配置，并持有最新快照、90秒只读检测与每设备1024条/24小时的近期发现。近期数据放在设备记录，不复制进历史Session；配置修订、Session替换清空，离线保留至到期，Server重启不恢复。不将历史、缓存或租约作为在线状态。Task Service保留派发前统计基线与扫描完成summary，重复/迟到结果不重复合并。
+
+Management组合只读查询、检测及扫描；HTTP Adapter经公开Application/Service工作。WPF NeighborView默认近期清单，自动推导直连范围，保留高级自定义；Blazor NeighborEditor默认智能配置，使用公开参考设备/能力接口，保留离线高级编辑。两客户端只共享无状态C#地址规范化/显示模型（shared/NeighborNetworks.cs），不复制设备业务状态机。Server能力协商与Probe能力、模板版本/应用修订分开。继续保持LAN按证据筛选、广播域全量且允许重叠，不推断上级方向。
+
+规范、操作与本轮证据：[智能邻居配置](NEIGHBOR_SMART_CONFIGURATION.md)、API/PROTOCOL ADR-059章节。原始验证保留在[邻居发现](NEIGHBOR_DISCOVERY.md)。
 
 ## 四个操作工作区（ADR-055，紧凑操作台）
 

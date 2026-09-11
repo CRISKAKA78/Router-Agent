@@ -9,4 +9,5 @@
     <PackageReference Include="Microsoft.FluentUI.AspNetCore.Components" Version="4.14.4" />
   </ItemGroup>
   <ItemGroup><Compile Include="../../shared/DevicePresentation.cs" Link="Presentation/DevicePresentation.cs" /></ItemGroup>
+<ItemGroup><Compile Include="../../shared/NeighborNetworks.cs" Link="Neighbors/NeighborNetworks.cs" /></ItemGroup>
 </Project>

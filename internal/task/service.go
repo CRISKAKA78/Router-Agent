@@ -77,12 +77,14 @@ type Dispatch struct {
 }
 
 type Snapshot struct {
-	Dispatches []Dispatch
-	Spec       Spec
-	State      State
-	MessageID  uint64
-	Ack        *Ack
-	Result     *Result
+	NeighborBaseline []string
+	NeighborSummary  *NeighborSummary
+	Dispatches       []Dispatch
+	Spec             Spec
+	State            State
+	MessageID        uint64
+	Ack              *Ack
+	Result           *Result
 }
 
 type record struct {
@@ -370,6 +372,11 @@ func (s *Service) WaitResult(ctx context.Context, taskID string) (Result, error)
 
 func cloneSnapshot(input Snapshot) Snapshot {
 	output := input
+	output.NeighborBaseline = append([]string{}, input.NeighborBaseline...)
+	if input.NeighborSummary != nil {
+		v := *input.NeighborSummary
+		output.NeighborSummary = &v
+	}
 	output.Spec.Params = append(json.RawMessage(nil), input.Spec.Params...)
 	output.Dispatches = append([]Dispatch(nil), input.Dispatches...)
 	for i := range output.Dispatches {
@@ -392,4 +399,27 @@ func cloneSnapshot(input Snapshot) Snapshot {
 		output.Result = &copy
 	}
 	return output
+}
+
+type NeighborSummary struct {
+	Responses int `json:"responses"`
+	Added     int `json:"added"`
+	Updated   int `json:"updated"`
+}
+
+func (s *Service) SetNeighborSummary(id string, summary NeighborSummary) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if r := s.records[id]; r != nil && r.snapshot.NeighborSummary == nil {
+		r.snapshot.NeighborSummary = &summary
+		s.revision.Add(1)
+	}
+}
+
+func (s *Service) SetNeighborBaseline(id string, keys []string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if r := s.records[id]; r != nil && len(r.snapshot.Dispatches) == 0 {
+		r.snapshot.NeighborBaseline = append([]string{}, keys...)
+	}
 }

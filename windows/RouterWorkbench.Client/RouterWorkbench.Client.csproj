@@ -2,4 +2,5 @@
   <PropertyGroup><TargetFramework>net10.0</TargetFramework></PropertyGroup>
   <ItemGroup><ProjectReference Include="../RouterWorkbench.Core/RouterWorkbench.Core.csproj" /></ItemGroup>
   <ItemGroup><Compile Include="../../shared/DevicePresentation.cs" Link="Presentation/DevicePresentation.cs" /></ItemGroup>
+<ItemGroup><Compile Include="../../shared/NeighborNetworks.cs" Link="Neighbors/NeighborNetworks.cs" /></ItemGroup>
 </Project>

@@ -84,7 +84,7 @@ public sealed partial class EditorWorkspace(TemplateCompiler compiler, ProjectFi
     {
         if (issue.AttributeId is not null) SelectedId = issue.AttributeId;
         Stage = issue.AttributeId is null ? 0 : 1;
-        if(issue.Field=="NeighborProbe")ConfigurationTab=3;else if(issue.Field=="SwitchProbe")ConfigurationTab=2;else if(issue.Field=="Presentation")ConfigurationTab=1;
+        if(issue.Field.StartsWith("cellular",StringComparison.OrdinalIgnoreCase))ConfigurationTab=4;else if(issue.Field.StartsWith("neighbor",StringComparison.OrdinalIgnoreCase))ConfigurationTab=3;else if(issue.Field=="SwitchProbe")ConfigurationTab=2;else if(issue.Field=="Presentation")ConfigurationTab=1;
         Notify();
     }
     public void AddAttribute(AttributeVisibility visibility)
@@ -258,6 +258,7 @@ public sealed partial class EditorWorkspace(TemplateCompiler compiler, ProjectFi
         LocalBusy = true;
         Notify();
         try { await action(); }
+        catch (TemplateApiException e) when(e.Field is not null) {var issue=new ValidationIssue(null,e.Field,e.Details??e.Message);Issues=[..Issues,issue];GoToIssue(issue);ShowToast(e.Details??e.Message,true);}
         catch (Exception e) { ShowToast(e.Message, true); }
         finally { LocalBusy = false; Notify(); }
     }

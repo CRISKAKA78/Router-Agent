@@ -1,0 +1,18 @@
+<section class="editor-section config-section">
+ <h3>蜂窝模块 · 自动识别 AT 端口</h3>
+ <label class="inline-check"><input aria-label="启用AT自动探测" type="checkbox" checked="@(State.Project.CellularProbe is not null)" disabled="@State.Locked" @onchange="Toggle" />启用 USB 串口自动探测与 ATI / IMEI 采集</label>
+ @if(State.Project.CellularProbe is {} settings){
+  <fieldset disabled="@State.Locked"><legend>通用身份采集</legend>
+   <label>探测周期（秒）<input aria-label="AT自动探测周期" type="number" min="10" max="86400" @bind="settings.IntervalSeconds" @bind:after="State.Touch" /></label>
+   <p>无需填写 ttyUSB 编号。Probe 自动寻找 USB 串口中的可用 AT 端口；模块重启、串口号变化后重新枚举。同一 USB 设备只选一个已识别端口。</p>
+   <p>只发送 AT、ATI、AT+CGSN，必要时回退 AT+CGSN=1 / AT+GSN。跳过已占用端口，不停止拨号进程，不复位模块，不设置波特率、拨号或网络模式。</p>
+   <p>当前仅探测有 USB 设备证据的 ttyUSB / ttyACM；不遍历板载控制台、QMI 或 MBIM 节点；USB接口描述明确标记GNSS/GPS或诊断用途时跳过。无法读取占用信息时不尝试抢占。</p>
+  </fieldset>
+  @if(State.Publishing.Synchronized&&!State.Publishing.ServerCapabilities.Contains("cellular_identity_v1")){<p class="error-text" role="alert">当前 Server 不支持此功能，发布前需要更新 Server。</p>}
+ }
+ <p>打开、导入或发布模板不会向设备发送 AT。显式应用模板后，采集结果在工作台“设备详情 → 蜂窝模块”查看。当前不采集 SIM、信号或基站参数。</p>
+</section>
+@code {
+ [Parameter,EditorRequired] public EditorWorkspace State {get;set;}=default!;
+ private void Toggle(ChangeEventArgs e){if(State.Locked)return;State.Project.CellularProbe=e.Value is true?new CellularSettings():null;State.Touch();}
+}

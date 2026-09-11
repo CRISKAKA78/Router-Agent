@@ -33,6 +33,8 @@ type Config struct {
 	RequestTimeout, WriteTimeout, PollInterval   time.Duration
 }
 type response struct {
+	field    string
+	details  string
 	status   int
 	data     any
 	location string
@@ -183,12 +185,21 @@ func write(w http.ResponseWriter, v response) {
 		return
 	}
 	if v.code != "" {
-		json.NewEncoder(w).Encode(object{"error": object{"code": v.code, "message": strings.ReplaceAll(v.code, "_", " ")}})
+		err := object{"code": v.code, "message": strings.ReplaceAll(v.code, "_", " ")}
+		if v.field != "" {
+			err["field"] = v.field
+			err["details"] = v.details
+		}
+		json.NewEncoder(w).Encode(object{"error": err})
 		return
 	}
 	json.NewEncoder(w).Encode(object{"data": v.data})
 }
 func failure(err error) response {
+	var field *probetemplate.FieldError
+	if errors.As(err, &field) {
+		return response{status: 400, code: "invalid_request", field: field.Field, details: field.Detail}
+	}
 	s, c := 500, "internal_error"
 	switch {
 	case errors.Is(err, enrollment.ErrNotManaged):

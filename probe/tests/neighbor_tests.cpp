@@ -11,6 +11,22 @@ static void Check(bool ok, const char *why) {
 int main() {
   try {
     NeighborPlan p;
+    std::vector<NeighborRow> arl;
+    Check(ParseFNR100ARL("MAC: 02:00:00:00:00:01 PORTMAP: 0x01 VID: 0x3 STATUS: 0x0\nMAC: 02:00:00:00:00:02 PORTMAP: 0x3e VID: 0x3 STATUS: 0x0\n", &arl)&&arl.size()==5&&arl[0].port=="lan1"&&arl[4].port=="wan","FNR100 external ports include WAN, exclude CPU");
+    Check(!ParseFNR100ARL("MAC: 02:00:00:00:00:01 PORTMAP: 0x40 VID: 0x3 STATUS: 0x0",&arl)&&arl.empty(),"unknown port bits fail closed");
+    Check(!ParseFNR100ARL("bad output",&arl)&&!ParseFNR100ARL("",&arl),"malformed and empty output not verified");
+    Check(ParseFNR100ARL("MAC: 02:00:00:00:00:01 PORTMAP: 0x20 VID: 0x2 STATUS: 0x0",&arl)&&arl.empty(),"other VLAN not leaked into br0");
+    RouterConfigParams inspection;
+    Check(ParseNeighborInspect(R"({"session_id":"s-a","config_revision":7,"vendor_test":false})", &inspection) &&
+              inspection["session_id"] == "s-a" && inspection["config_revision"] == "7" && inspection["vendor_test"] == "false",
+          "inspection preserves full Session/revision identity for duplicate-task comparison");
+    Check(!ParseNeighborInspect(R"({"session_id":"s-a","config_revision":7})", &inspection) &&
+              !ParseNeighborInspect(R"({"session_id":"s-a","config_revision":7,"vendor_test":"false"})", &inspection),
+          "inspection requires explicit boolean and complete scoped parameters");
+    NeighborNetwork bridge;bridge.interface="br0";bridge.bridge=true;bridge.eligible=true;bridge.ports={"eth0","vlan3","ath0","ath1"};
+    Check(FNR100Environment({bridge}),"validated bridge profile");bridge.ports.pop_back();Check(!FNR100Environment({bridge}),"model name alone cannot validate environment");
+    Check(ParseNeighborPlan(R"({"fdb_preset":"fnr100","domains":[{"id":"local","scope":"broadcast","interface":"br0"}]})",&p),"preset parsed");
+    Check(!ParseNeighborPlan(R"({"fdb_preset":"fnr100","fdb_command":"echo x","domains":[{"id":"local","scope":"broadcast","interface":"br0"}]})",&p),"conflicting command rejected");
     Check(
         ParseNeighborPlan(
             R"({"domains":[{"id":"lan","scope":"lan","interface":"br0","ports":["LAN1"]},{"id":"local","scope":"broadcast","interface":"br0"}]})",

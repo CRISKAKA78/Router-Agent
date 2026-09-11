@@ -13,11 +13,23 @@ struct NeighborDomain {
 struct NeighborPlan {
   unsigned interval = 30;
   std::vector<NeighborDomain> domains;
-  std::string fdb_command;
+  std::string fdb_command, fdb_preset;
 };
 struct NeighborRow {
   std::string ip, mac, port, hostname, source, state, interface;
+ long active_age_ms = -1;
 };
+struct NeighborNetwork {
+ std::string interface, master, reason;
+ bool bridge=false, vlan=false, eligible=false;
+ std::vector<std::string> ipv4, ports;
+};
+std::vector<NeighborNetwork> DiscoverNeighborNetworks(const std::string& root="");
+bool ParseFNR100ARL(const std::string&, std::vector<NeighborRow>*);
+bool FNR100Environment(const std::vector<NeighborNetwork>&);
+bool ReadFNR100(const std::string&,const std::atomic<bool>*,std::vector<NeighborRow>*,std::string*);
+ExecResult InspectNeighbors(const ExecTask&,const std::atomic<bool>*);
+bool ParseNeighborInspect(const std::string&,RouterConfigParams*);
 bool ParseNeighborPlan(const std::string &, NeighborPlan *);
 bool ParseNeighborTask(const std::string &, bool, RouterConfigParams *);
 bool NeighborRange(const std::string &, std::uint32_t *, std::uint32_t *);

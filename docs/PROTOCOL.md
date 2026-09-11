@@ -1,5 +1,36 @@
 # 路由器探针 TCP 长连接控制协议
 
+## 通用 AT 身份采集增量（ADR-060，2026-09-11）
+
+1. Probe REGISTER 增加 `cellular_identity_v1`。CONFIG_APPLY 中运行模板可选 `cellular_probe:{"interval_seconds":30}`；省略关闭，空对象默认30，周期整数10～86400，其他字段拒绝。旧 Probe 缺能力时 Server 应用返回 `unsupported_cellular`；保持完整模板应用和 ACK 门槛，不默默删去配置。
+2. 复用 EVENT，完整 JSON 结构如下（数值/身份为示例）：
+
+```json
+{"event":"cellular","config_revision":1,"interval_seconds":30,"age_ms":0,"status":"ok","reason":"","limited":false,"ports":[{"path":"/dev/ttyUSB2","device_key":"/sys/devices/platform/usb1/1-1","status":"ok","reason":"","selected":true,"age_ms":12,"ati":{"command":"ATI","status":"ok","value":"Generic modem"},"imei":{"command":"AT+CGSN","status":"ok","value":"867123456789012"}}]}
+```
+
+3. 事件最多64KiB且服从协商帧上限；最多16端口，path 为 `/dev/ttyUSB数字` 或 `/dev/ttyACM数字`（后缀最多10位），device_key 为最多256字节 `/sys/devices/` 下 USB 父路径，reason最多64字节，无NUL/换行。端口路径不重复，每 USB 父路径最多一个 selected。limited 表示枚举/轮内预算等限制，不代表全量覆盖。
+4. 顶层 status：ok/partial/unavailable/no_ports/error；端口 status：ok/partial/busy/not_at/error/pending/alternate。selected 仅允许ok/partial；端口ok必须ATI和IMEI均ok；非ok/partial端口的两个查询为not_queried。顶层ok表示已选端口身份完整，其他端口仍可能失败，客户端不得隐藏其状态。
+5. 查询 status：ok/not_queried/rejected/invalid_value/invalid_response/timeout/io_error/overflow/cancelled。失败 value 必须空；ATI.command固定ATI，IMEI.command为空（未查询）或AT+CGSN、AT+CGSN=1、AT+GSN。成功ATI非空、ASCII含换行/tab、最多1024字节；成功IMEI为严格15位数字。没有任意命令入口。
+6. age_ms 为单调时钟相对当前发送时刻的观测年龄，整数0～315360000000；逐端口年龄不得小于顶层年龄。Server计算sampled_at，Probe不得提交sampled_at/stale等顶层派生字段。顶层字段完整且禁止未知字段。溢出发送ports为空、status=error、reason=payload_limit、limited=true的完整错误事件，不截断身份字符串。
+7. Device Service 仅接受当前Session、已应用revision和周期匹配的结果，拒绝早于现有观测时间的事件。新Session/完整配置切换清空；仅网络修订变化保留原年龄重新绑定。离线或顶层/已选端口超过三倍周期在API标stale。无历史持久化、无新WS主题和TASK类型。
+
+详细采集限额与真实验证见[CELLULAR_AT](CELLULAR_AT.md)。其后的旧增量能力清单为各次新增项，不覆盖本节新增能力。
+
+## 智能邻居发现增量（ADR-059，2026-09-10）
+
+保留ADR-056的neighbors_v1、EVENT与扫描/取消机制，不新增帧类型或持续交互数据面。
+
+1. Probe REGISTER增加能力 `neighbors_inspect_v1`。TASK增加 `type:"neighbor_inspect"`，timeout=30，params为 `session_id`（非空、最多128字节）、`config_revision`、`vendor_test`（boolean）三个字段。沿用ACK/RESULT、任务幂等缓存及Session绑定；响应不确定不得创建替代任务。三个参数都参与任务身份比较。
+2. 普通检测仅读取sysfs、proc网络元数据及RTM_GETADDR（500ms有界读取）；输出当前以太网接口、全部受限IPv4前缀、桥/VLAN/桥成员和桥成员端口。检测不按接口名、默认路由或MAC数量猜方向。结果JSON放在RESULT stdout：`networks:[{interface,bridge,vlan,master,eligible,reason,ipv4,ports}]`，以及 `preset/preset_status/raw_summary/ports`。Server限制64接口、每接口8个IPv4和64端口、总JSON24576字节，规范化networks，并添加接收时间、Session/revision与过期信息。不完整或异常结果不假装检测成功。
+3. `vendor_test:false` 不执行Shell。用户明确测试FNR100才允许 `swconfig list`（2秒）与固定 `swconfig dev switch0 get dump_arl`（3秒）；先检查br0及eth0/vlan3/ath0/ath1成员，再确认switch0及严格ARL格式。测试只作用于参考设备，不写ARP/FDB、VLAN、接口、配置或进程。stdout摘要最多4096字节，失败只失去预设验证，不影响基础发现。
+4. CONFIG_APPLY的neighbor_probe增加可选 `fdb_preset:"fnr100"`，与自定义fdb_command互斥。Server只向具备neighbors_v1及neighbors_inspect_v1的Probe发送预设。型号匹配不等于验证；已明确选入模板的预设运行于**所有应用该版本的设备**，每次采集重新核对环境/switch0/ARL，失败回退内核FDB并标记不可用。PORTMAP 0x02/04/08/10/20映射lan1/2/3/4/wan，0x01 CPU排除，未知位拒绝，冲突不选最后一条；只使用已验证br0的VID3行，不泄漏其他VLAN记录。
+5. neighbors EVENT每行可选 `active_age_ms`（0～60000）；不是在线期限，而是距实际主动ARP响应的年龄，连同采样age在Server换算active_at。后续被动刷新不会把同一次回复的新鲜度重置为60秒。旧Probe缺此字段时Server保留已知首次主动时间，采用保守新鲜度，不延长已有证据。
+6. neighbor_scan RESULT stdout保留既有统计，可选响应 `rows`（仍需同接口、已请求IP与合法ARP校验）；Server按原派发Session/revision接受一次并生成公开新增/更新统计。Probe扫描最终根据接口全部IPv4前缀检查目标子范围，选匹配的源IPv4；仍为/24～/32、最多256地址、约16请求/秒、总期限30秒。不自动重扫。
+7. 有界24小时近期记录属于Server Device Service投影视图，不回传Probe，不扩展配置文件/外部数据库，也不是跨Server重启任务恢复；最新快照与60秒证据新鲜度独立。
+
+具体HTTP字段与兼容性见API的ADR-059章节；使用与验证见[智能邻居配置](NEIGHBOR_SMART_CONFIGURATION.md)。
+
 ## 邻居发现（ADR-056，2026-09-10）
 
 REGISTER新增可选能力 `neighbors_v1`。声明该能力的新Probe支持以下结构化EVENT、两个TASK类型和运行模板 `neighbor_probe`；Server只对支持的当前Probe派发。旧Probe应用含此配置的模板时记录 `unsupported_neighbors`，不静默丢弃此功能；无此配置的模板保持原行为。沿用当前64KiB以上控制帧协商下限。

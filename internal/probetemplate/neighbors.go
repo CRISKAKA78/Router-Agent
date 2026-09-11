@@ -3,6 +3,7 @@ package probetemplate
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"strings"
 )
 
@@ -14,6 +15,7 @@ type NeighborDomain struct {
 	LeaseFile string   `json:"lease_file,omitempty"`
 }
 type NeighborProbe struct {
+	FDBPreset  string           `json:"fdb_preset,omitempty"`
 	Interval   uint32           `json:"interval_seconds"`
 	Domains    []NeighborDomain `json:"domains"`
 	FDBCommand string           `json:"fdb_command,omitempty"`
@@ -74,19 +76,37 @@ func ValidateNeighbors(n *NeighborProbe) error {
 	if n == nil {
 		return nil
 	}
-	if n.Interval < 10 || n.Interval > 86400 || len(n.Domains) < 1 || len(n.Domains) > 8 || len(n.FDBCommand) > 4096 || strings.ContainsRune(n.FDBCommand, 0) {
-		return ErrInvalid
+	if (n.FDBPreset != "" && n.FDBPreset != "fnr100") || (n.FDBPreset != "" && n.FDBCommand != "") {
+		return &FieldError{Field: "neighbor_probe.fdb_preset", Detail: "型号预设与自定义命令不能同时使用"}
+	}
+	if n.Interval < 10 || n.Interval > 86400 {
+		return &FieldError{Field: "neighbor_probe.interval_seconds", Detail: "刷新周期须为10～86400秒"}
+	}
+	if len(n.Domains) < 1 || len(n.Domains) > 8 {
+		return &FieldError{Field: "neighbor_probe.domains", Detail: "请选择至少一个采集网络，最多8个域"}
+	}
+	if len(n.FDBCommand) > 4096 || strings.ContainsRune(n.FDBCommand, 0) {
+		return &FieldError{Field: "neighbor_probe.fdb_command", Detail: "只读命令最多4096字节且不能包含NUL"}
 	}
 	ids, interfaces := map[string]bool{}, map[string]bool{}
-	for _, d := range n.Domains {
-		if !ValidKey(d.ID) || len(d.ID) > 32 || (d.Scope != "lan" && d.Scope != "broadcast") || !ValidInterface(d.Interface) || ids[d.ID] {
-			return ErrInvalid
+	for index, d := range n.Domains {
+		field := func(suffix, detail string) error {
+			return &FieldError{Field: fmt.Sprintf("neighbor_probe.domains[%d].%s", index, suffix), Detail: detail}
+		}
+		if !ValidKey(d.ID) || len(d.ID) > 32 || ids[d.ID] {
+			return field("id", "域ID必须唯一，使用小写字母开头的1～32字符")
+		}
+		if d.Scope != "lan" && d.Scope != "broadcast" {
+			return field("scope", "scope仅支持lan或broadcast")
+		}
+		if !ValidInterface(d.Interface) {
+			return field("interface", "请输入本机IP所在的有效Linux接口名")
 		}
 		if d.LeaseFile != "" && (!strings.HasPrefix(d.LeaseFile, "/") || len(d.LeaseFile) > 256 || strings.ContainsAny(d.LeaseFile, "\x00\r\n")) {
 			return ErrInvalid
 		}
 		if d.Scope == "lan" && len(d.Ports) == 0 {
-			return ErrInvalid
+			return field("ports", "LAN筛选需要已确认的端口证据")
 		}
 		if len(d.Ports) > 64 {
 			return ErrInvalid

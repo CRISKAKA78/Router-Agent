@@ -1,6 +1,7 @@
 #ifndef RMP_TELEMETRY_H
 #define RMP_TELEMETRY_H
 #include "rmp/collection.h"
+#include "rmp/cellular.h"
 #include "rmp/neighbors.h"
 #include <atomic>
 #include <chrono>
@@ -56,6 +57,7 @@ class TelemetryCollector {
 private:
  void Builtins();void Network();void StartNetwork();void Templates();void Egress();void Switches();void Publish(const std::string&,const Metrics&);
  ClientConfig config_;std::atomic<bool> stop_,network_stop_{false};std::uint64_t revision_;unsigned network_seconds_;
+ std::unique_ptr<CellularCollector> cellular_;
  std::thread builtin_,network_,templates_,egress_,switches_;
  SystemSampler owned_sampler_;SystemSampler* sampler_;
  std::mutex mutex_;std::map<std::string,Metrics> pending_,latest_;

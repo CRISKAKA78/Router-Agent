@@ -33,6 +33,8 @@ public partial class MainWindow
     private UIElement interfaceView = null!, discoveryDetails = null!;
     private DataGrid discoveryProperties = null!;
     private TabItem storageTab = null!, historyTab = null!,lanNeighborsTab=null!,broadcastNeighborsTab=null!;
+    private CellularView cellularView=null!;
+    private TabItem cellularTab=null!;
     private NeighborView lanNeighbors=null!,broadcastNeighbors=null!;
     private TabControl interfaceTabs = null!;
     private Button samplingButton = null!;
@@ -60,13 +62,18 @@ public partial class MainWindow
             if (e.Source != overviewTabs) return;
             if (overviewTabs.SelectedItem is TabItem { Tag: string id } && propertyPages.TryGetValue(id, out var page) && id != "builtin_interfaces") {
                 properties = page.Table; inspectorWorkspace.SetPage(page.Table, page.Sections);
-            } else inspectorWorkspace.SetPage(null);
+            } else if(overviewTabs.SelectedItem==cellularTab) inspectorWorkspace.SetPage(cellularView.Details,cellularView.Sections);
+            else inspectorWorkspace.SetPage(null);
         };
         storageTab = new TabItem { Header = "存储空间", Tag = "storage", Content = Ui.Page(Ui.Heading("文件系统 · 使用情况"), storageMetrics) };
         historyStatus = Ui.Text("暂无连接记录", true);
         historyTab = new TabItem { Header = "连接历史", Tag = "history", Content = Ui.Page(Ui.Heading("连接历史"), Ui.Page(Ui.Bar(historyStatus), sessions)) };
         lanNeighbors=new NeighborView("lan",()=>connection,()=>Device);broadcastNeighbors=new NeighborView("broadcast",()=>connection,()=>Device);
         lanNeighborsTab=new TabItem{Header="LAN 下接设备",Tag="lan_neighbors",Content=lanNeighbors};broadcastNeighborsTab=new TabItem{Header="本机广播域设备",Tag="broadcast_neighbors",Content=broadcastNeighbors};
+        cellularView=new CellularView(()=>Device,()=>connection?.Invalidate());
+        cellularTab=new TabItem{Header="蜂窝模块",Tag="cellular",Content=cellularView};
+        cellularView.Details.ContextMenu=PropertyMenu(cellularView.Details);
+        cellularView.RowsChanged+=()=>{if(overviewTabs.SelectedItem==cellularTab){inspectorWorkspace.SetPage(cellularView.Details,cellularView.Sections);inspectorWorkspace.RowsUpdated(cellularView.Sections,false);}};
         UpdatePropertyPages(null);
         discoveryProperties = PropertySheet.Create("发现资料");
         discoveryProperties.ContextMenu = PropertyMenu(discoveryProperties);
@@ -81,7 +88,8 @@ public partial class MainWindow
         var definitions = PropertyGroupDefinitions(device?.Presentation);
         var selected = (overviewTabs.SelectedItem as TabItem)?.Tag?.ToString();
         var current = overviewTabs.Items.Cast<TabItem>().Select(t => t.Tag?.ToString()).ToArray();
-        var expected = definitions.Select(g => g.Id).Concat(new[]{"lan_neighbors","broadcast_neighbors"}).Concat(device?.Presentation?.StorageVisible==false?new[]{"history"}:new[]{"storage","history"}).ToArray();
+        var showCellular=device?.Registration.Capabilities.Contains("cellular_identity_v1")==true||device?.CellularConfiguration is not null||device?.Cellular is not null;
+        var expected = definitions.Select(g => g.Id).Concat(showCellular?new[]{"cellular"}:Array.Empty<string>()).Concat(new[]{"lan_neighbors","broadcast_neighbors"}).Concat(device?.Presentation?.StorageVisible==false?new[]{"history"}:new[]{"storage","history"}).ToArray();
         foreach (var definition in definitions)
         {
             if (!propertyPages.TryGetValue(definition.Id, out var page))
@@ -103,6 +111,7 @@ public partial class MainWindow
         {
             overviewTabs.Items.Clear();
             foreach (var definition in definitions) overviewTabs.Items.Add(propertyPages[definition.Id].Tab);
+            if(showCellular) overviewTabs.Items.Add(cellularTab);
             overviewTabs.Items.Add(lanNeighborsTab);overviewTabs.Items.Add(broadcastNeighborsTab);
             if(device?.Presentation?.StorageVisible!=false) overviewTabs.Items.Add(storageTab);
             overviewTabs.Items.Add(historyTab);
@@ -117,7 +126,7 @@ public partial class MainWindow
     {
         var device = Device; UpdateLocation(device); UpdateMonitorTables(device);
         UpdatePropertyPages(device);
-        lanNeighbors.Update();broadcastNeighbors.Update();
+        lanNeighbors.Update();broadcastNeighbors.Update();cellularView.Update();
         var pending = device is { Managed: false };
         discoveryDetails.Visibility = pending ? Visibility.Visible : Visibility.Collapsed;
         inspectorWorkspace.Visibility = pending ? Visibility.Collapsed : Visibility.Visible;
@@ -148,6 +157,7 @@ public partial class MainWindow
         }
         if (overviewTabs.SelectedItem is TabItem { Tag: string active } && propertyPages.TryGetValue(active, out var activePage) && active != "builtin_interfaces")
             inspectorWorkspace.RowsUpdated(activePage.Sections, propertyDeviceId != device?.DeviceId);
+        else if(overviewTabs.SelectedItem==cellularTab) inspectorWorkspace.RowsUpdated(cellularView.Sections,propertyDeviceId!=device?.DeviceId);
         else if (propertyDeviceId != device?.DeviceId) inspectorWorkspace.Reset();
         if (propertyDeviceId != device?.DeviceId) ClearConnectionHistory();
         propertyRows = incoming; propertyDeviceId = device?.DeviceId ?? "";

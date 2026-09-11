@@ -24,6 +24,9 @@ internal sealed class TestProbe : IAsyncDisposable
     public string SessionId { get; private set; } = "";
     public ulong ConfigurationRevision{get;private set;}
     public int Executions { get; private set; }
+    public int NeighborScans {get;private set;}
+    public int NeighborInspections {get;private set;}
+    public string? NeighborCidr {get;private set;}
     public Task ReportAsync(string group, object values) => SendAsync(0x20, new { config_revision=ConfigurationRevision,@event="telemetry",group,values });
     public async Task StartAsync(int port, string id, object? registration = null)
     {
@@ -61,6 +64,16 @@ internal sealed class TestProbe : IAsyncDisposable
                     if (results.TryGetValue(id, out var old)) { await SendAsync(0x12, old); continue; }
                     var taskType = value.GetProperty("type").GetString();
                     if (taskType == "exec") { Executions++; var directory=value.GetProperty("params").GetProperty("command").GetString()!.StartsWith("cd "); await ResultAsync(value, directory ? "f\0"+"12\0"+"1788700000\0"+"network\0"+"f\0"+"0\0"+"1788700000\0"+"line\nname\0" : "fixture stdout\n中文结果", directory ? "" : "fixture stderr", new { }); }
+                    else if(taskType=="neighbor_inspect") {
+                        NeighborInspections++;
+                        await ResultAsync(value,JsonSerializer.Serialize(new{networks=new[]{new{ @interface="br0",bridge=true,vlan=false,master="",eligible=true,reason="",ipv4=new[]{"192.0.2.1/24"},ports=new[]{"lan1"}}},preset="",preset_status="not_tested",raw_summary="",ports=Array.Empty<string>()}),"",new{});
+                    }
+                    else if(taskType=="neighbor_scan") {
+                        NeighborScans++;NeighborCidr=value.GetProperty("params").GetProperty("cidr").GetString();
+                        await Task.Delay(1000,stop.Token);
+                        var rows=new[]{new{ip="192.0.2.2",mac="02:00:00:00:00:02",port="",hostname="fixture",source="active_arp",state="responded",active_age_ms=0}};
+                        await ResultAsync(value,JsonSerializer.Serialize(new{requests=253,responses=1,rows}),"",new{});
+                    }
                     else if (taskType == "router_config") { Executions++; await ResultAsync(value, "fixture configuration result", "", new { }); }
                     else
                     {
